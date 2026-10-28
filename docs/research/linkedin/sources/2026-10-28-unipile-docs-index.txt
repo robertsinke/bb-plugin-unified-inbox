@@ -1,0 +1,178 @@
+# Unipile Documentation
+
+> Unipile API  Transform your app into a powerful communication hub using our easy-to-integrate Email, Calendar, and Messaging APIs.
+
+## Documentation: Getting started
+- [Getting Started](https://developer.unipile.com/docs/getting-started.md)
+- [API Usage](https://developer.unipile.com/docs/api-usage.md)
+- [Dev Tools](https://developer.unipile.com/docs/dev-tools.md): Explore SDK options and no-code solutions for seamless integration with our platform, including Node.js SDK and n8n setup guides.
+  - [Node.js SDK](https://developer.unipile.com/docs/nodejs-sdk.md): A Node.js wrapper for API to manage messaging, mail and calendars.
+  - [n8n Integration](https://developer.unipile.com/docs/n8n.md): This section of the documentation explains how to integrate Unipile’s API with n8n, an open-source workflow automation tool. With n8n, you can easily connect Unipile to external services (email, CRM,…
+    - [Create webhook n8n](https://developer.unipile.com/docs/create-webhook-n8n.md)
+    - [Create request from n8n](https://developer.unipile.com/docs/createpost-request-n8n.md): With n8n, you can easily integrate Unipile API requests into your workflows. A request can be made using POST or GET, depending on the endpoint and the data you want to send or retrieve.  In this…
+    - [Examples n8n Workflows](https://developer.unipile.com/docs/example-workflow-n8n.md): This section provides ready-to-use n8n workflows showcasing how to interact with the Unipile API to automate various tasks such as messaging, data retrieval, content posting, and more.  These…
+  - [MCP](https://developer.unipile.com/docs/mcp.md): Build your LinkedIn, WhatsApp and email integration faster with the Unipile MCP server in Cursor, Claude Code, Codex and other coding agents
+- [List of provider features](https://developer.unipile.com/docs/list-provider-features.md)
+- [Provider Limits and Restrictions](https://developer.unipile.com/docs/provider-limits-and-restrictions.md)
+
+## Documentation: Accounts
+- [Connection methods](https://developer.unipile.com/docs/connect-accounts.md): Before you can handle chats and messages, you must connect an account of the wanted messaging provider. Discover Unipile's connection methods in this section.
+- [Hosted auth wizard](https://developer.unipile.com/docs/hosted-auth.md): Learn how to use Hosted Auth Wizard to connect accounts on your application.
+- [Custom authentication](https://developer.unipile.com/docs/native-auth.md): Learn how you can implement a custom authentication to connect accounts on your application.
+  - [LinkedIn Guide](https://developer.unipile.com/docs/linkedin.md): Learn how to implement a custom LinkedIn authentication form into your application.
+  - [WhatsApp Guide](https://developer.unipile.com/docs/whatsapp.md): Learn how to implement a custom WhatsApp authentication form into your application.
+  - [Telegram Guide](https://developer.unipile.com/docs/telegram.md): Learn how to implement a custom Telegram authentication form into your application.
+  - [Instagram Guide](https://developer.unipile.com/docs/instagram.md): Learn how to implement a custom Instagram authentication form into your application.
+  - [X (Twitter) Guide](https://developer.unipile.com/docs/twitter-x-guide.md): Historical X/Twitter authentication guide. The integration is deprecated and is no longer maintained.
+  - [Messenger Guide](https://developer.unipile.com/docs/messenger.md): Learn how to implement a custom Messenger authentication form into your application.
+  - [IMAP Guide](https://developer.unipile.com/docs/imap-guide.md): Learn how to implement a custom IMAP authentication form into your application. Find the [Developper IMAP API Guide](https://www.unipile.com/the-developers-guide-to-imap-api-solution/)
+
+## Documentation: Chats & messages
+- [Message object](https://developer.unipile.com/docs/message-payload.md): This section will explain in detail each field of the message object so you can properly integrate them in your application
+- [Send Messages](https://developer.unipile.com/docs/send-messages.md): Learn how to send messages with Unipile
+- [Retrieving messages](https://developer.unipile.com/docs/get-messages.md): Learn how to retrieve messages of your connected accounts.
+
+## Documentation: MESSAGING USers
+- [Users overview](https://developer.unipile.com/docs/users-overview.md)
+- [Retrieving users](https://developer.unipile.com/docs/retrieving-users.md)
+- [Invite users](https://developer.unipile.com/docs/invite-users.md)
+
+## Documentation: Webhooks
+- [Webhooks overview](https://developer.unipile.com/docs/webhooks-2.md)
+- [Account status updates](https://developer.unipile.com/docs/account-lifecycle.md): Learn how to handle account status.
+- [New messages](https://developer.unipile.com/docs/new-messages-webhook.md): Get real-time updates on new messages using Unipile's Webhook.
+- [New email](https://developer.unipile.com/docs/new-emails-webhook.md): Get real-time updates on new email using Unipile's Webhook.
+- [Tracking email](https://developer.unipile.com/docs/tracking-email.md): Get real-time click and open  on sent email using Unipile's Webhook.
+- [Calendar webhook](https://developer.unipile.com/docs/calendar-webhook.md): Unipile can notify your server in real time when a calendar event is created, updated, or deleted.  Calendar webhooks allow you to synchronize events, trigger automation workflows, or maintain a…
+
+## Documentation: Emails & Calendars
+- [Email & Calendars overview](https://developer.unipile.com/docs/emails.md)
+  - [Microsoft OAuth](https://developer.unipile.com/docs/microsoft-oauth.md)
+  - [Google OAuth](https://developer.unipile.com/docs/google-oauth.md)
+- [Email object](https://developer.unipile.com/docs/email-object.md): This section will explain in detail each field of the email object so you can properly integrate them in your application
+- [Send Email](https://developer.unipile.com/docs/send-email.md): Learn how to send messages with Unipile
+- [Retrieving emails](https://developer.unipile.com/docs/retrieving-emails.md): Learn how to retrieve messages of your connected accounts.
+- [Calendars & Events](https://developer.unipile.com/docs/calendars-and-events.md): Learn how to manage calendars & events of your connected accounts.
+
+## Documentation: LINKEDIN SPECIFIC
+- [How to create an Outreach Sequence](https://developer.unipile.com/docs/how-to-create-outreach-sequence.md)
+- [Detecting Accepted Invitations](https://developer.unipile.com/docs/detecting-accepted-invitations.md): Learn how to identify when a user accepts your LinkedIn invitation, enabling you to initiate subsequent actions.
+- [Get Raw Data Route Example](https://developer.unipile.com/docs/get-raw-data-example.md): Learn how to use Magic  Route
+- [Perform API Linkedin search and export result](https://developer.unipile.com/docs/linkedin-search.md)
+- [Posts and Comments](https://developer.unipile.com/docs/posts-and-comments.md)
+
+## API Reference: Unipile API Reference
+- Accounts
+  - [List all accounts](https://developer.unipile.com/reference/accountscontroller_listaccounts.md): Returns a list of the accounts linked to Unipile.
+  - [Connect an account (native authentication)](https://developer.unipile.com/reference/accountscontroller_createaccount.md): Link to Uniple an account of the given type and provider.
+  - [Retrieve an account](https://developer.unipile.com/reference/accountscontroller_getaccountbyid.md): Retrieve the details of an account. For a pending UniLogin checkpoint, poll this route every 2 seconds with its account_id: 404 means the account connection is still pending; 200 returns the usual…
+  - [Reconnect an account](https://developer.unipile.com/reference/accountscontroller_reconnectaccount.md): Reconnect an account previously linked to Unipile that has been disconnected.
+  - [Delete an account](https://developer.unipile.com/reference/accountscontroller_deleteaccount.md): Unlink the given account from Unipile. By default, provider sessions or authorizations are revoked where supported. Set provider_session_revoke=false to delete locally without revoking them.
+  - [Resynchronize account messaging data](https://developer.unipile.com/reference/accountscontroller_resyncaccount.md): This route can be used both to initiate a sync process (from scratch or within a specific time span) and to monitor its status via regular polling. Supported providers: LinkedIn and Telegram.…
+  - [Solve a code checkpoint](https://developer.unipile.com/reference/accountscontroller_solvecheckpoint.md): Allows you to provide a code which will solve a checkpoint encountered during a native authentication. A checkpoint is a security step added by a provider which needs to be solved to complete the…
+  - [Resend checkpoint notification](https://developer.unipile.com/reference/accountscontroller_resendcheckpoint.md): Might it be 2FA, OTP or In-app Validation, this route makes you able on certain providers to resend the notification.
+  - [Restart an account](https://developer.unipile.com/reference/accountscontroller_restartaccount.md): Restart the sources of a frozen account.
+  - [Connect an account (hosted authentication)](https://developer.unipile.com/reference/hostedcontroller_requestlink.md): Create a url which redirect to Unipile's hosted authentication to connect or reconnect an account.
+  - [Update account proxy](https://developer.unipile.com/reference/accountscontroller_patchaccount.md): Update the proxy configuration of an existing account. You can provide a custom proxy, or request a new Unipile proxy by country/IP.
+- Messaging
+  - [List all chats](https://developer.unipile.com/reference/chatscontroller_listallchats.md): Returns a list of chats. Some optional parameters are available to filter the results.
+  - [Start a new chat](https://developer.unipile.com/reference/chatscontroller_startnewchat.md): Start a new conversation with one or more attendee. ⚠️ Interactive documentation does not work for Linkedin specific parameters (child parameters not correctly applied in snippet), the correct format…
+  - [Retrieve a chat](https://developer.unipile.com/reference/chatscontroller_getchat.md): Retrieve the details of a chat.
+  - [Perform an action on a given chat](https://developer.unipile.com/reference/chatscontroller_patchchat.md): Perform an action like changing the read status, muting the chat, retrieving a group invite link, etc.
+  - [List all messages from a chat](https://developer.unipile.com/reference/chatscontroller_listchatmessages.md): Returns a list of messages related to the given chat. Some  parameters are available to filter the results.
+  - [Send a message in a chat](https://developer.unipile.com/reference/chatscontroller_sendmessageinchat.md): Send a message to the given chat with the possibility to link some attachments.
+  - [List all attendees from a chat](https://developer.unipile.com/reference/chatscontroller_listattendees.md): Returns a list of messaging attendees related to a given chat. Some optional parameters are available to filter the results.
+  - [Synchronize a conversation from its beginning](https://developer.unipile.com/reference/chatscontroller_syncchathistory.md): This route can be used both to initiate a synchronization process and to monitor its status via regular polling.
+  - [Retrieve a message](https://developer.unipile.com/reference/messagescontroller_getmessage.md): Retrieve the details of a message.
+  - [Forward a message](https://developer.unipile.com/reference/messagescontroller_forwardmessage.md): Forward a message to a chat. (Whatsapp only)
+  - [List all messages](https://developer.unipile.com/reference/messagescontroller_listallmessages.md): Returns a list of messages. Some optional parameters are available to filter the results.
+  - [Retrieve an attachment from a message](https://developer.unipile.com/reference/messagescontroller_getattachment.md): Retrieve one of the attachment linked to a message.
+  - [List all attendees](https://developer.unipile.com/reference/chatattendeescontroller_listallattendees.md): Returns a list of messaging attendees. Some optional parameters are available to filter the results.
+  - [Retrieve an attendee](https://developer.unipile.com/reference/chatattendeescontroller_getattendeebyid.md): The id of the wanted attendee.
+  - [Download a chat attendee picture](https://developer.unipile.com/reference/chatattendeescontroller_getattendeeprofilepicture.md): Download the profile picture of an attendee or picture of a group chat.
+  - [List all 1to1 chats for a given attendee](https://developer.unipile.com/reference/chatattendeescontroller_listchatsbyattendee.md): Returns a list of chats where a given attendee is involved.
+  - [List all messages for a given attendee](https://developer.unipile.com/reference/chatattendeescontroller_listmessagesbyattendee.md): Returns a list of messages where a given attendee is involved.
+  - [Add a reaction to a message](https://developer.unipile.com/reference/messagescontroller_addreaction.md): Add a reaction to a message. (Whatsapp, LinkedIn, Telegram, Instagram)
+  - [Delete a chat](https://developer.unipile.com/reference/chatscontroller_deletechat.md): Delete a chat. Supported for WhatsApp and LinkedIn only.
+  - [Delete a message](https://developer.unipile.com/reference/messagescontroller_deletemessage.md): Delete a message. Supported for WhatsApp and LinkedIn only. For LinkedIn, it is only possible within the first 60 minutes after the message is sent.
+  - [Edit a message](https://developer.unipile.com/reference/messagescontroller_patchmessage.md): Edit a message. Supported for WhatsApp and LinkedIn Classic only. WhatsApp may reject edits after an indicative 15-minute window following the original send time. LinkedIn Classic edits are only…
+  - [Resynchronize chats for a given attendee](https://developer.unipile.com/reference/chatattendeescontroller_syncattendeehistory.md): Starts or monitors the synchronization of all chats for a given attendee.
+  - [Remove a reaction from a message](https://developer.unipile.com/reference/messagescontroller_removereaction.md): Remove a reaction of the account's owner from a message.
+- Users
+  - [List all invitations sent](https://developer.unipile.com/reference/userscontroller_listalluserinvitationssent.md): Returns a list of all invitations sent that are pending.
+  - [List all invitations received](https://developer.unipile.com/reference/userscontroller_listalluserinvitationsreceived.md): Returns a list of all invitations that have been received.
+  - [Handle a received invitation](https://developer.unipile.com/reference/userscontroller_handleinvitationreceived.md): Accept or decline a connection invitation.
+  - [Retrieve own profile](https://developer.unipile.com/reference/userscontroller_getaccountownerprofile.md): Retrieve informations about account owner.
+  - [Edit own profile](https://developer.unipile.com/reference/userscontroller_editaccountownerprofile.md): Modify informations on account owner profile. For WhatsApp accounts, only `headline` (profile display name), `summary` (profile About/status) and `picture` are available. For Instagram accounts, only…
+  - [List all relations](https://developer.unipile.com/reference/userscontroller_getrelations.md): Returns a list of all the relations of an account. Ensure careful implementation of this action and consult provider limits and restrictions:…
+  - [List all followed accounts](https://developer.unipile.com/reference/userscontroller_getfollowing.md): Returns a list of all the followed accounts of an account. Ensure careful implementation of this action and consult provider limits and restrictions:…
+  - [List all followers](https://developer.unipile.com/reference/userscontroller_getfollowers.md): Returns a list of all the followers of the current user. Ensure careful implementation of this action and consult provider limits and restrictions:…
+  - [Retrieve a profile](https://developer.unipile.com/reference/userscontroller_getprofilebyidentifier.md): Retrieve the profile of a user. Ensure careful implementation of this action and consult provider limits and restrictions: https://developer.unipile.com/docs/provider-limits-and-restrictions
+  - [Send an invitation](https://developer.unipile.com/reference/userscontroller_adduserbyidentifier.md): Send an invitation to add someone to your contacts. Ensure careful implementation of this action and consult provider limits and restrictions:…
+  - [List all posts](https://developer.unipile.com/reference/userscontroller_listallposts.md): Returns a list of posts written by a user or a company.
+  - [List all comments](https://developer.unipile.com/reference/userscontroller_listallcomments.md): Returns a list of comments written by a user.
+  - [List all reactions](https://developer.unipile.com/reference/userscontroller_listallreactions.md): Returns a list of reactions to posts or comments from a user.
+  - [Cancel an invitation](https://developer.unipile.com/reference/userscontroller_cancelinvitation.md): Cancel a pending invitation sent to someone. <br>`Instagram`: You can also use this route to unfollow users you have previously followed.
+- Posts
+  - [Retrieve a post](https://developer.unipile.com/reference/postscontroller_getpost.md): Retrieve the details of a post.
+  - [Create a post](https://developer.unipile.com/reference/postscontroller_createpost.md): Publish a post.
+  - [List all comments from a post](https://developer.unipile.com/reference/postscontroller_listallcomments.md): Returns a list of either comments on a given post or replies on a given comment.
+  - [Comment a post](https://developer.unipile.com/reference/postscontroller_sendcomment.md): Comment a post or reply to a post comment.
+  - [List all reactions from a post](https://developer.unipile.com/reference/postscontroller_listallreactions.md): Returns a list of reactions to either a post or a post comment.
+  - [Add a reaction to a post](https://developer.unipile.com/reference/postscontroller_addpostreaction.md): React to either a post or a post comment.
+- LinkedIn Specific
+  - [Retrieve Recruiter hiring projects](https://developer.unipile.com/reference/linkedincontroller_gethiringprojects.md): Retrieve list of LinkedIn Recruiter hiring projects.
+  - [Retrieve Recruiter hiring project from ID](https://developer.unipile.com/reference/linkedincontroller_gethiringprojectbyid.md): Retrieve a particular hiring project.
+  - [Perform an action with a user profile](https://developer.unipile.com/reference/linkedincontroller_performactiononmember.md): Add a candidate to a Recruiter pipeline, save a Sales Navigator lead, etc.
+  - [Retrieve a company profile](https://developer.unipile.com/reference/linkedincontroller_getcompanyprofile.md): Get a company profile from its name or ID.
+  - [Get raw data from any endpoint](https://developer.unipile.com/reference/linkedincontroller_getrawdata.md): This magic route is intended for advanced users who wish to use LinkedIn's features beyond our current capabilities. It enables you to create custom functionalities that are not yet supported by our…
+  - [Get inmail credit balance](https://developer.unipile.com/reference/linkedincontroller_getinmailbalance.md): Get balance for subscribed premium features.
+  - [Retrieve LinkedIn search parameters](https://developer.unipile.com/reference/linkedincontroller_getsearchparameterslist.md): LinkedIn doesn't accept raw text as search parameters, but IDs. This route will help you get the right IDs for your inputs. Check out our Guide with examples to master LinkedIn search :…
+  - [Perform Linkedin search](https://developer.unipile.com/reference/linkedincontroller_search.md): Search people and companies from the Linkedin Classic as well as Sales Navigator APIs. Check out our Guide with examples to master LinkedIn search : https://developer.unipile.com/docs/linkedin-search
+  - [List all job postings](https://developer.unipile.com/reference/linkedincontroller_getjobpostings.md): Retrieve the job offers you have posted on LinkedIn whether they are open, closed or still drafts.
+  - [Create a job posting](https://developer.unipile.com/reference/linkedincontroller_createjobposting.md): Create a new job offer draft.
+  - [Get job offer](https://developer.unipile.com/reference/linkedincontroller_getjobposting.md): Retrieve a job offer.
+  - [Edit a job posting](https://developer.unipile.com/reference/linkedincontroller_editjobposting.md): Edit an existing job posting.
+  - [Publish a job posting](https://developer.unipile.com/reference/linkedincontroller_publishjobposting.md): Publish the job posting draft you have been working on.
+  - [Solve a job publishing checkpoint](https://developer.unipile.com/reference/linkedincontroller_solvecheckpoint.md): Solve a checkpoint to verify your member privilegies.
+  - [Close a job posting](https://developer.unipile.com/reference/linkedincontroller_closejobposting.md): Close a job offer you have posted.
+  - [List all applicants to a job posting](https://developer.unipile.com/reference/linkedincontroller_getjobapplicants.md): Retrieve all the users that have applied to a given offer.
+  - [Get a specific applicant to a job posting](https://developer.unipile.com/reference/linkedincontroller_getjobapplicant.md): Retrieve the details of a user that has applied to a given offer. Applies to Classic job posting only.
+  - [Download the resume of a job applicant](https://developer.unipile.com/reference/linkedincontroller_getjobapplicantresume.md): This route can be used to download the resume of a job applicant.
+  - [Endorse a user profile specific skill](https://developer.unipile.com/reference/linkedincontroller_endorseprofile.md): This route can be used to endorse a skill of a user profile.
+  - [Retrieve contracts](https://developer.unipile.com/reference/linkedincontroller_getavailablecontracts.md): Returns a list of your LinkedIn available contracts
+  - [Select contract](https://developer.unipile.com/reference/linkedincontroller_selectcontract.md): Select a Recruiter or Sales navigator contract to be used on your account
+  - [Estimate a post target audience](https://developer.unipile.com/reference/linkedincontroller_getposttargetaudience.md): Returns the estimated number of LinkedIn members matching the target audience for an organization post.
+- Emails
+  - [List all emails](https://developer.unipile.com/reference/mailscontroller_listmails.md): Returns a list of emails.
+  - [Send an email](https://developer.unipile.com/reference/mailscontroller_sendmail.md): ⚠️ Interactive documentation does not work on this route (child parameters not correctly applied in snippet), please use our ready to copy past example of this page :…
+  - [Retrieve an email](https://developer.unipile.com/reference/mailscontroller_getmail.md): Retrieve the details of an email.
+  - [Delete an email](https://developer.unipile.com/reference/mailscontroller_deletemail.md): Delete an email by moving it to the Trash folder.
+  - [Update an email](https://developer.unipile.com/reference/mailscontroller_updatemail.md): Update an email.
+  - [Retrieve an attachment from an email](https://developer.unipile.com/reference/mailscontroller_getattachment.md): Retrieve one of the attachment linked to an email.
+  - [List all folders](https://developer.unipile.com/reference/folderscontroller_listfolders.md): Returns a list of all email folders.
+  - [Retrieve a folder](https://developer.unipile.com/reference/folderscontroller_getfolder.md): Retrieve the details of a mail folder.
+  - [Create a draft](https://developer.unipile.com/reference/draftscontroller_createdraft.md): ⚠️ Interactive documentation does not work on this route (child parameters not correctly applied in snippet), Create a new draft.
+  - [List email contacts](https://developer.unipile.com/reference/mailscontroller_listcontacts.md): Returns a list of contacts from the email provider. Supported for Gmail (Google OAuth) and Microsoft (Outlook) only.
+- Webhooks
+  - [List all webhooks](https://developer.unipile.com/reference/webhookscontroller_listwebhooks.md): Returns a list of the webhooks.
+  - [Create a webhook](https://developer.unipile.com/reference/webhookscontroller_createwebhook.md): Create a webhook.
+  - [Delete a webhook](https://developer.unipile.com/reference/webhookscontroller_deletewebhook.md): Delete a webhook.
+- Calendars
+  - [List all calendars](https://developer.unipile.com/reference/calendarscontroller_listcalendars.md): Returns a list of calendars.
+  - [Retrieve a calendar](https://developer.unipile.com/reference/calendarscontroller_getcalendar.md): Retrieve the details of a calendar.
+  - [Retrieve all events from a calendar](https://developer.unipile.com/reference/calendarscontroller_listcalendareventsbycalendar.md): Returns a list of calendar events related to the given calendar.
+  - [Create an event](https://developer.unipile.com/reference/calendarscontroller_createcalendarevent.md): Create a calendar event.
+  - [Retrieve an event](https://developer.unipile.com/reference/calendarscontroller_getcalendarevent.md): Retrieve the details of a calendar event.
+  - [Edit an event](https://developer.unipile.com/reference/calendarscontroller_editcalendarevent.md): Edit a calendar event.
+  - [Delete an event](https://developer.unipile.com/reference/calendarscontroller_deletecalendarevent.md): Delete a calendar event.
+
+## Changelog
+- [Last months update V1](https://developer.unipile.com/changelog/last-months-update-v1-1.md)
+- [Last months update V1](https://developer.unipile.com/changelog/last-months-update-v1.md)
+- [Last months update V1](https://developer.unipile.com/changelog/last-months-update-3.md)
+- [Last months update](https://developer.unipile.com/changelog/last-months-update-2.md)
+- [Last months update](https://developer.unipile.com/changelog/last-months-update-1.md)
+- [Last months update](https://developer.unipile.com/changelog/last-months-updates.md)
+- [Last months update](https://developer.unipile.com/changelog/last-months-update.md)
+- [Last months update](https://developer.unipile.com/changelog/last-weeks-update.md)
