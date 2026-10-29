@@ -40,6 +40,7 @@
 .is-unread .ui-row-name{font-weight:500;opacity:1}
 .ui-avatar{position:relative;display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;font-size:11px;font-weight:650;line-height:1;color:inherit}
 .ui-avatar-face{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;overflow:hidden;background:#8882}
+.ui-avatar-photo{display:block;width:100%;height:100%;object-fit:cover}
 .ui-avatar-group .ui-avatar-face{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:1px;background:color-mix(in srgb,currentColor 8%,transparent)}
 .ui-avatar-cell{display:grid;place-items:center;width:100%;height:100%;font-size:8px;font-weight:650;line-height:1}
 .ui-avatar .ui-source-icon{position:absolute;right:-3px;bottom:-3px;width:14px;height:14px;border-radius:50%;border:2px solid var(--background,#fff);background:var(--background,#fff)}
