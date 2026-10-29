@@ -56,6 +56,15 @@ test('linkedinMessages keeps an unnamed sender readable', () => {
   assert.equal(messages[0].sender, 'LinkedIn');
 });
 
+test('LinkedIn profile photos are kept only from LinkedIn CDN URLs', () => {
+  const row = linkedinItems({ conversations: [
+    { ...conversation, avatarUrl: 'https://media.licdn.com/dms/image/photo' },
+    { ...invitation, id: 'unsafe', avatarUrl: 'https://evil.example/photo' },
+  ] }).find(item => item.id === conversation.id);
+  assert.equal(row?.avatarUrl, 'https://media.licdn.com/dms/image/photo');
+  assert.equal(linkedinItems({ conversations: [{ ...conversation, avatarUrl: 'https://evil.example/photo' }] })[0]?.avatarUrl, undefined);
+});
+
 test('isConversationId accepts only conversation URNs', () => {
   assert.equal(isConversationId('urn:li:msg_conversation:(urn:li:fsd_profile:A,2-B)'), true);
   assert.equal(isConversationId('urn:li:fsd_invitation:1'), false);

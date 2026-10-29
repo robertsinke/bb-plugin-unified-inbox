@@ -1,4 +1,6 @@
-export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string };
+import { sourceAvatarUrl } from './avatar-url.ts';
+
+export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string };
 export type LinkedInMessage = { sender: string; text: string; date: number; fromMe: boolean };
 export type LinkedInPayload = { conversations?: unknown; invitations?: unknown };
 
@@ -19,7 +21,8 @@ function row(value: unknown): LinkedInRow | null {
   const usable = preview === 'true' || preview === 'false' ? '' : preview.slice(0, PREVIEW_LIMIT);
   const date = Number(raw.date);
   const sender = text(raw.sender);
-  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}) };
+  const avatarUrl = sourceAvatarUrl(raw.avatarUrl, 'linkedin');
+  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}) };
 }
 
 /** Inbox rows for LinkedIn conversations and pending invitations, newest first, one row per id. */
