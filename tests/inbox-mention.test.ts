@@ -26,7 +26,8 @@ test('context names the conversation and keeps the newest messages', () => {
   assert.match(context, /Conversation id: 1203@g.us/);
   assert.match(context, /You: message 13/);
   assert.doesNotMatch(context, /message 1\b/);
-  assert.match(context, /bb plugin rpc call unified-inbox action '\{"account":"whatsapp","id":"1203@g\.us","action":"reply"/);
+  assert.match(context, /printf '%s' '\{"account":"whatsapp","id":"1203@g\.us","action":"reply"/);
+  assert.match(context, /bb plugin rpc call unified-inbox action --input-file/);
 });
 
 test('media-only messages keep a placeholder and gmail stays read-only', () => {
@@ -39,5 +40,5 @@ test('long threads stay inside the context budget', () => {
   const messages = Array.from({ length: 12 }, () => ({ sender: 'Alice', text: 'x'.repeat(400), date: 1_700_000_000_000 }));
   const context = inboxMentionContext({ account: 'whatsapp', id: 'abc', title: 'Alice', messages });
   assert.ok(context.length <= 4000, `context was ${context.length} characters`);
-  assert.match(context, /bb plugin rpc call unified-inbox action/);
+  assert.match(context, /bb plugin rpc call unified-inbox action --input-file/);
 });
