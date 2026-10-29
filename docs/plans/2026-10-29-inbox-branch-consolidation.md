@@ -1,6 +1,6 @@
 # Unified Inbox branch consolidation
 
-Date: 2026-10-29 · Status: proposed · Owner: robert
+Date: 2026-10-29 · Status: steps 1–2 done · Owner: robert
 Supersedes: nothing — this is the state-0 prerequisite for [the gateway spec](../../specs/001-unified-inbox-gateway/spec.md).
 
 ## Situation
@@ -23,8 +23,8 @@ Unified Inbox development split across three trees that all modify the same hot 
 
 Do the consolidation in an integration branch **in this worktree**, never in the main checkout (the LinkedIn thread works there; see hazards).
 
-1. **Checkpoint this worktree.** Commit the Messages + architecture work on its bb branch in reviewable commits (Messages integration; spec/plan/tasks; T1–T2). Nothing changes behavior; this only stops the work sitting uncommitted.
-2. **Integration branch.** Branch `integration/inbox-consolidation` from 871467b; merge the tagging branch (41f9f72) — trivial, it is main plus one commit; commit the Messages work on top, resolving `app.tsx`/`server.ts`/`README.md` against tagging. Gate: full test suite (both sets), `tsc --noEmit`, `bb plugin build` of the merged tree.
+1. **Checkpoint this worktree.** ✅ Done — four commits on `bb/explore-adding-imessage-to-the-unified-inbox-thr_wmbk3fy5bs`: `4e7f2c5` Messages integration, `ac649dc` spec/plan/tasks, `f76055e` consolidation plan, `f4d50cd` gateway T1–T2.
+2. **Integration branch.** ✅ Done — `integration/inbox-consolidation` merges `41f9f72` (tagging) as `e266d9e`. Conflicts resolved in `app.tsx` (Messages header + chat renderer, tagging `+` buttons added to header and row actions for every account) and `server.ts` (`openConversation()` refactor adopted, extended with the imessage branch; `imsg_media` kept; `cached()` keeps Messages rows via imessage in `sourceAccounts`). Gates: 63/63 tests, `tsc --noEmit` clean, `bb plugin build` clean.
 3. **LinkedIn lands last.** thr_yzwhws3amz is blocked at its plan's human gate (interactive sign-in) — a natural pause. When its WIP is committed on main (ask it to commit at the gate, or wait for its plan to finish), merge main into the integration branch and resolve the second conflict wave. Gate: same as step 2 plus the LinkedIn thread's own tests.
 4. **Production rebuild from the consolidated tree.** New staging snapshot → `activation-check.py` → install → verify all four sources read-only + all six Messages actions blocked + tagging works. One switch restores iMessage, the new header, tagging, and LinkedIn together. The old staging copy and rollback remain as fallbacks.
 5. **Fast-forward main.** Push the integration result into main when the LinkedIn thread is paused or done (it works directly on main — coordinate so its uncommitted work is never stashed by a third party).
