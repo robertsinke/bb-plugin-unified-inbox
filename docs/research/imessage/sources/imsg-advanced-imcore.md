@@ -1,0 +1,252 @@
+---
+title: Advanced IMCore features
+description: "Read receipts, typing indicators, IMCore status, and Messages launch control — opt-in, SIP-disabled, and increasingly limited on macOS 26."
+---
+
+Most `imsg` workflows — `chats`, `history`, `watch`, `send`, `react` — are explicitly designed to *not* require any private framework or process injection. They go through Messages.app's published surfaces (SQLite, AppleScript, file events) and need only the documented permissions covered in [Permissions](permissions.md).
+
+The features documented here are the exception. They drive Messages.app from the inside via a helper dylib injected into the Messages process, and they trigger several macOS protections you have to disable to use them.
+
+You almost certainly do not need any of this for normal use.
+
+## What's in scope
+
+- `imsg read --to <handle> [--chat-id <id>]` — mark a chat as read.
+- `imsg typing --to <handle> [--duration 5s] [--stop true]` — show or stop the typing indicator.
+- `imsg launch [--dylib <path>] [--kill-only] [--force]` — launch Messages.app with the helper dylib injected; opt in to periodic checks with `--install-agent`.
+- `imsg status` — read-only IMCore bridge status.
+- `imsg name-photo status|share --chat <guid>` — inspect the native offer
+  eligibility or explicitly share your Messages Name & Photo with a chat.
+- `imsg send-rich --chat <guid> --reply-to <message-guid> --file <path>` —
+  sends a threaded reply with an attachment through the bridge.
+- `imsg send-rich --chat <guid> --url <url>` — sends an Apple URL
+  preview balloon through the bridge. URL mode is iMessage-only and does not
+  combine with text, files, effects, subjects, replies, or formatting.
+- `imsg send-attachment --chat <guid> --file <path> [--reply-to <message-guid>]` —
+  prefers the bridge for private attachment sends, with AppleScript fallback
+  for normal files when no reply target is requested.
+- `imsg send-sticker --chat <guid> --file <path> [--attach-to <message-guid>]
+  [--target-part <index>]` — sends a validated sticker-attributed image transfer
+  through the bridge.
+- `imsg poll send|vote|unvote ...` — create native Polls balloons and cast or
+  remove selections.
+
+Rich-link metadata and preview images are fetched from the local Mac by the
+`imsg` process before the bridge request; the injected Messages helper performs
+no network access. Preparation has one eight-second deadline, and accepted image
+decode/staging is capped at 2 MiB, 4096×4096, and 16 megapixels. Lookup failure
+degrades to a metadata-only card. If the bridge cannot construct the card, the
+command fails without sending the URL as a plain message.
+
+## Why they're separate
+
+These features depend on private IMCore APIs that aren't reachable from outside the Messages process. To touch them, `imsg` injects a small helper dylib into Messages.app via `DYLD_INSERT_LIBRARIES`. Homebrew installs that helper when the release archive includes it; source builds can create it with `make build-dylib`.
+
+That injection requires three things to be true on the target machine:
+
+1. **SIP disabled.** System Integrity Protection blocks `DYLD_INSERT_LIBRARIES` into protected system apps. Without disabling SIP, the launch step refuses to proceed.
+2. **Library validation off.** macOS 26 (Tahoe) tightened library validation; even with SIP off, a dylib that isn't signed against Messages' team identifier can be rejected.
+3. **No private-entitlement gate.** macOS 26 also added `imagent` entitlement checks that can refuse direct IMCore clients regardless of injection success.
+
+You should expect at least one of these gates to be active on a current macOS install. The features are documented because they remain useful for research, testing, and CI — not because they're stable user-facing functionality.
+
+## Building and launching
+
+```bash
+imsg launch        # launches Messages.app with the dylib injected
+imsg status        # confirms the bridge is up
+```
+
+Source installs need one extra step first:
+
+```bash
+make build-dylib   # produces .build/release/imsg-bridge-helper.dylib (arm64e)
+```
+
+Resolved native replies use ordinary message construction with a native thread
+identifier, so their outgoing bubbles remain visible in Messages. Maintainers
+can run `make test-native-replies` to check plain, threaded, and multipart text
+construction against the installed IMCore framework. The probe uses synthetic
+messages without opening `chat.db`, resolving a conversation, or sending. It
+checks construction, not recipient delivery, and also runs in macOS CI.
+
+`imsg launch` refuses to inject when SIP is enabled. There's no override.
+
+After a CLI upgrade, `imsg launch` replaces an injected helper whose release
+version differs from the CLI or predates version reporting. Matching helpers
+are reused; `--force` restarts Messages even when the version matches. Version
+checks and replacement share the launch lock, so concurrent launches reuse the
+first caller's updated helper. Standalone `make build-dylib` builds generate
+the helper and CLI version markers from `version.env` before compilation.
+
+Library clients can still call or store the synchronous and asynchronous
+`MessagesLauncher.ensureRunning()` methods as no-argument functions. The
+version-aware overloads also accept `expectedHelperVersion` and `force`.
+
+`imsg status` shows the running helper version and warns on a mismatch.
+JSON output includes `helper_version` when reported and
+`helper_version_mismatch` when it differs from the CLI or a successful probe
+omits the version. Status remains read-only; run `imsg launch` to update the helper.
+
+Each container has one active helper. Additional instances using the same updated
+helper wait without changing readiness or consuming requests, then take over
+when the owner exits. The owner also restores a ready marker removed during
+launcher cleanup. The `.imsg-bridge-owner.lock` file is permanent; do not delete it
+while a helper is running.
+
+Older injected helpers do not participate in ownership locking. After upgrading,
+run `imsg launch` to replace them before using advanced operations. A patched
+helper cannot exclude an older helper that is still running.
+
+Launch waits up to 15 seconds for the bridge-ready file. On a host with slower
+cold starts, extend that wait for the CLI or its supervisor:
+
+```bash
+IMSG_LAUNCH_READY_TIMEOUT=60 imsg launch --json
+```
+
+The value is a positive number of seconds, capped at 600. Invalid or non-positive
+values use the 15-second default. This also applies to library and bridge calls
+that launch Messages. A timeout still returns an error: Messages may still be
+starting, so check `imsg status` before relaunching. The timeout setting does not
+bypass the SIP or permission checks.
+
+`imsg status` is read-only. It does not auto-launch or auto-inject. Run `imsg launch` first.
+
+To revert: re-enable SIP from Recovery mode (`csrutil enable`), then reboot.
+
+## Keep the bridge injected across reboots
+
+macOS can reopen Messages.app after a reboot without the helper injected. On a
+dedicated bridge Mac, opt in to a per-user LaunchAgent to restore the bridge at
+login and check it every five minutes:
+
+```bash
+imsg launch --install-agent
+imsg launch --install-agent --agent-interval 600  # check every ten minutes
+imsg launch --uninstall-agent
+```
+
+Installation requires **SIP disabled** and a discoverable helper dylib, just like
+`imsg launch`; it refuses to install if either check fails. The interval defaults
+to 300 seconds and must be an integer of at least 60 seconds. Reinstall to change
+it. `--agent-interval` requires `--install-agent`; both agent flags are mutually
+exclusive with each other, `--kill-only`, and `--force`.
+
+The agent is saved at
+`~/Library/LaunchAgents/org.openclaw.imsg.bridge.plist` and loaded immediately.
+It runs the absolute path of the invoked executable with `launch`, preserving
+symlinks such as `current` so upgrades continue working. Default helper discovery
+runs afresh each time; source builds that discover a helper relative to the
+current directory retain that working directory for the agent. If you explicitly
+pass `--dylib` during installation, that path is made absolute and saved instead.
+`--json` reports the loaded/unloaded
+state, label, plist path, executable path, and interval in one JSON object.
+
+A healthy helper of the current version is reused under the launch lock, so
+these checks do not restart Messages. A missing, unresponsive, or stale helper
+causes Messages to be relaunched with injection. Successful background checks
+are silent; interactive `imsg launch` keeps its progress output. Diagnostics go
+to `~/Library/Logs/imsg/bridge-agent.log`. Background launches clear this log in
+place once it exceeds 1 MiB, keeping repeated failures from growing it forever.
+Uninstallation is idempotent and leaves Messages and the log alone.
+
+**LaunchAgents start only after the user logs in.** Headless Macs need automatic
+login configured for the Messages user; installing this agent does not enable
+automatic login or bypass any macOS permissions.
+
+## Read receipts
+
+```bash
+imsg read --to "+14155551212"
+imsg read --to "+14155551212" --chat-id 42
+imsg read --to "+14155551212" --chat-identifier "iMessage;+;chat..."
+imsg read --to "+14155551212" --chat-guid "iMessage;+;chat..."
+```
+
+Marks the chat for that handle as read. Useful when you want a programmatic agent to clear the unread counter in Messages without spawning a UI action.
+
+## Typing indicators
+
+```bash
+imsg typing --to "+14155551212" --duration 5s
+imsg typing --to "+14155551212" --duration 30s --service imessage
+imsg typing --to "+14155551212" --stop true
+```
+
+Displays or hides the "typing" bubble on the recipient's device.
+
+`--service` accepts `imessage`, `sms`, or `auto`. The IMCore typing chat lookup normalizes across `iMessage`, `SMS`, and `any` prefixes so the same handle works on either service.
+
+On macOS 26, typing indicators frequently fail with an entitlement error. `imsg` reports this as an advanced-feature setup error rather than a misleading "chat not found" — see `CHANGELOG.md` 0.6.0 for the issue history.
+
+## Status
+
+```bash
+imsg status
+imsg status --json
+```
+
+Reports whether Messages is running, whether the helper dylib is loaded, and whether the IMCore bridge is responding. Read-only; safe to run on any machine.
+
+When the bridge isn't loaded, `status` prints the reason rather than attempting to fix it. Use `imsg launch` if you want to bring it up.
+
+## Messages Name & Photo
+
+```bash
+imsg name-photo status --chat 'iMessage;-;+15551234567'
+imsg name-photo share --chat 'iMessage;-;+15551234567'
+```
+
+This is Apple Messages' **Share Name & Photo** feature, not a vCard or Contacts
+attachment. `status` is read-only and reports `should_offer`, the same advisory
+eligibility Messages uses for its native prompt. A false value does not prove
+that sharing previously happened.
+
+`share` is a privacy-sensitive mutation: it requests that Messages send your
+personal nickname/photo to every participant in the selected chat. The bridge
+reports `has_personal_nickname: false` and refuses the share when Messages has
+no personal Name & Photo configured, instead of claiming that it sent one. The
+bridge returns `requested: true` only after invoking the version-gated private API; it
+does not claim receiver delivery. Agents must not invoke it without an explicit
+user request and a confirmed destination.
+
+## Launching Messages with a custom dylib
+
+```bash
+imsg launch --dylib /path/to/custom.dylib
+imsg launch --kill-only           # quit Messages without launching
+imsg launch --json                # machine-readable launch result
+```
+
+An explicit `--dylib` path is authoritative. If it is missing, launch reports that path and stops; it does not substitute a helper from automatic discovery.
+
+`--kill-only` is the inverse: it tears Messages down (to drop a stale injection) without relaunching.
+
+## When to use any of this
+
+The honest answer for most readers: **don't**. The macOS 26 limits make these features unstable in production. They're useful when:
+
+- You're doing macOS / Messages.app research.
+- You're running CI inside a controlled VM with SIP disabled by configuration.
+- You need a typing-indicator demo on a single hand-tuned machine.
+
+For agent integrations, prefer the standard CLI surfaces (`send`, `react`, `watch`). They cover the realistic interaction surface without touching SIP.
+
+`send-attachment --transport auto` is the one bridge command that can still
+complete without a running bridge for normal file attachments: it stages the
+file under Messages' attachments directory, tries the dylib path first, then
+falls back to AppleScript. `--audio` remains bridge-only because AppleScript
+cannot preserve the private audio-message flag.
+
+`send-sticker` is always bridge-only and iMessage-only. It accepts PNG/APNG,
+GIF, and JPEG images up to 500 KiB, 618x618 pixels, 100 frames, and 25 million
+total decoded pixels. Inputs must be regular files; pipes, devices, and paths
+through symlinks (including `link/../image.png`) are rejected before sending.
+It reads every frame without following symlinks and
+stages a private snapshot under Messages' attachments directory. Content
+bytes—not the filename—define sticker identity. `--attach-to`
+optionally associates the sticker with an exact bubble part; `--target-part`
+defaults to `0` and is invalid without a target. Check `imsg status --json`:
+standalone sends require `selectors.stickerSend`, while attached stickers also
+require `selectors.stickerAttach`.

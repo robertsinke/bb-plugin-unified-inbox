@@ -19,12 +19,17 @@ import { approvalHash, confirmProposalRequest, latestInboundId } from './src/wha
 import { bm25Rank, conversationText } from './src/bm25';
 import { groupPreview } from './src/whatsapp-chat';
 import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from './src/whatsapp-media';
+import { ImsgClient } from './src/imsg-client';
+import { findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from './src/imsg-mapping';
+import { readImsgImage } from './src/imsg-media';
+import { existsSync } from 'node:fs';
 
 const exec = promisify(execFile);
-const account = z.enum(['personal', 'business', 'whatsapp']);
+const account = z.enum(['personal', 'business', 'whatsapp', 'imessage']);
 const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
-const message = z.object({ sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), media: messageMedia.optional() });
+const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
+const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), attachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -35,6 +40,7 @@ export const rpcContract = defineRpcContract({
   list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
+  imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), proposalId: z.number().int().positive().optional() }).strict(), output: z.object({ status: z.string(), proposalId: z.number().int().positive().optional(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
 });
@@ -45,7 +51,7 @@ async function gmail(a: Account, args: string[]) {
   return gmailGate(() => gmailNow(a, args));
 }
 async function gmailNow(a: Account, args: string[]) {
-  if (a === 'whatsapp') throw new Error('Not a Gmail account');
+  if (a !== 'personal' && a !== 'business') throw new Error('Not a Gmail account');
   const config = a === 'business' ? join(home, '.config/gws-inhouse') : join(home, '.config/gws');
   try {
     const { stdout } = await exec('/usr/local/bin/gws', ['gmail', ...args], { env: { ...process.env, GOOGLE_WORKSPACE_CLI_CONFIG_DIR: config }, timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
@@ -120,11 +126,11 @@ async function messageHtml(a: Account, messageId: string, payload: unknown) {
   return html;
 }
 async function thread(a: Account, id: string) { return gmail(a, ['users','threads','get','--params',JSON.stringify({ userId: 'me', id, format: 'full' })]); }
-function gmailItem(a: Exclude<Account, 'whatsapp'>, t: any) {
+function gmailItem(a: Extract<Account, 'personal' | 'business'>, t: any) {
   const ms = t.messages ?? []; const last = ms.at(-1) ?? {}; const h = headers(last);
   return { account:a, id:String(t.id), title:String(h.subject || '(no subject)'), sender:mailSenderName(String(h.from || '')), preview:String(last.snippet || t.snippet || ''), date:Number(last.internalDate || 0), unread:ms.some((m:any) => m.labelIds?.includes('UNREAD')) };
 }
-async function listGmail(a: Exclude<Account, 'whatsapp'>, limit = 20, cache?: ReturnType<typeof createInboxCache>) {
+async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 20, cache?: ReturnType<typeof createInboxCache>) {
   const stored = () => (cache?.list() ?? []).filter(item => item.account === a);
   let historyId = '';
   try {
@@ -234,6 +240,14 @@ export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id))');
   const cache = createInboxCache(db);
+  const imsgPath = [join(home, '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
+  const imsg = new ImsgClient(imsgPath);
+  bb.onDispose(() => imsg.dispose());
+  async function listImsg(limit = 20) {
+    const items = mapImsgChats(await imsg.request('chats.list', { limit }));
+    cache.save('imessage', items);
+    return items;
+  }
   bb.rpc.register(rpcContract, {
     cached() { return {items: cache.list()}; },
     search({ query }) {
@@ -245,7 +259,7 @@ export default function plugin(bb: BbPluginApi) {
       return { ids: ranked.slice(0, 50).flatMap(row => {
         const split = row.id.indexOf('\u0000');
         const name = row.id.slice(0, split);
-        if (name !== 'personal' && name !== 'business' && name !== 'whatsapp') return [];
+        if (name !== 'personal' && name !== 'business' && name !== 'whatsapp' && name !== 'imessage') return [];
         const accountName: Account = name;
         return [{ account: accountName, id: row.id.slice(split + 1), score: row.score }];
       }) };
@@ -256,6 +270,7 @@ export default function plugin(bb: BbPluginApi) {
     },
     clear_cache() { cache.clear(); return {cleared: true}; },
     async list_source({ account, limit }) {
+      if (account === 'imessage') return { items: await listImsg(limit ?? 20) };
       if (account === 'whatsapp') {
         const items = (await listWa()).map((item: { account: 'whatsapp'; id: string; unread: boolean }) => cache.keptUnread(item.account, item.id) ? { ...item, unread: true } : item);
         const previous = cache.list().filter(item => item.account === 'whatsapp');
@@ -265,8 +280,8 @@ export default function plugin(bb: BbPluginApi) {
       return { items: await listGmail(account, limit ?? 20, cache) };
     },
     async list() {
-      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa()]);
-      const names = ['Personal Gmail','Business Gmail','WhatsApp']; const errors:string[] = []; const items:any[] = [];
+      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg()]);
+      const names = ['Personal Gmail','Business Gmail','WhatsApp','Messages']; const errors:string[] = []; const items:any[] = [];
       results.forEach((r,i) => {
         if (r.status === 'fulfilled') items.push(...r.value);
         else if (r.reason instanceof Error && (r.reason.message.startsWith('WhatsAgent backend is unavailable.') || r.reason.message.startsWith('Gmail '))) errors.push(r.reason.message);
@@ -275,7 +290,19 @@ export default function plugin(bb: BbPluginApi) {
       return { items: items.sort((a,b) => b.date-a.date), errors };
     },
     async media({ messageId }) { return waImage(messageId); },
+    async imsg_media({ chatId, messageId, index }) {
+      const chat = imsgChatId(chatId);
+      imsgChatId(messageId);
+      const history = await imsg.request('messages.history', { chat_id: chat, limit: 60, attachments: true });
+      const attachment = findImsgAttachment(history, messageId, index);
+      return readImsgImage(attachment.filename, attachment.mime);
+    },
     async open({account,id}) {
+      if (account === 'imessage') {
+        const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
+        cache.saveThread(account, id, messages);
+        return { messages };
+      }
       if (account === 'whatsapp') {
         const p = await wa('get-messages',{chatJid:id,limit:60});
         const messages = (p.items ?? []).map((m:any) => {
@@ -323,6 +350,7 @@ export default function plugin(bb: BbPluginApi) {
       } finally { await rm(dir, {recursive:true,force:true}); }
     },
     async action({account,id,action,text,proposalId}) {
+      if (account === 'imessage') throw new Error('Messages actions are not enabled.');
       if (account === 'whatsapp') {
         if (action === 'read') { cache.dropUnread(account, id); await wa('mark-read',{chatJid:id}); return {status:'Marked read in WhatsAgent (no WhatsApp read receipt).'}; }
         if (action === 'unread') { cache.keepUnread(account, id); return {status:'Marked unread.'}; }
