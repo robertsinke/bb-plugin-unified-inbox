@@ -2,7 +2,7 @@
  * Inbox mentions: the `#` picker tags one inbox conversation, and the context
  * below is what the agent receives when the message is sent.
  */
-export const sourceAccounts = ['personal', 'business', 'whatsapp', 'imessage'] as const;
+export const sourceAccounts = ['personal', 'business', 'whatsapp', 'imessage', 'linkedin'] as const;
 
 export type MentionAccount = (typeof sourceAccounts)[number];
 
@@ -18,6 +18,7 @@ export const mentionLabels: Record<MentionAccount, string> = {
   business: 'Inhouse Gmail',
   whatsapp: 'WhatsApp',
   imessage: 'Messages',
+  linkedin: 'LinkedIn',
 };
 
 const MAX_MESSAGES = 12;
@@ -81,6 +82,8 @@ export function inboxMentionContext(input: {
       ]
     : input.account === 'imessage'
       ? ['Messages sending is not available in this plugin; this conversation is read-only context.']
+    : input.account === 'linkedin'
+      ? ['LinkedIn is read-only here; nothing can be sent, accepted, or marked from this plugin.']
       : ['Gmail replies cannot be sent from this plugin yet; this conversation is read-only context.'];
   const lines: string[] = [];
   let budget = MAX_CONTEXT_CHARS - head.join('\n').length - footer.join('\n').length - 8;
