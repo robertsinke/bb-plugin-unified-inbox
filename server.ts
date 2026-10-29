@@ -23,6 +23,7 @@ import { ImsgClient } from './src/imsg-client';
 import { findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from './src/imsg-mapping';
 import { readImsgImage } from './src/imsg-media';
 import { existsSync } from 'node:fs';
+import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 
 const exec = promisify(execFile);
 const account = z.enum(['personal', 'business', 'whatsapp', 'imessage']);
@@ -248,8 +249,41 @@ export default function plugin(bb: BbPluginApi) {
     cache.save('imessage', items);
     return items;
   }
+  async function openConversation(account: Account, id: string) {
+    if (account === 'imessage') {
+      const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
+      cache.saveThread(account, id, messages);
+      return { messages };
+    }
+    if (account === 'whatsapp') {
+      const p = await wa('get-messages',{chatJid:id,limit:60});
+      const messages = (p.items ?? []).map((m:any) => {
+        const media = whatsAppMedia(m);
+        return { sender:m.from_me ? 'You' : String(m.sender?.name || 'WhatsApp'), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(media ? { media } : {}) };
+      });
+      cache.saveThread(account, id, messages);
+      return { messages };
+    }
+    const remembered = z.array(message).safeParse(cache.readThread(account, id) ?? []);
+    if (remembered.success && remembered.data.length) {
+      try {
+        const profile = await gmail(account, ['users','getProfile','--params',JSON.stringify({ userId:'me' })]);
+        if (gmailCursorUnchanged(cache.cursor(account), String(profile.historyId ?? ''))) return { messages: remembered.data };
+      } catch { /* a full thread read still answers the open */ }
+    }
+    const t = await thread(account,id);
+    const messages = await Promise.all((t.messages ?? []).map(async (m: any) => {
+      const h = headers(m); const sender=String(h.from || ''), to=String(h.to || ''), cc=String(h.cc || ''), replyTo=String(h['reply-to'] || '');
+      const suggested=replyRecipients({from:sender,to,cc,replyTo,self:account==='business'?'work@example.com':'personal@example.com'});
+      const html = await messageHtml(account, String(m.id), m.payload);
+      return {sender, text:plain(m.payload) || String(m.snippet || ''), date:Number(m.internalDate || 0), ...(html ? { html } : {}), to, cc, replyTo, subject:String(h.subject || ''), messageId:String(h['message-id'] || ''), references:String(h.references || ''), suggestedTo:suggested.to, suggestedCc:suggested.cc};
+    }));
+    cache.saveThread(account, id, messages);
+    return { messages };
+  }
+
   bb.rpc.register(rpcContract, {
-    cached() { return {items: cache.list()}; },
+    cached() { return {items: cache.list().filter(item => isSourceAccount(item.account))}; },
     search({ query }) {
       const items = cache.list();
       const ranked = bm25Rank(query, items.map(item => ({
@@ -297,38 +331,7 @@ export default function plugin(bb: BbPluginApi) {
       const attachment = findImsgAttachment(history, messageId, index);
       return readImsgImage(attachment.filename, attachment.mime);
     },
-    async open({account,id}) {
-      if (account === 'imessage') {
-        const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
-        cache.saveThread(account, id, messages);
-        return { messages };
-      }
-      if (account === 'whatsapp') {
-        const p = await wa('get-messages',{chatJid:id,limit:60});
-        const messages = (p.items ?? []).map((m:any) => {
-          const media = whatsAppMedia(m);
-          return { sender:m.from_me ? 'You' : String(m.sender?.name || 'WhatsApp'), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(media ? { media } : {}) };
-        });
-        cache.saveThread(account, id, messages);
-        return { messages };
-      }
-      const remembered = z.array(message).safeParse(cache.readThread(account, id) ?? []);
-      if (remembered.success && remembered.data.length) {
-        try {
-          const profile = await gmail(account, ['users','getProfile','--params',JSON.stringify({ userId:'me' })]);
-          if (gmailCursorUnchanged(cache.cursor(account), String(profile.historyId ?? ''))) return { messages: remembered.data };
-        } catch { /* a full thread read still answers the open */ }
-      }
-      const t = await thread(account,id);
-      const messages = await Promise.all((t.messages ?? []).map(async (m: any) => {
-        const h = headers(m); const sender=String(h.from || ''), to=String(h.to || ''), cc=String(h.cc || ''), replyTo=String(h['reply-to'] || '');
-        const suggested=replyRecipients({from:sender,to,cc,replyTo,self:account==='business'?'work@example.com':'personal@example.com'});
-        const html = await messageHtml(account, String(m.id), m.payload);
-        return {sender, text:plain(m.payload) || String(m.snippet || ''), date:Number(m.internalDate || 0), ...(html ? { html } : {}), to, cc, replyTo, subject:String(h.subject || ''), messageId:String(h['message-id'] || ''), references:String(h.references || ''), suggestedTo:suggested.to, suggestedCc:suggested.cc};
-      }));
-      cache.saveThread(account, id, messages);
-      return { messages };
-    },
+    async open({ account, id }) { return openConversation(account, id); },
     async send_gmail(input) {
       // Disabled until the BB owner-confirmation boundary is verified; RPC is agent-callable.
       const sendingVerified = false;
@@ -382,6 +385,30 @@ export default function plugin(bb: BbPluginApi) {
       const body = action === 'archive' ? {removeLabelIds:['INBOX']} : action === 'read' ? {removeLabelIds:['UNREAD']} : {addLabelIds:['UNREAD']};
       await gmail(account,['users','threads','modify','--params',JSON.stringify({userId:'me',id}),'--json',JSON.stringify(body)]);
       return {status: action === 'archive' ? 'Archived.' : 'Updated.'};
+    },
+  });
+  bb.ui.registerMentionProvider({
+    id: MENTION_PROVIDER,
+    label: 'Inbox',
+    triggers: ['#'],
+    search({ query }) {
+      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      return cache.list()
+        .filter(item => isSourceAccount(item.account))
+        .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
+        .sort((a, b) => b.date - a.date)
+        .slice(0, 20)
+        .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${mentionLabels[item.account]} · ${item.preview}`.slice(0, 140), icon: item.account === 'personal' || item.account === 'business' ? 'Mail' : 'MessageCircle' }));
+    },
+    async resolve(mention) {
+      const { account, id } = parseMentionId(mention);
+      const listed = cache.list().find(item => item.account === account && item.id === id);
+      const cached = z.array(message).safeParse(cache.readThread(account, id) ?? []);
+      let messages: MentionMessage[] = cached.success ? cached.data : [];
+      if (!messages.length) {
+        try { messages = (await openConversation(account, id)).messages; } catch { /* the mention still names the conversation */ }
+      }
+      return { context: inboxMentionContext({ account, id, title: listed?.title, preview: listed?.preview, messages }) };
     },
   });
 }
