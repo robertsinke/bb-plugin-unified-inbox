@@ -16,6 +16,21 @@ const BODY = `
     const idOf = ref => String(ref || '').split(':').pop();
 
     const names = new Map();
+    const avatars = new Map();
+    const avatarOf = person => {
+      const picture = person?.profilePicture || {};
+      const display = picture['displayImage~'] || picture.displayImage || {};
+      const identifiers = (display.elements || []).flatMap(element => element.identifiers || []).map(value => value.identifier).filter(value => typeof value === 'string');
+      const direct = identifiers.find(value => /^https:\/\//.test(value));
+      if (direct) return direct;
+      const root = String(display.rootUrl || '');
+      const path = (display.artifacts || []).map(value => value.fileIdentifyingUrlPathSegment).filter(value => typeof value === 'string').at(-1);
+      return root && path ? root + path : '';
+    };
+    const linkedinImage = value => {
+      try { const url = new URL(String(value)); return url.protocol === 'https:' && (url.hostname === 'licdn.com' || url.hostname.endsWith('.licdn.com')) ? url.href : ''; }
+      catch { return ''; }
+    };
     const nameOf = async id => {
       if (!id) return '';
       if (names.has(id)) return names.get(id);
@@ -24,6 +39,7 @@ const BODY = `
         const profile = await get('/voyager/api/identity/dash/profiles/' + enc('urn:li:fsd_profile:' + id));
         const person = (profile.included || []).find(e => e && e.firstName) || profile.data || {};
         names.set(id, [person.firstName, person.lastName].filter(Boolean).join(' '));
+        avatars.set(id, linkedinImage(avatarOf(person)));
       } catch { /* a name is presentation detail; the row still carries its id and message */ }
       return names.get(id);
     };
@@ -51,7 +67,8 @@ const BODY = `
     await Promise.all(counterpartIds.map(nameOf));
     const conversations = entities.map(e => {
       const others = (e['*conversationParticipants'] || []).map(idOf).filter(id => id && id !== meId);
-      return { id: String(e.entityUrn), title: String(e.title || '') || others.map(id => names.get(id)).filter(Boolean).join(', '), preview: String(e.descriptionText || ''), date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0 };
+      const avatarUrl = others.length === 1 ? avatars.get(others[0]) : '';
+      return { id: String(e.entityUrn), title: String(e.title || '') || others.map(id => names.get(id)).filter(Boolean).join(', '), preview: String(e.descriptionText || ''), date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, ...(avatarUrl ? { avatarUrl } : {}) };
     });
 
     const invites = await get('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20');
@@ -64,7 +81,8 @@ const BODY = `
       const title = [person.firstName, person.lastName].filter(Boolean).join(' ') || names.get(idOf(ref)) || '';
       // customMessage only says whether a note exists; the note itself is the message field.
       const note = String(typeof e.message === 'string' ? e.message : '').trim();
-      return { id: String(e.entityUrn || e.mailboxItemId || ''), title, preview: note, date: Number(e.sentTime || 0), unread: e.unseen === true, sender: title };
+      const avatarUrl = linkedinImage(avatarOf(person)) || avatars.get(idOf(ref)) || '';
+      return { id: String(e.entityUrn || e.mailboxItemId || ''), title, preview: note, date: Number(e.sentTime || 0), unread: e.unseen === true, sender: title, ...(avatarUrl ? { avatarUrl } : {}) };
     });
 
     return { conversations, invitations };
