@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { whatsappTimestamp } from './src/timestamps';
+import { sourceAvatarUrl } from './src/avatar-url';
 import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
@@ -31,7 +32,7 @@ import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, ment
 const exec = promisify(execFile);
 const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
 const account = z.enum(['personal', 'business', 'whatsapp', 'imessage', 'linkedin']);
-const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
+const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
@@ -307,14 +308,18 @@ async function listWa() {
       }));
     }
   }
-  return chats.map((c:any) => ({
-    account:'whatsapp' as const,
-    id:String(c.jid),
-    title:String(c.name || c.display_jid || c.jid),
-    preview: c.kind === 'group' ? groupPreview(String(c.preview || ''), c.preview_from_me === true, senders.get(String(c.jid)) || '') : String(c.preview || ''),
-    date:whatsappTimestamp(c.last_msg_at),
-    unread:Number(c.unread || 0) > 0,
-  }));
+  return chats.map((c:any) => {
+    const avatarUrl = sourceAvatarUrl(c.avatar_url, 'whatsapp');
+    return {
+      account:'whatsapp' as const,
+      id:String(c.jid),
+      title:String(c.name || c.display_jid || c.jid),
+      preview: c.kind === 'group' ? groupPreview(String(c.preview || ''), c.preview_from_me === true, senders.get(String(c.jid)) || '') : String(c.preview || ''),
+      date:whatsappTimestamp(c.last_msg_at),
+      unread:Number(c.unread || 0) > 0,
+      ...(avatarUrl ? { avatarUrl } : {}),
+    };
+  });
 }
 async function waRuntime() {
   const runtime = JSON.parse(await readFile(join(home, 'Library/Application Support/whatsagent-desktop/mcp-runtime.json'), 'utf8'));
