@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export type CachedItem = { account:'personal'|'business'|'whatsapp'; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string };
+export type CachedItem = { account:'personal'|'business'|'whatsapp'|'linkedin'; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string };
 export function createInboxCache(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_sync (account TEXT PRIMARY KEY, history_id TEXT NOT NULL);
