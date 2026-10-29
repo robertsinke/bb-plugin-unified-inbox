@@ -35,7 +35,7 @@ export function mapImsgHistory(value: unknown) {
     edited: !!m.edited_at && !m.unsent_at, replyContext: !!m.reply_to_guid,
     date: timestamp(m.created_at), fromMe: m.is_from_me === true,
     messageId: m.guid || String(m.id), imsgId: String(m.id),
-    attachments: (m.unsent_at ? [] : m.attachments ?? []).map((a, index) => ({
+    imsgAttachments: (m.unsent_at ? [] : m.attachments ?? []).map((a, index) => ({
       index, name: basename((a.transfer_name || 'Attachment').replaceAll('\\', '/')).slice(0, 200) || 'Attachment',
       available: a.missing !== true && !!a.filename && isImsgImage(a.mime_type) && (a.total_bytes == null || a.total_bytes <= IMSG_IMAGE_LIMIT),
     })),

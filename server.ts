@@ -15,11 +15,11 @@ import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
 import { readInBrowser } from './src/linkedin-browser';
-import { pickGmailBodies } from './src/gmail-body';
+import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
 import { gmailCursorUnchanged, gmailIdsToFetch, whatsappListUnchanged } from './src/sync-plan';
 import { approvalHash, confirmProposalRequest, latestInboundId } from './src/whatsapp-confirm';
-import { bm25Rank, conversationText } from './src/bm25';
-import { groupPreview } from './src/whatsapp-chat';
+import { createSearchIndex, createSearchStore } from './src/search-index';
+import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappTitle } from './src/whatsapp-chat';
 import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from './src/whatsapp-media';
 import { ImsgClient } from './src/imsg-client';
 import { findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from './src/imsg-mapping';
@@ -28,21 +28,24 @@ import { existsSync } from 'node:fs';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 
 const exec = promisify(execFile);
+const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
 const account = z.enum(['personal', 'business', 'whatsapp', 'imessage', 'linkedin']);
-const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional() });
+const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
-const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), attachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
   cached: { input: z.null(), output: z.object({ items: z.array(item) }) },
   search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
+  search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
+  attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), proposalId: z.number().int().positive().optional() }).strict(), output: z.object({ status: z.string(), proposalId: z.number().int().positive().optional(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
@@ -70,6 +73,8 @@ async function gmailNow(a: Account, args: string[]) {
 const waGate = createAsyncGate();
 const waMediaGate = createAsyncGate();
 const groupPreviewSenders = new Map<string, { signature: string; sender: string }>();
+const waChatTitles = new Map<string, string>();
+let waCacheMigrated = false;
 let waReady: Promise<Client> | null = null;
 async function waClient() {
   if (!waReady) {
@@ -129,9 +134,27 @@ async function messageHtml(a: Account, messageId: string, payload: unknown) {
   return html;
 }
 async function thread(a: Account, id: string) { return gmail(a, ['users','threads','get','--params',JSON.stringify({ userId: 'me', id, format: 'full' })]); }
+async function gmailAttachment(a: Extract<Account, 'personal' | 'business'>, gmailId: string, filename: string) {
+  const message = await gmail(a, ['users','messages','get','--params',JSON.stringify({ userId: 'me', id: gmailId, format: 'full' })]);
+  const part = findGmailAttachment(message?.payload, filename);
+  if (!part) throw new Error('This attachment is no longer in the message.');
+  if (part.size !== undefined && part.size > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
+  let data = part.data;
+  if (!data && part.attachmentId) {
+    const attachment = await gmail(a, ['users','messages','attachments','get','--params',JSON.stringify({ userId: 'me', messageId: gmailId, id: part.attachmentId })]);
+    if (typeof attachment?.data === 'string') data = attachment.data;
+  }
+  if (!data) throw new Error('This attachment could not be read.');
+  const bytes = Buffer.from(data, 'base64url');
+  if (bytes.length > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
+  const mime = /^[\w.+-]+\/[\w.+-]+$/.test(part.mimeType) ? part.mimeType : 'application/octet-stream';
+  return { dataUrl: `data:${mime};base64,${bytes.toString('base64')}`, mime, filename: part.filename, size: bytes.length };
+}
 function gmailItem(a: Extract<Account, 'personal' | 'business'>, t: any) {
   const ms = t.messages ?? []; const last = ms.at(-1) ?? {}; const h = headers(last);
-  return { account:a, id:String(t.id), title:String(h.subject || '(no subject)'), sender:mailSenderName(String(h.from || '')), preview:String(last.snippet || t.snippet || ''), date:Number(last.internalDate || 0), unread:ms.some((m:any) => m.labelIds?.includes('UNREAD')) };
+  const recipients = [...new Set(ms.flatMap((m:any) => { const x = headers(m); return [x.to, x.cc]; }).filter(Boolean))].join(', ').slice(0, 4000);
+  const attachments = [...new Set(ms.flatMap((m:any) => pickGmailAttachments(m.payload)))].slice(0, 20);
+  return { account:a, id:String(t.id), title:String(h.subject || '(no subject)'), sender:mailSenderName(String(h.from || '')), recipients, attachments, preview:String(last.snippet || t.snippet || ''), date:Number(last.internalDate || 0), unread:ms.some((m:any) => m.labelIds?.includes('UNREAD')) };
 }
 async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 20, cache?: ReturnType<typeof createInboxCache>) {
   const stored = () => (cache?.list() ?? []).filter(item => item.account === a);
@@ -145,13 +168,13 @@ async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 2
     throw error;
   }
   const storedItems = stored();
-  if (cache && gmailCursorUnchanged(cache.cursor(a), historyId) && storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview)) return storedItems.slice(0, limit);
+  if (cache && gmailCursorUnchanged(cache.cursor(a), historyId) && storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined)) return storedItems.slice(0, limit);
   const page = await gmail(a, ['users','threads','list','--params',JSON.stringify({ userId:'me', labelIds:['INBOX'], maxResults:limit })]);
   const listed = (page.threads ?? []).map((entry: any) => ({ id: String(entry.id), historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }));
   const changed = new Set<string>(cache ? gmailIdsToFetch(cache.revisions(a), listed) : listed.map((entry: { id: string }) => entry.id));
   for (const entry of listed) {
     const known = storedItems.find(item => item.id === entry.id);
-    if (known && !known.sender) changed.add(entry.id);
+    if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined)) changed.add(entry.id);
   }
   const fetched = new Map<string, ReturnType<typeof gmailItem>>();
   for (const id of changed) fetched.set(id, gmailItem(a, await thread(a, id)));
@@ -177,14 +200,100 @@ async function waPreviewSender(chat: any, runtime: { baseUrl: string; token: str
     if (!response.ok) return '';
     const payload = await response.json() as { items?: Array<{ from_me?: boolean; sender?: { name?: string; display_jid?: string } }> };
     const last = payload.items?.[0];
-    const sender = last?.from_me ? 'You' : String(last?.sender?.name || last?.sender?.display_jid || '');
+    const sender = last?.from_me ? 'You' : String(last?.sender?.name || whatsappPhone(String(last?.sender?.display_jid || '')) || '');
     if (sender) groupPreviewSenders.set(jid, { signature, sender });
     return sender;
   } catch { return ''; }
 }
+async function waChatTitle(jid: string): Promise<string> {
+  const known = waChatTitles.get(jid);
+  if (known) return known;
+  try {
+    const { baseUrl, token } = await waRuntime();
+    const response = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(jid)}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
+    if (!response.ok) return '';
+    const chat = await response.json() as { name?: string; display_jid?: string; jid?: string };
+    const title = whatsappTitle(String(chat.name || ''), String(chat.display_jid || chat.jid || ''));
+    if (title) waChatTitles.set(jid, title);
+    return title;
+  } catch { return ''; }
+}
+async function migrateWhatsAppCache(cache: ReturnType<typeof createInboxCache>) {
+  if (waCacheMigrated) return;
+  waCacheMigrated = true;
+  const items = cache.list();
+  let previewChanged = false;
+  for (const item of items) {
+    if (item.account !== 'whatsapp') continue;
+    const thread = cache.readThread('whatsapp', item.id);
+    if (!Array.isArray(thread)) continue;
+    let messages = thread as Array<{ sender?: string; text?: string; fromMe?: boolean }>;
+    let threadChanged = false;
+    const beforeNoise = messages.length;
+    messages = messages.filter(message => !isWhatsAppNoise('', String(message?.text || '')));
+    if (messages.length !== beforeNoise) threadChanged = true;
+    const legacySender = messages.some(message => message?.sender === 'WhatsApp');
+    if (legacySender && item.id.endsWith('@g.us')) {
+      messages = messages.map(message => {
+        if (message?.sender !== 'WhatsApp') return message;
+        threadChanged = true;
+        return { ...message, sender: 'Unknown' };
+      });
+    } else if (legacySender) {
+      const title = waChatTitles.get(item.id) || await waChatTitle(item.id);
+      if (title) {
+        messages = messages.map(message => {
+          if (message?.sender !== 'WhatsApp') return message;
+          threadChanged = true;
+          return { ...message, sender: title };
+        });
+      }
+    }
+    if (isWhatsAppNoisePreview(item.preview)) {
+      item.preview = '';
+      previewChanged = true;
+    }
+    const last = [...messages].reverse().find(message => String(message?.text || '').trim());
+    if (last) {
+      const group = item.id.endsWith('@g.us');
+      if (item.preview.startsWith('WhatsApp: ')) {
+        item.preview = `${whatsappSender(!!last.fromMe, String(last.sender || ''), group, item.title)}: ${item.preview.slice('WhatsApp: '.length)}`;
+        previewChanged = true;
+      } else if (!item.preview) {
+        item.preview = group
+          ? groupPreview(String(last.text || ''), !!last.fromMe, whatsappSender(!!last.fromMe, String(last.sender || ''), true, item.title))
+          : String(last.text || '');
+        previewChanged = true;
+      }
+    }
+    if (threadChanged) cache.saveThread('whatsapp', item.id, messages);
+  }
+  if (previewChanged) cache.save('whatsapp', items.filter(item => item.account === 'whatsapp'));
+}
+function whatsAppParticipants(cache: ReturnType<typeof createInboxCache>, id: string): string[] {
+  if (!id.endsWith('@g.us')) return [];
+  const thread = cache.readThread('whatsapp', id);
+  if (!Array.isArray(thread)) return [];
+  const names: string[] = [];
+  for (const raw of [...thread].reverse()) {
+    const message = raw as { sender?: string; fromMe?: boolean; text?: string };
+    if (message?.fromMe || isWhatsAppNoise('', String(message?.text || ''))) continue;
+    const sender = String(message?.sender || '').trim();
+    if (!sender || sender === 'You' || sender === 'Unknown' || sender === 'WhatsApp' || sender.includes('@')) continue;
+    if (!names.includes(sender)) names.push(sender);
+    if (names.length === 4) break;
+  }
+  return names;
+}
+function withParticipants(cache: ReturnType<typeof createInboxCache>, items: any[]) {
+  return items.map(item => item.account === 'whatsapp' && String(item.id).endsWith('@g.us')
+    ? { ...item, participants: whatsAppParticipants(cache, String(item.id)) }
+    : item);
+}
 async function listWa() {
   const p = await wa('list-chats', { filter:'all', limit:50 });
-  const chats = (p.items ?? []).filter((c:any) => !c.archived);
+  const chats = (p.items ?? []).filter((c:any) => !c.archived).map((c:any) => ({ ...c, preview: isWhatsAppNoisePreview(String(c.preview || '')) ? '' : String(c.preview || '') }));
+  for (const c of chats) waChatTitles.set(String(c.jid), whatsappTitle(String(c.name || ''), String(c.display_jid || c.jid || '')));
   const senders = new Map<string, string>();
   let runtime: { baseUrl: string; token: string } | undefined;
   try { runtime = await waRuntime(); } catch { /* group previews stay bare when the loopback API is unavailable */ }
@@ -256,6 +365,7 @@ export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id))');
   const cache = createInboxCache(db);
+  const searchIndex = createSearchIndex(cache, createSearchStore(db));
   const imsgPath = [join(home, '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
@@ -277,10 +387,14 @@ export default function plugin(bb: BbPluginApi) {
       return { messages };
     }
     if (account === 'whatsapp') {
-      const p = await wa('get-messages',{chatJid:id,limit:60});
-      const messages = (p.items ?? []).map((m:any) => {
+      const group = id.endsWith('@g.us');
+      const [p, chatTitle] = await Promise.all([
+        wa('get-messages',{chatJid:id,limit:60}),
+        group ? Promise.resolve('') : waChatTitle(id),
+      ]);
+      const messages = (p.items ?? []).filter((m:any) => !isWhatsAppNoise(String(m.type || ''), String(m.text || ''))).map((m:any) => {
         const media = whatsAppMedia(m);
-        return { sender:m.from_me ? 'You' : String(m.sender?.name || 'WhatsApp'), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(media ? { media } : {}) };
+        return { sender:whatsappSender(!!m.from_me, String(m.sender?.name || whatsappPhone(String(m.sender?.display_jid || '')) || ''), group, chatTitle), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(media ? { media } : {}) };
       });
       cache.saveThread(account, id, messages);
       return { messages };
@@ -289,28 +403,30 @@ export default function plugin(bb: BbPluginApi) {
     if (remembered.success && remembered.data.length) {
       try {
         const profile = await gmail(account, ['users','getProfile','--params',JSON.stringify({ userId:'me' })]);
-        if (gmailCursorUnchanged(cache.cursor(account), String(profile.historyId ?? ''))) return { messages: remembered.data };
+        if (gmailCursorUnchanged(cache.cursor(account), String(profile.historyId ?? '')) && remembered.data.every(message => Array.isArray(message.attachments) && typeof message.gmailId === 'string')) return { messages: remembered.data };
       } catch { /* a full thread read still answers the open */ }
     }
-    const t = await thread(account,id);
+    let t: any;
+    try { t = await thread(account,id); }
+    catch (error) {
+      if (remembered.success && remembered.data.length) return { messages: remembered.data };
+      throw error;
+    }
     const messages = await Promise.all((t.messages ?? []).map(async (m: any) => {
       const h = headers(m); const sender=String(h.from || ''), to=String(h.to || ''), cc=String(h.cc || ''), replyTo=String(h['reply-to'] || '');
       const suggested=replyRecipients({from:sender,to,cc,replyTo,self:account==='business'?'robert@inhouse.works':'robertsinke.jr@gmail.com'});
       const html = await messageHtml(account, String(m.id), m.payload);
-      return {sender, text:plain(m.payload) || String(m.snippet || ''), date:Number(m.internalDate || 0), ...(html ? { html } : {}), to, cc, replyTo, subject:String(h.subject || ''), messageId:String(h['message-id'] || ''), references:String(h.references || ''), suggestedTo:suggested.to, suggestedCc:suggested.cc};
+      const attachments = pickGmailAttachments(m.payload);
+      return {sender, text:plain(m.payload) || String(m.snippet || ''), date:Number(m.internalDate || 0), ...(html ? { html } : {}), to, cc, replyTo, subject:String(h.subject || ''), messageId:String(h['message-id'] || ''), references:String(h.references || ''), suggestedTo:suggested.to, suggestedCc:suggested.cc, attachments, gmailId:String(m.id)};
     }));
     cache.saveThread(account, id, messages);
     return { messages };
   }
 
   bb.rpc.register(rpcContract, {
-    cached() { return {items: cache.list().filter(item => isSourceAccount(item.account))}; },
+    cached() { return {items: withParticipants(cache, cache.list().filter(item => isSourceAccount(item.account)))}; },
     search({ query }) {
-      const items = cache.list();
-      const ranked = bm25Rank(query, items.map(item => ({
-        id: `${item.account}\u0000${item.id}`,
-        text: conversationText({ title: [item.sender, item.title].filter(Boolean).join('\n'), preview: item.preview, messages: cache.readThread(item.account, item.id) ?? [] }),
-      })));
+      const ranked = searchIndex.search(query);
       return { ids: ranked.slice(0, 50).flatMap(row => {
         const split = row.id.indexOf('\u0000');
         const name = row.id.slice(0, split);
@@ -319,9 +435,27 @@ export default function plugin(bb: BbPluginApi) {
         return [{ account: accountName, id: row.id.slice(split + 1), score: row.score }];
       }) };
     },
-    cached_open({ account, id }) {
+    search_status() { return searchIndex.status(); },
+    async cached_open({ account, id }) {
       const parsed = z.array(message).safeParse(cache.readThread(account, id) ?? []);
-      return { messages: parsed.success ? parsed.data : [] };
+      if (!parsed.success) return { messages: [] };
+      if (account !== 'whatsapp') return { messages: parsed.data };
+      let messages = parsed.data.filter(message => !isWhatsAppNoise('', String(message.text || '')));
+      let changed = messages.length !== parsed.data.length;
+      if (messages.some(message => message.sender === 'WhatsApp')) {
+        if (id.endsWith('@g.us')) {
+          messages = messages.map(message => message.sender === 'WhatsApp' ? { ...message, sender: 'Unknown' } : message);
+          changed = true;
+        } else {
+          const title = waChatTitles.get(id) || await waChatTitle(id);
+          if (title) {
+            messages = messages.map(message => message.sender === 'WhatsApp' ? { ...message, sender: title } : message);
+            changed = true;
+          }
+        }
+      }
+      if (changed) cache.saveThread(account, id, messages);
+      return { messages };
     },
     clear_cache() { cache.clear(); return {cleared: true}; },
     async list_source({ account, limit }) {
@@ -332,12 +466,21 @@ export default function plugin(bb: BbPluginApi) {
         return {items};
       }
       if (account === 'whatsapp') {
-        const items = (await listWa()).map((item: { account: 'whatsapp'; id: string; unread: boolean }) => cache.keptUnread(item.account, item.id) ? { ...item, unread: true } : item);
+        const listed = await listWa();
+        await migrateWhatsAppCache(cache);
         const previous = cache.list().filter(item => item.account === 'whatsapp');
+        const previews = new Map(previous.map(item => [item.id, item.preview]));
+        const items = listed.map((item: { account: 'whatsapp'; id: string; title: string; preview: string; date: number; unread: boolean }) => {
+          const kept = cache.keptUnread(item.account, item.id);
+          return { ...item, preview: item.preview || previews.get(item.id) || '', ...(kept ? { unread: true } : {}) };
+        });
         if (!whatsappListUnchanged(previous, items)) cache.save('whatsapp', items);
-        return {items};
+        searchIndex.warm();
+        return {items: withParticipants(cache, items)};
       }
-      return { items: await listGmail(account, limit ?? 20, cache) };
+      const items = await listGmail(account, limit ?? 20, cache);
+      searchIndex.warm();
+      return { items };
     },
     async list() {
       const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg(), listLinkedIn()]);
@@ -347,9 +490,12 @@ export default function plugin(bb: BbPluginApi) {
         else if (r.reason instanceof Error && (r.reason.message.startsWith('WhatsAgent backend is unavailable.') || r.reason.message.startsWith('Gmail ') || r.reason.message.startsWith('LinkedIn '))) errors.push(r.reason.message);
         else errors.push(`${names[i]} unavailable. Check its connection.`);
       });
-      return { items: items.sort((a,b) => b.date-a.date), errors };
+      if (results[2]?.status === 'fulfilled') await migrateWhatsAppCache(cache);
+      searchIndex.warm();
+      return { items: withParticipants(cache, items.sort((a,b) => b.date-a.date)), errors };
     },
     async media({ messageId }) { return waImage(messageId); },
+    async attachment({ account, gmailId, filename }) { return gmailAttachment(account, gmailId, filename); },
     async imsg_media({ chatId, messageId, index }) {
       const chat = imsgChatId(chatId);
       imsgChatId(messageId);

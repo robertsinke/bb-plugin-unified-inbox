@@ -18,7 +18,7 @@ test('maps history in chronological order without exposing attachment paths', ()
   assert.equal(items[0].text, 'Hello');
   assert.deepEqual(items[0].reactions, [{ sender: 'Alice', label: '👍' }]);
   assert.equal(items[1].text, '');
-  assert.deepEqual(items[1].attachments, [{ index: 0, name: 'Attachment', available: false }]);
+  assert.deepEqual(items[1].imsgAttachments, [{ index: 0, name: 'Attachment', available: false }]);
   assert.equal(items[1].sender, 'You');
   assert.equal(JSON.stringify(items).includes('/private/'), false);
 });
@@ -26,7 +26,7 @@ test('maps history in chronological order without exposing attachment paths', ()
 test('attachment selectors resolve only against the freshly fetched history', () => {
   const history = { messages: [{ id: 8, attachments: [{ filename: '/private/image', transfer_name: '/private/photo.png', mime_type: 'image/png', missing: false }] }] };
   const mapped = mapImsgHistory(history);
-  assert.deepEqual(mapped[0].attachments, [{ index: 0, name: 'photo.png', available: true }]);
+  assert.deepEqual(mapped[0].imsgAttachments, [{ index: 0, name: 'photo.png', available: true }]);
   assert.equal(JSON.stringify(mapped).includes('/private/'), false);
   assert.deepEqual(findImsgAttachment(history, '8', 0), { filename: '/private/image', mime: 'image/png' });
   assert.throws(() => findImsgAttachment(history, '9', 0));
@@ -42,7 +42,7 @@ test('maps current edits, unsends and reply context without retaining retracted 
   assert.equal(messages[0].edited, true);
   assert.equal(messages[0].replyContext, true);
   assert.equal(messages[1].text, 'Message unsent');
-  assert.deepEqual(messages[1].attachments, []);
+  assert.deepEqual(messages[1].imsgAttachments, []);
   assert.deepEqual(messages[1].reactions, []);
   assert.throws(() => findImsgAttachment({ messages: [{ id: 2, unsent_at: '2026-01-01', attachments: [{ filename: '/secret', mime_type: 'image/png' }] }] }, '2', 0));
 });

@@ -8,3 +8,13 @@ test('clear removes only plugin cached records',()=>{const {db,cache}=fixture();
 test('sender name is stored with the cached row',()=>{const {db,cache}=fixture();try {cache.save('personal',[{account:'personal',id:'1',title:'Subject',preview:'Hello',date:1,unread:false,sender:'Ada'}]);assert.equal(cache.list()[0].sender,'Ada');}finally{db.close();}});
 test('a manual unread mark is stored on the cached row and can be cleared',()=>{const {db,cache}=fixture();try {cache.save('whatsapp',[{account:'whatsapp',id:'j',title:'J',preview:'',date:1,unread:false}]);cache.keepUnread('whatsapp','j');assert.equal(cache.keptUnread('whatsapp','j'),true);assert.equal(cache.list()[0].unread,true);cache.dropUnread('whatsapp','j');assert.equal(cache.keptUnread('whatsapp','j'),false);assert.equal(cache.list()[0].unread,false);}finally{db.close();}});
 test('invalid replacement rolls back and keeps previous data',()=>{const {db,cache}=fixture();try {const a={account:'personal' as const,id:'1',title:'Original',preview:'',date:1,unread:true};cache.save('personal',[a]);assert.throws(()=>cache.save('personal',[a,a]));assert.deepEqual(cache.list(),[a]);}finally{db.close();}});
+
+test('recipients and attachment names are stored with the cached row',()=>{const {db,cache}=fixture();try {cache.save('personal',[{account:'personal',id:'1',title:'Subject',preview:'Hello',date:1,unread:false,sender:'Ada',recipients:'bob@example.com',attachments:['Q3 report.pdf']}]);
+assert.equal(cache.list()[0].recipients,'bob@example.com');
+assert.deepEqual(cache.list()[0].attachments,['Q3 report.pdf']);}finally{db.close();}});
+
+test('cache reports changes for incremental search indexing',()=>{const {db,cache}=fixture();try {const changes:string[]=[];cache.onChange(change=>changes.push(change.kind==='items'?`items:${change.account}`:change.kind==='thread'?`thread:${change.account}:${change.id}`:'clear'));
+cache.save('personal',[{account:'personal',id:'1',title:'Subject',preview:'Hello',date:1,unread:false}]);
+cache.saveThread('personal','1',[{sender:'Ada',text:'Hello'}]);
+cache.clear();
+assert.deepEqual(changes,['items:personal','thread:personal:1','clear']);}finally{db.close();}});
