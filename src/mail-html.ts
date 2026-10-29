@@ -12,5 +12,5 @@ export function sanitizeMailMarkup(html: string): string {
 }
 
 export function mailDocument(body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;background:#fff;color:#111;font:14px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%;height:auto}a{color:#15c}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;height:auto!important;min-height:0!important;overflow:visible!important;background:#fff;color:#111;font:14px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%;height:auto}a{color:#15c}</style></head><body>${body}</body></html>`;
 }

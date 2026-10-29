@@ -1,4 +1,15 @@
 export type GmailRevision = { id: string; historyId: string; preview: string };
+export const GMAIL_INBOX_SUMMARY_VERSION = 'received-v1';
+
+export function gmailSummaryCursor(historyId: string): string {
+  return `${GMAIL_INBOX_SUMMARY_VERSION}:${historyId}`;
+}
+
+/** Force one full summary refresh when cached Gmail rows predate the current row semantics. */
+export function gmailInboxIdsToFetch(cursor: string | null, known: readonly GmailRevision[], listed: readonly GmailListing[]): string[] {
+  if (!cursor?.startsWith(`${GMAIL_INBOX_SUMMARY_VERSION}:`)) return listed.map(row => row.id);
+  return gmailIdsToFetch(known, listed);
+}
 export type GmailListing = { id: string; historyId: string; snippet: string };
 
 /** True when Gmail's mailbox cursor has not moved since the last successful sync. */

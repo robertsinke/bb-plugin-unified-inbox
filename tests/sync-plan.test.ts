@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { gmailCursorUnchanged, gmailIdsToFetch, whatsappListUnchanged } from '../src/sync-plan.ts';
+import { gmailCursorUnchanged, gmailIdsToFetch, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from '../src/sync-plan.ts';
 
 test('an unchanged Gmail history cursor skips thread downloads', () => {
   assert.equal(gmailCursorUnchanged('10', '10'), true);
@@ -26,4 +26,11 @@ test('a WhatsApp list with the same stamps needs no rewrite', () => {
   const row = { id: 'jid', date: 5, preview: 'hi', unread: true };
   assert.equal(whatsappListUnchanged([row], [row]), true);
   assert.equal(whatsappListUnchanged([row], [{ ...row, preview: 'hey' }]), false);
+});
+
+test('Gmail summary changes invalidate cached rows once, then use normal thread revisions', () => {
+  const known = [{ id: 'thread', historyId: '20', preview: 'reply I sent' }];
+  const listed = [{ id: 'thread', historyId: '20', snippet: 'reply I sent' }];
+  assert.deepEqual(gmailInboxIdsToFetch('10', known, listed), ['thread']);
+  assert.deepEqual(gmailInboxIdsToFetch(gmailSummaryCursor('10'), known, listed), []);
 });

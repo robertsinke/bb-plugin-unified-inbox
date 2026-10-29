@@ -16,7 +16,8 @@ import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
 import { readInBrowser } from './src/linkedin-browser';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
-import { gmailCursorUnchanged, gmailIdsToFetch, whatsappListUnchanged } from './src/sync-plan';
+import { latestReceivedMessage } from './src/gmail-inbox';
+import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from './src/sync-plan';
 import { approvalHash, confirmProposalRequest, latestInboundId } from './src/whatsapp-confirm';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappTitle } from './src/whatsapp-chat';
@@ -151,10 +152,10 @@ async function gmailAttachment(a: Extract<Account, 'personal' | 'business'>, gma
   return { dataUrl: `data:${mime};base64,${bytes.toString('base64')}`, mime, filename: part.filename, size: bytes.length };
 }
 function gmailItem(a: Extract<Account, 'personal' | 'business'>, t: any) {
-  const ms = t.messages ?? []; const last = ms.at(-1) ?? {}; const h = headers(last);
+  const ms: any[] = t.messages ?? []; const last: any = latestReceivedMessage(ms) ?? {}; const h = headers(last);
   const recipients = [...new Set(ms.flatMap((m:any) => { const x = headers(m); return [x.to, x.cc]; }).filter(Boolean))].join(', ').slice(0, 4000);
   const attachments = [...new Set(ms.flatMap((m:any) => pickGmailAttachments(m.payload)))].slice(0, 20);
-  return { account:a, id:String(t.id), title:String(h.subject || '(no subject)'), sender:mailSenderName(String(h.from || '')), recipients, attachments, preview:String(last.snippet || t.snippet || ''), date:Number(last.internalDate || 0), unread:ms.some((m:any) => m.labelIds?.includes('UNREAD')) };
+  return { account:a, id:String(t.id), title:String(h.subject || '(no subject)'), sender:mailSenderName(String(h.from || '')), recipients, attachments, preview:String(last.snippet || ''), date:Number(last.internalDate || 0), unread:ms.some((m:any) => m.labelIds?.includes('UNREAD')) };
 }
 async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 20, cache?: ReturnType<typeof createInboxCache>) {
   const stored = () => (cache?.list() ?? []).filter(item => item.account === a);
@@ -168,10 +169,10 @@ async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 2
     throw error;
   }
   const storedItems = stored();
-  if (cache && gmailCursorUnchanged(cache.cursor(a), historyId) && storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined)) return storedItems.slice(0, limit);
+  if (cache && gmailCursorUnchanged(cache.cursor(a), gmailSummaryCursor(historyId)) && storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined)) return storedItems.slice(0, limit);
   const page = await gmail(a, ['users','threads','list','--params',JSON.stringify({ userId:'me', labelIds:['INBOX'], maxResults:limit })]);
   const listed = (page.threads ?? []).map((entry: any) => ({ id: String(entry.id), historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }));
-  const changed = new Set<string>(cache ? gmailIdsToFetch(cache.revisions(a), listed) : listed.map((entry: { id: string }) => entry.id));
+  const changed = new Set<string>(cache ? gmailInboxIdsToFetch(cache.cursor(a), cache.revisions(a), listed) : listed.map((entry: { id: string }) => entry.id));
   for (const entry of listed) {
     const known = storedItems.find(item => item.id === entry.id);
     if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined)) changed.add(entry.id);
@@ -182,12 +183,11 @@ async function listGmail(a: Extract<Account, 'personal' | 'business'>, limit = 2
   const items = listed.flatMap((entry: { id: string; snippet: string }) => {
     const item = fetched.get(entry.id) ?? previous.get(entry.id);
     if (!item) return [];
-    const preview = item.preview || entry.snippet;
-    return [preview === item.preview ? item : { ...item, preview }];
+    return [item];
   });
   cache?.save(a, items);
   cache?.saveRevisions(a, listed.map((entry: { id: string; historyId: string; snippet: string }) => ({ id: entry.id, historyId: entry.historyId, preview: entry.snippet })));
-  if (cache && historyId) cache.setCursor(a, historyId);
+  if (cache && historyId) cache.setCursor(a, gmailSummaryCursor(historyId));
   return items.slice(0, limit);
 }
 async function waPreviewSender(chat: any, runtime: { baseUrl: string; token: string }): Promise<string> {
@@ -403,7 +403,7 @@ export default function plugin(bb: BbPluginApi) {
     if (remembered.success && remembered.data.length) {
       try {
         const profile = await gmail(account, ['users','getProfile','--params',JSON.stringify({ userId:'me' })]);
-        if (gmailCursorUnchanged(cache.cursor(account), String(profile.historyId ?? '')) && remembered.data.every(message => Array.isArray(message.attachments) && typeof message.gmailId === 'string')) return { messages: remembered.data };
+        if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(String(profile.historyId ?? ''))) && remembered.data.every(message => Array.isArray(message.attachments) && typeof message.gmailId === 'string')) return { messages: remembered.data };
       } catch { /* a full thread read still answers the open */ }
     }
     let t: any;

@@ -17,7 +17,7 @@
 .ui-prompt-send [data-icon-root]{width:16px;height:16px}
 .ui-prompt-cancel{position:absolute;right:46px;bottom:10px;border:0;background:transparent;color:inherit;font:inherit;font-size:13px;opacity:.72;padding:6px 8px;border-radius:8px;cursor:pointer}
 .ui-prompt-cancel:hover{background:color-mix(in srgb, currentColor 8%, transparent);opacity:1}
-.ui-mail-frame{display:block;width:100%;min-height:80px;border:0;border-radius:8px;background:#fff}
+.ui-mail-frame{display:block;width:100%;min-height:80px;border:0;border-radius:8px;background:#fff;overflow:hidden}
 .ui-message{background:#fff;color:#111;border-radius:10px;padding:12px;margin:10px 0}
 .ui-attachments{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
 .ui-attachment{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:5px 8px;border:1px solid #8885;border-radius:8px;background:transparent;color:inherit;font-size:12px;line-height:1.35}
