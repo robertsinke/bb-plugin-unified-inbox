@@ -161,6 +161,8 @@ flowchart LR
 
 **Dependencies:** None
 
+**Human gate:** this unit needs one interactive LinkedIn sign-in on the implementing machine (`uvx mcp-server-linkedin@latest --login`, or `--auto-import` from an already signed-in Chrome). An unattended agent must not fabricate the findings and must not proceed to U2 without them — stop, state the gate, and ask for the login.
+
 **Files:**
 - Create: `docs/research/linkedin/spike-sidecar.md`
 
