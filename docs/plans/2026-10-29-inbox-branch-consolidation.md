@@ -1,6 +1,6 @@
 # Unified Inbox branch consolidation
 
-Date: 2026-10-29 · Status: steps 1–2 done · Owner: robert
+Date: 2026-10-29 · Status: steps 1–3 done; interim install live · Owner: robert
 Supersedes: nothing — this is the state-0 prerequisite for [the gateway spec](../../specs/001-unified-inbox-gateway/spec.md).
 
 ## Situation
@@ -25,9 +25,9 @@ Do the consolidation in an integration branch **in this worktree**, never in the
 
 1. **Checkpoint this worktree.** ✅ Done — four commits on `bb/explore-adding-imessage-to-the-unified-inbox-thr_wmbk3fy5bs`: `4e7f2c5` Messages integration, `ac649dc` spec/plan/tasks, `f76055e` consolidation plan, `f4d50cd` gateway T1–T2.
 2. **Integration branch.** ✅ Done — `integration/inbox-consolidation` merges `41f9f72` (tagging) as `e266d9e`. Conflicts resolved in `app.tsx` (Messages header + chat renderer, tagging `+` buttons added to header and row actions for every account) and `server.ts` (`openConversation()` refactor adopted, extended with the imessage branch; `imsg_media` kept; `cached()` keeps Messages rows via imessage in `sourceAccounts`). Gates: 63/63 tests, `tsc --noEmit` clean, `bb plugin build` clean.
-3. **LinkedIn lands last.** thr_yzwhws3amz is blocked at its plan's human gate (interactive sign-in) — a natural pause. When its WIP is committed on main (ask it to commit at the gate, or wait for its plan to finish), merge main into the integration branch and resolve the second conflict wave. Gate: same as step 2 plus the LinkedIn thread's own tests.
-4. **Production rebuild from the consolidated tree.** New staging snapshot → `activation-check.py` → install → verify all four sources read-only + all six Messages actions blocked + tagging works. One switch restores iMessage, the new header, tagging, and LinkedIn together. The old staging copy and rollback remain as fallbacks.
-5. **Fast-forward main.** Push the integration result into main when the LinkedIn thread is paused or done (it works directly on main — coordinate so its uncommitted work is never stashed by a third party).
+3. **LinkedIn lands last.** ✅ Done — thr_yzwhws3amz committed its WIP on main at its human-gate pause (`e403e8c` read-only LinkedIn source, `e6a9d67` research notes; sign-in gate cleared, verified live through the BB browser) and main merged into the integration branch as `decbb19`. All five-account conflicts resolved (unions, list/list_source branches, `openConversation` LinkedIn branch, UI filter/timers, read-only mention footer); gates: 73/73 tests, `tsc --noEmit` clean, `bb plugin build` clean.
+4. **Production rebuild from the consolidated tree.** Interim install done for steps 1–2 (`consolidated-stage-0983baec`, see its ACTIVATION.md): production already serves Messages + new header + tagging; Messages rows retained. Remaining: the same staging protocol for `decbb19` adds LinkedIn — snapshot, gates, install, verify all five sources read-only + six Messages actions + two LinkedIn rejections (mutations + non-conversation open).
+5. **Fast-forward main.** Push the integration result into main when thr_yzwhws3amz is paused or done (it committed at the gate and holds installs; coordinate before moving its branch).
 6. **Gateway migration starts** from consolidated main; states 1–5 in the spec's plan execute on that baseline. T1–T2 are already done and type-only, so they ride along.
 
 ## Hazards
