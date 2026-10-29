@@ -15,5 +15,7 @@ test('wraps the message on a white page that opens links in a new tab', () => {
   const page = mailDocument('<p>Hello</p>');
   assert.equal(page.includes('<base target="_blank">'), true);
   assert.equal(page.includes('background:#fff'), true);
+  assert.equal(page.includes('height:auto!important'), true);
+  assert.equal(page.includes('overflow:visible!important'), true);
   assert.equal(page.includes('<p>Hello</p>'), true);
 });

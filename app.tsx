@@ -11,6 +11,7 @@ import './layout.css';
 import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
 import { messagesAfterSend } from './src/sent-message';
+import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
 
@@ -67,13 +68,43 @@ function safeMailDocument(html: string) {
 }
 function MailFrame({ html, onOpenLink }: { html: string; onOpenLink: (url: string) => void }) {
   const ref = useRef<HTMLIFrameElement>(null);
+  const resizeObserver = useRef<ResizeObserver|null>(null);
   const openRef = useRef(onOpenLink);
   openRef.current = onOpenLink;
-  return <iframe ref={ref} className="ui-mail-frame" title="Email" sandbox="allow-same-origin allow-popups" referrerPolicy="no-referrer" srcDoc={safeMailDocument(html)} onLoad={() => {
+  useEffect(()=>()=>resizeObserver.current?.disconnect(),[]);
+  return <iframe ref={ref} className="ui-mail-frame" title="Email" scrolling="no" sandbox="allow-same-origin allow-popups" referrerPolicy="no-referrer" srcDoc={safeMailDocument(html)} onLoad={() => {
     const frame = ref.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc) return;
-    frame.style.height = `${Math.max(doc.documentElement.scrollHeight, 80)}px`;
+    resizeObserver.current?.disconnect();
+    const resize = () => {
+      const roots = [doc.documentElement, doc.body];
+      for (const root of roots) {
+        root.style.setProperty('overflow', 'visible', 'important');
+        root.style.setProperty('height', 'auto', 'important');
+        root.style.setProperty('max-height', 'none', 'important');
+      }
+      const view = doc.defaultView;
+      if (view) expandEmailScrollRegions(Array.from(doc.body.querySelectorAll<HTMLElement>('*')), element => {
+        const style = view.getComputedStyle(element);
+        return { overflow: style.overflow, overflowY: style.overflowY };
+      });
+      const body = doc.body;
+      const root = doc.documentElement;
+      frame.style.height = `${Math.max(body.scrollHeight, body.offsetHeight, root.scrollHeight, root.offsetHeight, 80)}px`;
+    };
+    resize();
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver.current = new ResizeObserver(resize);
+      resizeObserver.current.observe(doc.body);
+      resizeObserver.current.observe(doc.documentElement);
+    }
+    for (const image of Array.from(doc.images)) {
+      if (!image.complete) {
+        image.addEventListener('load', resize, { once: true });
+        image.addEventListener('error', resize, { once: true });
+      }
+    }
     doc.addEventListener('click', event => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const target = event.target;
