@@ -1,0 +1,2897 @@
+# Agent Instructions
+This documentation is published with GitBook. GitBook is the documentation platform designed so that both humans and AI agents can read, navigate, and reason over technical content effectively. Learn more at gitbook.com.
+
+## Querying This Documentation
+This site has an agentic ask interface you may use to query the documentation dynamically by asking a question.
+
+Perform an HTTP GET request on the following URL with the `ask` and `goal` query parameters:
+
+```
+GET https://docs.bluebubbles.app/server/index.md?ask=<question>&goal=<user_goal>
+```
+
+`ask` is the immediate question: it should be specific, self-contained, and written in natural language.
+`goal` is what the user is ultimately trying to achieve, the reason they need the answer. Sharing it helps GitBook give you a better, more relevant answer. A goal is most helpful when it describes the outcome the user wants rather than restating the question. For example, with `ask=how do I create an API token`, a goal like `automate deployments from our CI pipeline` lets GitBook tailor the answer to that use case.
+
+The response will contain a direct answer to the question and relevant excerpts and sources from the documentation.
+
+---
+
+# Server Overview
+
+Info on the BlueBubbles server app
+
+## Background
+
+The server is primarily coded in TypeScript. Our first official stable release was published in August 2021 after extensive closed alpha and open beta testing since August 2020.
+
+The server uses AppleScript to perform simple functions like sending messages & attachments and creating chats, and polls the `chat.db` database to see when new messages come in. We provide extra functionality in the form of the Private API bundle (docs linked in the sidebar), which uses native Objective-C to communicate with iMessage itself and access much deeper functions.
+
+## Supported Mac Devices
+
+Any macOS device running Sierra and newer, with iMessage activated successfully.
+
+### Why macOS is required
+
+BlueBubbles cannot run as an ordinary Linux or Windows container. The server relies on the macOS Messages app and its `chat.db` database, AppleScript, and, for optional Private API features, macOS-only frameworks, so it must run within macOS.
+
+A Linux host can still use Docker or Podman as an advanced virtualization setup that runs a macOS virtual machine. See the [macOS virtualization overview](/server/advanced/macos-virtualization) or the [Docker-OSX guide](/server/advanced/macos-virtualization/running-bluebubbles-in-docker-osx) for those setups. In both cases, BlueBubbles runs in the macOS guest rather than directly on the Linux host, and iMessage must be activated and working inside that guest.
+
+{% hint style="info" %}
+macOS El Capitan is *no longer supported*
+{% endhint %}
+
+macOS VMs are also compatible, however you **must** be able to use iMessage (this involves some work with spoofing your hardware to seem like a real Mac inside the VMX file). See [Running a macOS VM](/server/advanced/macos-virtualization/running-a-macos-vm) for more details.
+
+If you'd like the most stable experience, we recommend going with Catalina or Big Sur.
+
+## Downloads
+
+{% @github-files/github-code-block url="<https://github.com/BlueBubblesApp/bluebubbles-server/releases>" %}
+
+## Contributors <a href="#contributors" id="contributors"></a>
+
+### Main Developers <a href="#main-developers" id="main-developers"></a>
+
+{% @github-files/github-code-block url="<https://github.com/zlshames>" %}
+
+### Other Contributors <a href="#other-contributors" id="other-contributors"></a>
+
+We appreciate y'all!
+
+{% @github-files/github-code-block url="<https://github.com/elliotnash>" %}
+
+
+# Installation Guides
+
+
+# Manual Setup
+
+Set up BlueBubbles without signing into your Google account
+
+## Server Installation
+
+On the macOS device you'd like to use for the server, open the [server GitHub](https://github.com/BlueBubblesApp/bluebubbles-server/releases/latest). Scroll to the bottom and download the .dmg file.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FCIwRkkrJBEWgPxo786Lz%2FScreenshot%202023-05-02%20at%2012.46.24%20PM.png?alt=media&amp;token=b18a65f2-99e1-428c-8f4d-a40ddecbfa44" alt=""><figcaption><p>Download the .dmg file in the Assets list</p></figcaption></figure>
+
+Locate the downloaded .dmg in your Downloads folder in **Finder.** Right click (or Ctrl + Left click) the .dmg file to **Open** the app. (Do not open the .dmg from the Downloads Center in the Dock!)
+
+{% hint style="info" %}
+Apple disabled our Developer Account with no further explanation. As a result, the server app is now unsigned. The above process is required to install the unsigned app without visiting the security menus in System Preferences.
+{% endhint %}
+
+Drag the app icon to the applications folder when prompted. Right click (or Ctrl + Left click) the popup to **Eject** it. Finally, open the app from the applications folder, and you will be greeted with the welcome screen.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F80WWcUI52KpphRNM580v%2FScreenshot%202023-05-02%20at%2012.54.20%20PM.png?alt=media&amp;token=4656329a-00fc-4444-adc6-c26bf545975a" alt=""><figcaption><p>Welcome screen</p></figcaption></figure>
+
+Proceed through the **Intro**, and **Permissions** steps, following the on-screen guide to enable accessibility and full disk access. Note that accessiblity is **not required** for BlueBubbles to function.
+
+Once full disk access is enabled, proceed to the **Notifications** step. Switch to the **Manual Setup** tab to avoid signing in with Google.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Flwr37PFOeJXjYg76DOmC%2FScreenshot%202023-05-02%20at%2012.58.45%20PM.png?alt=media&amp;token=d46f35f3-5b41-4371-be92-6a0dc2545aa7" alt=""><figcaption><p>Select Manual Setup</p></figcaption></figure>
+
+**On your Mac**, open the [Firebase Console](https://console.firebase.google.com/) and login with your Google account. Create a Firebase account and generate `google_services.json` and `firebase-adminsdk.json` by following the below video or written tutorial.
+
+{% tabs %}
+{% tab title="Written Guide" %}
+{% hint style="info" %}
+The name of the project does not have to be **BlueBubblesApp** if you already have a project by that name.
+{% endhint %}
+
+1. Click **Create a Project** and enter **BlueBubblesApp** as the name. Disable Google Analytics (why do you want Google spying on you?) and wait for the project to be created.
+2. Open the navigation menu and select **Databases & Storage** > **Firestore**. Depending on which console layout Google shows you, this may instead appear as **Build** > **Firestore Database**.
+3. Click **Create database**. If the project already has a Firestore database, this button is labeled **Add database** instead. On the **Create database** page:
+   * Leave the **Database ID** set to `(default)`, if this option is shown.
+   * Select **Standard edition**, if this option is shown.
+   * Select **Firestore in Native mode**, if this option is shown.
+   * Choose a region or multi-region close to the Mac running BlueBubbles. This location cannot be changed after the database is created, so review the selection before continuing.
+   * Select **Production mode** for the starting security rules. You will replace these rules in the next steps.
+   * Click **Create**.
+4. If Cloud Firestore glitches and does not show you the database page, simply refresh the page.
+5. In the tabs near the top, click **Rules**
+6. Set the rule's condition from `allow read, write: if false;` to `allow read, write: if true;` (Change false to true) and click **Publish**.
+7. Click the gear cog in the top left and click **Project Settings**.
+8. In the tabs near the top, navigate to **Service Accounts**. Generate a new private key and save this locally. **This will download file 1 / 2 needed for the manual setup.**
+9. Next, navigate to the **General** tab.
+10. Scroll to the bottom of the page and click the Android icon to add an Android app. Set the package name to `com.bluebubbles.messaging` and leave the other fields blank.
+11. Click **Register app**, then **Download google\_services.json**. **This will download file 2 / 2 needed for the manual setup.**
+    {% endtab %}
+
+{% tab title="Video Guide" %}
+{% embed url="<https://bluebubbles.app/install/manual-setup.mp4>" %}
+{% endtab %}
+{% endtabs %}
+
+After getting the downloaded files, drag and drop them into the fields shown above.
+
+Proceed to the **Connection** step.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F5mPKnzE42khk1cqKBFxn%2FScreenshot%202023-05-02%20at%204.25.02%20PM.png?alt=media&amp;token=f1714b7a-0bff-435f-a5cb-ef2dce24cbea" alt=""><figcaption><p>Connection Step</p></figcaption></figure>
+
+Set a strong server password, and make sure to use the floppy disk icon to save it.
+
+{% hint style="info" %}
+In most cases, Cloudflare is the proxy service you should use. However, Cloudflare has a 100MB file size limit, which may prevent sending or receiving large videos.
+
+If you need higher bandwidth or experience issues, you can try:
+
+1. **zrok**: An open-source proxy [sponsored by NetFoundry](https://netfoundry.io/) that offers 5GB/day on its free tier. It's built-in to the server and handles large files better than Cloudflare. For users who want to avoid all limits, zrok is also [fully self-hostable](https://netfoundry.io/docs/zrok/guides/self-hosting/linux/). See our [zrok Setup Guide](/server/advanced/byo-proxy-service-guides/zrok-proxy).
+2. **Ngrok**: A reliable alternative, but the free tier is restricted to 1GB of bandwidth per month.
+
+If you stick with Cloudflare and have connection issues, try these troubleshooting steps:
+
+1. Cycle your wifi connection on the **client** device (not the server Mac)
+2. Restart the server app to get a new URL and repeat step 1 if necessary
+3. Set Cloudflare DNS (`one.one.one.one`) in your phone's Private DNS setting
+
+If these fail, you can switch to Ngrok using the Proxy Service dropdown from the server settings. Ngrok may have increased outages and more rate limiting compared to Cloudflare.
+{% endhint %}
+
+Proceed to the **Private API** step.
+
+{% hint style="warning" %}
+The Private API setup (along with its requirements) is optional! If you would like to immediately set up the Private API, please follow [our guide](https://docs.bluebubbles.app/private-api/installation).
+
+Do not enable the Private API checkbox unless your requirements are passing and you have completed the setup.
+{% endhint %}
+
+Proceed to the **Finish** step. Here, you can customize any server settings to your liking, these are mostly cosmetic.
+
+Be sure to visit any of our Basic or Advanced guides in the sidebar for even further configuration and customization possibilities!
+
+You are now ready to download the app on your Android or PC!
+
+## App Installation
+
+Download and install the app for your desired device from the links on our [website](https://bluebubbles.app/downloads/).
+
+Open the app, making sure to grant all permissions and disable battery optimizations. On the server connection step, you can use the QR code button on the server homepage to quickly connect, or type your URL and password manually. Sync your messages, and you're ready to use BlueBubbles!
+
+
+# Supporting the Project
+
+How can you support the project?
+
+[Donate Here](https://bluebubbles.app/donate/) (PayPal; One-Time)
+
+[Sponsor Us Here](https://github.com/sponsors/BlueBubblesApp) (GitHub; Recurring)
+
+Donate via Venmo (One-Time)
+
+* QR Code (Click to Expand): <img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F8u2Y6m4nx6x0zHfMt9bK%2Fmarkup_qr_2.png?alt=media&amp;token=581f52ea-ed10-488a-a543-b3945e4d6a1c" alt="" data-size="line">
+* Username: `@bluebubblesmessaging`
+
+If you're even looking at this page, thank you! We appreciate any donations made to this effort, large or small! Any donations made will go directly to the main developers, split evenly. If more developers choose to contribute, we will happily split the donations with them.
+
+Our developers have put hundreds of hours into the research, design, and creation of the BlueBubbles App ecosystem. All donations will help compensate the developers for their time. All developers are doing this as a side project, in their free time.
+
+
+# Licenses / Legal
+
+## Disclaimers
+
+* This app is in no way affiliated with or endorsed by Apple and / or their affiliate(s), it provided is for educational purposes only. Apple, macOS, and iMessage are trademarks of Apple Inc., registered in the U.S. and other countries.
+
+## Licenses
+
+* Tools and some image resources are under the [Apache license, version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+
+# Basic Guides - Overview
+
+Here you'll find simple guides for using BlueBubbles
+
+{% embed url="<https://docs.bluebubbles.app/server/basic-guides/port-forwarding-and-dynamic-dns>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/basic-guides/preventing-macos-from-sleeping>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/basic-guides/migrating-servers>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/basic-guides/multiple-users-on-the-same-mac>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/basic-guides/autostart-server-after-crash>" %}
+
+
+# Port Forwarding & Dynamic DNS
+
+This guide will show you how to port-forward using your home's router, so you can connect directly to your BlueBubbles server using a Dynamic DNS. No need for a third-party proxy service.
+
+Before you begin, make sure that the following pre-requisites apply to you. If ***any*** of them do not apply to you, this will not be possible for you, and you may need to stick to the build-in proxy services, pay for one, or self-host a reverse proxy.
+
+## Pre-requisites
+
+* You have access to your network's router
+  * This doesn't need to be physical access
+  * You will need to know how to login to your router's UI via your browser. This guide will walk you through part of it but will not provide you with the required authentication information. You must already know this.
+  * This will not work on school or work networks
+* Your macOS device must already be setup (physical or VM)
+* Your macOS device must have a static IP Address.
+  * If you don't already have a static IP, learn how to set one [here](https://www.youtube.com/watch?v=rzyBJ0dnjBE)
+
+## Before You Begin
+
+Read these notes before you begin, just in case...
+
+* If you are running macOS in a VM, make sure the network adapter is configured as "Bridged".
+  * This means that the VM will connect directly to your router, rather than through the host computer.
+  * This allows external connections to connect directly to your mac server.
+* By default, this setup utilizes HTTP, **not** HTTPS. In order to use HTTPS, you will need to know how to setup a certificate with your dynamic DNS provider. Whether that be via your router, or manual using Let's Encrypt.
+  * This implies that your data is unencrypted when no certificate is implemented.
+  * You can utilize the `Encrypt Messages` option in the BlueBubbles server settings to protect some of your data, but not all.
+* If no certificate is implemented, and you are connecting over HTTP, BlueBubbles Web will not be usable. This is because browsers now require a secure connection when making API calls to a server.
+
+## Port Forwarding Guide
+
+Now that you've read the pre-requisites and the "before you begin" notes, you can start the setup.
+
+1. Get the IP of both your router and your macOS device (or VM).
+   1. To get this information, open `System Preferences` and find the `Network` settings.
+   2. Click on the connected `Ethernet` or `WiFi` device on the left sidebar.
+   3. On the right-hand side, find the `IP Address` entry, and under that, the `Router` IP entry
+      1. If you *do not* see `IP Address` or `Router` entries on the right side, click `Advanced`, and then select the `TCP/IP` tab.
+   4. Copy those IPs somewhere you can reference.
+2. Open your browser and navigate to your router's home page
+   1. In your browser's URL bar, enter `http://<router IP>`, replacing `<router IP>` with the router entry you copied earlier. If your router's home page connects over HTTPS, use `https://` instead. However, the majority of routers utilize HTTP by default.
+   2. Your router's IP will typically look something like one of the following:
+      1. `192.168.0.1`
+      2. `10.0.0.1`
+      3. `192.168.50.1`
+   3. If you get one of those `Your connection isn't private` browser pages, simply type `thisisunsafe` directly into the browser window (not the URL bar) and the site should load.
+3. When prompted to enter your login credentials, enter your username and password to login.
+   1. It's typical that the router has the default username and password printed on a sticker, on the device itself.
+   2. If you do not know your username or password, it's fairly typical for the default username to be `admin`. However, the password can vary by manufacturer. A list of possible default credentials can be found [here](https://www.softwaretestinghelp.com/default-router-username-and-password-list/).
+4. Next, you will need to find the Port-forwarding settings. Many routers will list it in the sidebar under `Port Forwarding`, or similar. However, some routers may hide those settings under the `WAN` tab in the sidebar.
+   1. If you cannot find the port-forwarding configuration page, you might have luck finding it after reading one of the guides [here](https://portforward.com/router.htm)
+5. Once on the port forwarding configuration page, click the button to add a new port forwarding configuration/profile.
+6. You will be prompted to enter some information:
+   1. **Name:** You can enter any name
+   2. **Protocol:** TCP or Both
+   3. **External Port:** This is the port that you will use in your server URL to connect.
+      1. This can be the same as the port that BlueBubbles is running on.
+   4. **Internal IP Address:** The IP of your macOS device that you copied earlier
+   5. **Internal Port:** The port that the BlueBubbles server is configured with
+7. Save the configuration/profile
+8. Read the next section to figure out how to verify that everything was setup properly
+
+## Port-Forwarding Verification
+
+This section will show you how to verify that you've port-forwarded correctly.
+
+1. On your mac, open your browser and navigate to <https://canyouseeme.org/>
+2. In the `Port` field, enter in the `External Port` you configured when setting up the port-forwarding.
+3. Click the `Check Port` button
+   1. You will receive a `Success` message if you've configured port-forwarding correctly.
+   2. You will see an `Error` if you did not configure port-forwarding correctly.
+
+If your verification failed, it means something went wrong in the process. Here are some things you can try to possibly fix any issues:
+
+* Go through the guide again and make sure that everything is configured properly
+* If you *did not* setup a static IP for your mac, your mac's IP Address may have changed, and you need to configure your port-forwarding profile with the new IP Address.
+* Maybe you entered the BlueBubbles port into the CanYouSeeMe website, and not the External Port you configured within your router.
+* Run the BlueBubbles server and try again.
+
+## Dynamic DNS Setup
+
+Once you have setup port-forwarding, the next step would be to sign up and use a Dynamic DNS service to connect your home IP Address to a domain. Here are some free Dynamic DNS providers that are fairly popular and well-liked:
+
+* [No-IP](https://www.noip.com/)
+  * No-IP now includes 1 free certificate, which you can apply [here](https://my.noip.com/my-services/ssl-certificates)
+* [DynDNS](https://dyn.com)
+* [DuckDNS](https://www.duckdns.org/)
+
+Once you have one picked, sign up for a free account. And setup a new Dynamic DNS configuration.
+
+Next, you will need to download the corresponding "DUC" (Dynamic Update Client) for your provider. This allows your mac to update the DNS record whenever it's router's external IP changes. Without it, you will lose connection to your server whenever your external IP changes.
+
+Here are the DUC clients for the providers above:
+
+* [No-IP DUC](https://www.noip.com/download)
+* [DynDNS DUC](https://help.dyn.com/updater-mac/)
+* [DuckDNS DUC](https://www.duckdns.org/install.jsp)
+
+Once the DUC is installed, login or configure it with your account.
+
+Lastly, add the DUC app to your mac account's login items so it runs each time the computer is rebooted.
+
+You will now be able to connect to your BlueBubbles server via your Dynamic DNS domain + Port Forwarded Port. For example: `http://<dynamic dns>:<port>`
+
+## Configuration in BlueBubbles
+
+In order to use your new Dynamic DNS with BlueBubbles, simply follow these steps.
+
+1. Open your BlueBubbles server
+2. Open the Settings tab
+3. Find the `Proxy Service` drop down and select `Dynamic DNS`.
+4. You will get a popup window asking you for a server URL. Enter your dynamic DNS URL + Port (i.e. `http://<dynamic dns>:<port>`)
+5. If you have an SSL Certificate, set your server URL to HTTPS instead of HTTP. Make sure to also enable `Settings > Advanced Connection Settings > Use Custom Certificate`. Once enabled, a self-signed certificate (`server.key` and `server.pem`) will be created in `~/Library/Application Support/bluebubbles-server/Certs`. Replace both files with your certificate files. It is important to name these files exactly the same as the self-signed certificate files that were created. *Note: If your certificate file ends in .crt, simply rename it to .pem.*
+6. Restart your BlueBubbles server to activate your new settings.
+7. You should now be configured to use BlueBubbles via port-forwarding.
+
+
+# Prevent macOS from Sleeping
+
+This page will show you multiple options for preventing your mac from sleeping. While there are multiple ways, we do have a recommended way... see below.
+
+## Amphetamine (Recommended)
+
+Amphetamine is a free app on the macOS App Store that allows you to better control when your mac device or VM goes to sleep. With this app, you'll be able to prevent your mac from sleeping due to inactivity, from turning off the display, as well as when you close your laptop lid.
+
+[Download Amphetamine](https://apps.apple.com/us/app/amphetamine/id937984704)
+
+*This solution is the best all-around solution, with the only downside being that you need to download an additional App.*
+
+**Note:** Remember to add this to your user accounts login items so it starts up on each reboot.
+
+## Caffeinate (Server Toggle)
+
+Believe it or not, the BlueBubbles server has a feature built into it to prevent your macOS device from sleeping. If you scroll about half-way down the settings page in the server, you should see a toggle for `Keep macOS Awake`. Toggle it on to prevent your mac from sleeping.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F8UIqsdSr17fqNCy53m5w%2FCapture.PNG?alt=media&amp;token=aff40d60-ab81-4e4b-ad71-0da2e7e63716" alt=""><figcaption></figcaption></figure>
+
+*This does not prevent your mac from sleeping when you close your laptop lid (if applicable)*
+
+## Battery Settings (System Preferences)
+
+While the previous solutions are great, macOS does have some built-in battery options within System Preferences. Just note, these settings are only available for physical mac devices, not virtualized macOS deployments.
+
+To find these settings, open the `System Preferences` App and find the `Battery` settings. You can also access them by clicking the Battery icon in your macOS status bar, then selecting `Battery Preferences`. Once there, check out the `Battery` and `Power Adapter` settings.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Ft0EO1jMgLvDkZLF9P07w%2Fimage.png?alt=media&amp;token=6de18de0-aced-42a6-8521-516c290d2db6" alt=""><figcaption></figcaption></figure>
+
+On the `Battery` page, you may want to configure the settings to **never turn the display off**, as well as disable the `Enable Power Nap while on battery power` toggle.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FcYVvoQkDParqq58tFTyF%2Fimage.png?alt=media&amp;token=99166ae9-ae42-4161-873d-397ec9c1c8c5" alt=""><figcaption></figcaption></figure>
+
+You may want to apply similar configurations to the `Power Adapter` tab. As well as enabling the `Prevent computer from sleeping automatically when the display is off` option.
+
+You may also see a checkbox for `Put hard disks to sleep when possible`. Make sure that checkbox *is not* checked (disabled).
+
+## Jolt of Caffeine (Alternative)
+
+If you are not having success with the previous solutions, there is another app you can download directly from the macOS App Store to prevent your mac from sleeping. The tool is called "Jolt of Caffeine" and it works very similarly to Amphetamine.
+
+[Download Jolt of Caffeine](https://apps.apple.com/us/app/jolt-of-caffeine/id1437130425)
+
+
+# Migrating Servers
+
+If you want to change the Mac server that your BlueBubbles Server runs on, you've come to the right place!
+
+{% hint style="info" %}
+This guide does not cover redoing the Private API setup. You will need to do that on your own if you want to use those features.
+{% endhint %}
+
+1. On your **old** BlueBubbles Mac, backup the following folder:
+   * `~/Library/Application\ Support/bluebubbles-server`
+2. Open the `Messages` app `Settings` from the macOS status bar.
+3. Navigate to the `iMessage` tab
+4. Turn on `Enable Messages in iCloud` to backup your messages to iCloud
+   * If you do not care to backup your messages to iCloud, skip this step
+   * If the option wasn't already enabled, click the `Sync Now` button and give your Mac some time to fully sync the messages (\~24 hrs to be safe)
+5. On your **new** BlueBubbles Mac, sign into iMessage and wait for your messages to sync
+   * Note: It's always good to confirm you can send iMessages using the native Messages app before proceeding.
+6. On your **new** BlueBubbles Mac, copy the `bluebubbles-server` folder that you backed up, back to the `~/Library/Application\ Support/` folder.
+7. Re-download and install the latest BlueBubbles Server from the GitHub [Releases page](https://github.com/BlueBubblesApp/bluebubbles-server/releases)
+8. Run the BlueBubbles Server
+9. If everything is running properly, you can shutdown your **old** Mac
+
+{% hint style="info" %}
+**Once this process is complete, make sure you reset your BlueBubbles clients! The underlying macOS database differs from one Mac to another and issues will arise if you do not perform a reset/re-sync on the client-side**
+{% endhint %}
+
+If done correctly, your BlueBubbles server should use the same settings from your old Mac, including your Firebase setup, Certificates, etc.
+
+Enjoy!
+
+
+# Multiple Users on the Same Mac
+
+This guide helps you run BlueBubbles for multiple people on the same Mac
+
+## Instructions
+
+1. Create another user account on your Mac, preferably with admin capabilities
+2. Turn on ["Fast Login Switching"](https://support.apple.com/en-tm/guide/mac-help/mchlp2439/mac)
+   * When you switch between accounts on the Mac, you will want to use the **Switch accounts using the menu bar** method
+3. Setup BlueBubbles on the new user
+   1. You will need to provide a ***different*** Firebase JSON and Admin SDK JSON for this user
+   2. You will need to provide a ***different*** Ngrok auth token for this user
+   3. You will need to provide a different port number for the server to use
+
+The other user should now be able to use BlueBubbles simultaneously with the original BlueBubbles user!
+
+### Caveats / Notes
+
+* You **will not** be able to auto-login multiple users. You can only select one user to be auto logged in when macOS first boots up, or after a power outage.
+
+
+# Autostart Server After Crash
+
+This document will guide you on how you can configure your Mac to automatically restart the BlueBubbles Server app if the app crashes (unsafe exit)
+
+{% hint style="info" %}
+Special thanks to [**Scr0nch**](https://github.com/Scr0nch) for the basis of this guide!
+{% endhint %}
+
+1. Open the TextEdit app on your Mac
+2. Copy & paste the following XML into the new text file:\
+   \
+   **Note: Modify the "Program" string value to the location of your BlueBubbles.app, and/or replace `{username}` with your macOS username**\\
+
+   <pre class="language-xml"><code class="lang-xml"><strong>&#x3C;?xml version="1.0" encoding="UTF-8"?>
+   </strong>&#x3C;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   &#x3C;plist version="1.0">
+       &#x3C;dict>
+           &#x3C;key>Label&#x3C;/key>
+           &#x3C;string>com.bluebubbles.server&#x3C;/string>
+           &#x3C;key>Program&#x3C;/key>
+           &#x3C;string>/Users/{username}/Applications/BlueBubbles.app/Contents/MacOS/BlueBubbles&#x3C;/string>
+           &#x3C;key>RunAtLoad&#x3C;/key>
+           &#x3C;true/>
+           &#x3C;key>KeepAlive&#x3C;/key>
+           &#x3C;dict>
+   	    &#x3C;key>SuccessfulExit&#x3C;/key>
+   	    &#x3C;false/>
+   	&#x3C;/dict>
+       &#x3C;/dict>
+   &#x3C;/plist>
+   </code></pre>
+
+   \
+   This will make sure that the specified program will be run when you first login to your Mac (`RunAtLoad`), and will be restarted if it crashes (`KeepAlive`). The `SuccessfulExit: false` flag means that the app will *not* be restarted if the server exits successfully; for example, if you manually close the app.
+3. Save the file to `~/Library/LaunchAgents/com.bluebubbles.server.plist`
+   1. `CMD + S` to save the file
+   2. `CMD + Shift + G` to open a file location
+   3. Paste `~/Library/` into the popup and hit Enter
+   4. Find the `LaunchAgents` folder and open it
+      * If it does not exist, create it using the `New Folder` button
+   5. Enter `com.bluebubbles.server.plist` in the `Save As` field
+4. Disable the built-in autostart option in the BlueBubbles Server:\
+   ![](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FzSXvf9cIt2DYlndJqNTI%2Fimage.png?alt=media\&token=a0ac5f76-335c-4674-aa4c-134b3c309d91)
+5. Install the launch agent and load it after the current user graphically logs in:
+
+   ```
+   launchctl bootstrap gui/$(id -u $(whoami)) ~/Library/LaunchAgents/com.bluebubbles.server.plist
+   ```
+6. Immediately start the launch agent (only necessary for the first time):
+
+   ```
+   launchctl kickstart gui/$(id -u $(whoami))/com.bluebubbles.server
+   ```
+
+Some additional notes:
+
+* To uninstall the launch agent:
+
+  ```
+  launchctl remove com.bluebubbles.server
+  ```
+* To print information about the launch agent:
+
+  ```
+  launchctl print gui/$(id -u $(whoami))/com.bluebubbles.server
+  ```
+
+
+# Troubleshooting Guides - Overview
+
+The following guides are to help you if you run into any issues setting up or using the BlueBubbles Server.
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/bluebubbles-server-cannot-access-macos-contacts>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/not-receiving-notifications-or-url-changes-on-android>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/unable-to-send-messages-to-international-contacts>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/bluebubbles-app-is-taking-up-too-much-storage>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/cant-send-messages-from-bluebubbles>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/bluebubbles-server-opens-to-a-blank-white-screen>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/slow-upload-speed-when-connecting-over-lan>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/restarting-your-server-without-a-direct-connection>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/troubleshooting-guides/fix-facetime-features-for-virtual-machines>" %}
+
+
+# BlueBubbles Server Cannot Access MacOS Contacts
+
+The following guide will show you how you can manually modify the TCC database to allow BlueBubbles to access your macOS Contacts.
+
+## Why does this happen?
+
+This will sometimes occur after disabling SIP (System Integrity Protection) on your Mac during the setup for the Private API. We are unsure exactly why this happens, but we know how to fix it.
+
+## How can this be fixed?
+
+MacOS maintains a database of the allowed permissions. All we need to do is modify this database and manually add the BlueBubbles Server to the "allow" list for the Contacts permission.
+
+**Technical Level of Effort:** Medium
+
+## Steps to fix the issue
+
+1. Open up the Terminal app on your Mac
+   * Use the `CMD + Space` hotkey combo to open Spotlight Search and type `Terminal`
+2. Run the following command to make a backup of the `TCC.db` file in case of corruption
+   * `cp ~/Library/Application\ Support/com.apple.TCC/TCC.db ~/Library/Application\ Support/com.apple.TCC/TCC.db.bak`
+3. Open the `TCC.db` database file using the following command:
+   * `sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db`
+   * Do not omit the `~` character from the file path
+   * This will open the database for editing
+4. Paste the following commands, hitting `ENTER` after each one. If you receive an error when running any of the following commands, do not worry, you can ignore them.
+   * `INSERT INTO access VALUES('kTCCServiceAddressBook','com.BlueBubbles.BlueBubbles-Server',0,2,4,1,X'fade0c00000000b000000001000000060000000200000022636f6d2e426c7565427562626c65732e426c7565427562626c65732d5365727665720000000000060000000f000000060000000e000000010000000a2a864886f76364060206000000000000000000060000000e000000000000000a2a864886f7636406010d0000000000000000000b000000000000000a7375626a6563742e4f550000000000010000000a575056323735483857370000',NULL,0,'UNUSED',NULL,0,1675472593);`
+   * `INSERT INTO access VALUES('kTCCServiceContactsFull','com.BlueBubbles.BlueBubbles-Server',0,2,4,1,X'fade0c00000000b000000001000000060000000200000022636f6d2e426c7565427562626c65732e426c7565427562626c65732d5365727665720000000000060000000f000000060000000e000000010000000a2a864886f76364060206000000000000000000060000000e000000000000000a2a864886f7636406010d0000000000000000000b000000000000000a7375626a6563742e4f550000000000010000000a575056323735483857370000',NULL,0,'UNUSED',NULL,0,1675472593);`
+   * `INSERT INTO access VALUES('kTCCServiceContactsLimited','com.BlueBubbles.BlueBubbles-Server',0,2,4,1,X'fade0c00000000b000000001000000060000000200000022636f6d2e426c7565427562626c65732e426c7565427562626c65732d5365727665720000000000060000000f000000060000000e000000010000000a2a864886f76364060206000000000000000000060000000e000000000000000a2a864886f7636406010d0000000000000000000b000000000000000a7375626a6563742e4f550000000000010000000a575056323735483857370000',NULL,0,'UNUSED',NULL,0,1675472593);`
+5. Once complete, type `.exit` and hit `ENTER` to leave the `sqlite3` CLI
+6. Open the BlueBubbles Server (if not already open), and navigate to the Contacts tab
+7. Use the `Permissions -> Refresh Permission Status` button in BlueBubbles see if the Contacts permission is authorized
+   * If it is still not authorized, use the `Permissions -> Request Permission` button to try and force request the permission.
+   * If it is still not authorized, you may need to manually enable the permission within the `Security & Privacy` settings within `System Preferences`
+
+{% hint style="info" %}
+If at any point, you mess up or feel like something went wrong, simply run the following command to replace the `TCC.db` file with the one you backed up at the start:
+
+`mv ~/Library/Application\ Support/com.apple.TCC/TCC.db.bak ~/Library/Application\ Support/com.apple.TCC/TCC.db`
+
+Now, you can restart the process from step 2
+{% endhint %}
+
+BlueBubbles should now be able to access your macOS Contacts!
+
+## References
+
+* <https://apple.stackexchange.com/questions/384310/how-do-i-configure-camera-and-microphone-permission-on-macos-mojave>
+* <https://www.rainforestqa.com/blog/macos-tcc-db-deep-dive>
+
+##
+
+
+# Not Receiving Notifications or URL Changes on Android
+
+This page will help you troubleshoot and (hopefully) fix issues with not receiving notifications or URL changes on the Android app
+
+## How are notifications delivered?
+
+Notifications and URL changes are delivered via Google Firebase Messaging (FCM). During the setup of the BlueBubbles Server, you will be given the option to setup a Google Firebase project, linked to your Google account. This allows the BlueBubbles Server to dispatch notifications to your Android device without an open connection to the server. It will also allow the server to write your latest server URL to your Google Firebase's Firestore.
+
+{% hint style="info" %}
+If you do not complete the Firebase setup, you will not be able to receive Notifications or URL changes on Android!
+{% endhint %}
+
+## I completed the Firebase setup, but still am not receiving notifications or URL changes
+
+If you have completed the Firebase setup, but are still not receiving notifications, it may be caused by a variety of issues. Here are a few:
+
+* You originally set up your phone with a Firebase project, but changed it at a later point (possibly accidentally)
+  * Maybe you previously did the manual Firebase setup in the past, and more recently used the new automatic Firebase setup using the `Continue with Google` in the Server.
+  * If you have any `sender mismatch ID` errors on your server, that will indicate this case.
+* You stopped using the BlueBubbles App for more than 30 days
+  * The BlueBubbles Server will clear "inactive" device IDs from its database after 30 days of inactivity
+  * Whenever you open the app, your phone will "registers" itself with the server.
+* You do not have any devices registered within the `Devices` tab on the BlueBubbles Server
+  * This is the first indication that you will not receive notifications
+* Google Firebase is being blocked by a VPN, Firewall, Proxy, or DNS Blocker
+  * If this is the case, you'll see a `Failed to start FCM Service` error on your server with an error message of `dial tcp: no route to host`.
+
+## How to fix notifications
+
+Regardless of the issue, here are some ways to fix the issue.
+
+### Check your Mac's internet connection
+
+Sometimes you have a network outage or some other issue. Make sure that your Mac is still connected to the internet.
+
+### Make sure your Mac's time is synced
+
+Sometimes -- especially when using a macOS VM -- your Mac's time can go out of sync. As in, the time does not match up with the actual time in your time zone.
+
+You can check to see if your Mac's time is synced by going to <https://time.is>. It will tell you if your time is off, and by how much. It's ok to be a few milliseconds off, however, you do not want to be minutes off.
+
+To fix it, you can open your Mac's `System Preferences` and open `Date & Time` settings. Next, unlock the settings page by typing your password.
+
+If your time does not re-sync after entering your password, you can try changing your time zone temporarily, then changing it back to the original.
+
+{% hint style="info" %}
+If you are manually setting your time and time zone, you will likely need to switch to automatic setting of time and time zone.
+{% endhint %}
+
+### Check if your VPN, proxy, or DNS blocker is interfering
+
+In some cases, having a VPN, proxy, or DNS blocker may cause interference with registering your device with your Google Firebase project. As a result, you may not be able to register your device with your server, and subsequently, prevent notifications and URL changes to be dispatched to your Android device.
+
+The following apps/tools have been seen to cause issues:
+
+* Blockada
+* Adguard
+  * [How to use BlueBubbles with Adguard](https://docs.bluebubbles.app/client/usage-guides/using-bluebubbles-with-adguard)
+* PiHole
+* Certain VPNs
+
+{% hint style="warning" %}
+Ensure that `firebaseinstallations.googleapis.com` is not being blocked!
+{% endhint %}
+
+If you are using any of these apps/tools (or similar), and are not able to register your device with the server, disabling them during the BlueBubbles setup may fix the registration issues.
+
+### Re-register your Android device
+
+1. Open your `BlueBubbles Server` and open the `Devices` tab
+2. Use the `Manage` drop-down and select `Clear Devices` to remove your registered devices
+3. Open your `BlueBubbles App` on Android, and open the Settings
+4. Navigaote to the `Connection & Server` page
+5. Use the `Re-configure with BlueBubbles Server` option to re-connect your Android device
+   * You can also use the `Sign in with Google` button
+   * You can also use the `Fetch Firebase Config` button
+6. On your `BlueBubbles Server`, use the `Manage -> Refresh` button on the `Devices` tab to see if your device is now registered.
+
+You should now see your new device ID registered with the server, and should start receiving notifications!
+
+### Reboot your Mac
+
+I know\... the classic, "have you turned it off and then on again?" line. It may sound odd, but rebooting your Mac can fix a number of issues, not just this issue.
+
+### Reset your BlueBubbles app on Android
+
+Sometimes none of the solutions seem to work. Your next best option is to just reset the Android app.
+
+1. Open your `BlueBubbles App` on Android and backup your settings & themes using the `Settings -> Backup & Restore` page
+2. Navigate back to your Android launcher's home screen
+3. Open the BlueBubbles App's settings (through Android)
+4. Clear the storage for the app to reset it
+5. Open the BlueBubbles App and redo the initial setup & sync
+
+### Install Google Play Services via MicroG (for custom ROMs)
+
+If you are using custom ROM for your Android device, it could just be that you do not have Google Play Services installed. Unfortunately, that is required to receive notifications properly. You will need to install Google Play Services via MicroG.
+
+### If nothing seems to work...
+
+If none of these solutions seem to work, I think the culprit is likely your macOS environment. Make sure to check the BlueBubbles Server's errors/alerts and look for anything to indicate what the culprit might be.
+
+{% hint style="info" %}
+For additional help, join the Discord server!
+{% endhint %}
+
+
+# Unable to Send Messages to International Contacts
+
+This document will guide you on how to fix issues with sending messages to international phone numbers.
+
+## Why are my messages not sending?
+
+Typically, when you are having issues sending messages to international phone numbers (non-US), it is due to a missing region code. When the BlueBubbles Server receives a request to send a message, it will do the following:
+
+1. Checks if the phone number has a region code (i.e. `+1` for US numbers)
+   * If it does, it will be used to send the message (best case)
+2. If no region code is provided, the BlueBubbles Server will use the region code set by the base macOS system
+   * This is the next best option, but not always a sure-fire solution
+3. If no region code is provided and the BlueBubbles Server cannot determine the macOS region, `+1` will automatically be applied to the phone number
+   * **This is likely what is occurring, and why messages are not sent properly**
+
+## How can I fix the issue?
+
+## Best Solution
+
+The best solution to this issue is to make sure that your Contacts on your Android device includes the region code for the country the person is from.
+
+For instance, if the person is from the United Kingdom, make sure the phone number associated with their Contact entry is something like: `+44 20 7123 4567`
+
+### Fallback Solution
+
+The next best option is to set your macOS device's region to the region that the majority of your Contacts reside in.
+
+To do this, open `System Preferences` and navigate to the `Date & Time` settings.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F7VKX3FrBcJ4YfRd9Vob4%2FScreenshot%202024-03-10%20100425.png?alt=media&amp;token=4c9190b1-7667-4f59-a92a-98df44d138d6" alt=""><figcaption></figcaption></figure>
+
+Find the `Region` drop-down, and select your default region
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FeSaixlQxB7nUIayf8poh%2FScreenshot%202024-03-10%20100705.png?alt=media&amp;token=8e466501-6af6-4e98-897d-29aa5828a62b" alt=""><figcaption></figcaption></figure>
+
+Once you've set it, close System Preferences and then restart the BlueBubbles Server. That's it! The server should now "imply" your default region code if no region code is provided with each phone number.
+
+{% hint style="info" %}
+We still highly advise making sure that your Contacts on your Android device already include a region code.
+{% endhint %}
+
+
+# BlueBubbles App is Taking Up Too Much Storage
+
+This guide will show you how you can free up storage that the BlueBubbles App is taking up
+
+## Why is the app taking up so much storage?
+
+You likely receive a fair amount of images, videos, and other attachments from your friends. You may not realize, but after a long time these start to take up a lot of storage space.
+
+## How can I clear the storage?
+
+Luckily, there is a quick way to resolve this issue, built right into the BlueBubbles app.
+
+1. Open the BlueBubbles App
+2. Open `Settings` via the 3 dot menu
+3. Scroll down to the bottom and click on `Reset`
+4. Click `Remove Attachments`
+   * Do not click `Yes` or else it will clear all of your chat data, and have you re-sync with your server.
+
+Now, check the storage space used by the app, and it should be significantly less.
+
+Currently, we don't automatically purge old attachments, however, it's something that we may implement in the future.
+
+
+# Can't Send Messages from BlueBubbles
+
+This guide will show you how you can troubleshoot issues with sending messages through BlueBubbles.
+
+## Check your Server connection
+
+The first thing you need to do is make sure you are actually connected to your server. If you are not, you will need to resolve that issue first. This can be due to a variety of reasons, but here are some things you can check.
+
+1. Check to see if your BlueBubbles Server is running
+2. Check to see if the URL on the BlueBubbles App matches the URL on your BlueBubbles Server dashboard.
+   * If it does not, follow [this guide](https://docs.bluebubbles.app/server/troubleshooting-guides/not-receiving-notifications-or-url-changes-on-android) to resolve your issues
+3. If you are using Cloudflare, you may be hitting a DNS issue due to a newly provisioned domain
+   * To resolve this, try turning off the WiFi on your Android device, then fully closing and re-opening the app.
+   * You may switch back to WiFi shortly after. The goal is to flush your DNS cache so that your Android device can "find" your provisioned Cloudflare domain.
+4. Check to make sure that you don't have a VPN, proxy, or DNS blocker (PiHole, Blockada, Adguard) interfering with the connection
+
+## Check for popups on your Mac
+
+If you have recently set up your BlueBubbles Server, and you are unable to send messages, it may be due to a missing permission to use the `System Events` on your Mac.
+
+Go to your Mac and check for any popups asking if the BlueBubbles Server can interact with your Mac's `System Events` and allow it.
+
+## Make sure that you can send messages from the native iMessage App
+
+Often times, users cannot send messages from BlueBubbles, because they also cannot send messages from the native iMessage app on the Mac.
+
+To see if this is the case, try and send a message to a Contact via the native iMessage app on your Mac. If it doesn't send, this is also why BlueBubbles cannot send messages. If the message sends, but sends as an SMS (green bubble), this may also be why BlueBubbles cannot send either.
+
+If this is the case, this may indicate a couple of things:
+
+1. Your iCloud/iMessage account h as been flagged as spam
+   * To resolve this, you may need to chat with Apple to get your account un-flagged
+2. The serial number of your Mac has been flagged as spam.
+   * This is typically the case for macOS Virtual Machine deployments
+   * To resolve this, you may need to regenerate and set a new serial number, MLB, and ROM in your VM configuration.
+
+## A simple reboot
+
+This may sound dumb, but often times issues with sending can be resolved with a simple macOS restart. Sometimes things can just get out of whack, and a simple restart can fix it.
+
+## Try setting up the Private API
+
+If the other solutions do not apply or do not work, we recommend trying to setup the Private API. We actually recommend setting up the Private API anyways for a variety of reasons (if you are able to).
+
+Apple isn't perfect, and sometimes the Apple Script environment gets corrupted or just temporarily broken. Apple Script is what we use to send messages when the Private API is not enabled. Generally, using Apple Script to send messages is much less reliable than using the Private API.
+
+This is the best solution if a macOS reboot doesn't immediately fix your issue. In addition, you'll see a massive improvement in send-speed and the features you can use with BlueBubbles.
+
+Go to the link below to learn the benefits of using the Private API, and how to set it up.
+
+{% embed url="<https://docs.bluebubbles.app/helper-bundle/installation>" %}
+
+
+# BlueBubbles Server Opens to a Blank White Screen
+
+This document will show you how you can fix the blank white screen issue when opening the BlueBubbles Server
+
+### What's the problem?
+
+The BlueBubbles Server may open to a blank white screen (no UI). This will prevent you from setting up the server and/or interacting with it.
+
+Here is what the issue would look like:
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FeODUnCo7yfh7rt8FwGP3%2Fimage.png?alt=media&amp;token=651a9912-f5b5-42f9-a7da-7ba11daab738" alt=""><figcaption></figcaption></figure>
+
+### What's the cause?
+
+This is an environmental issue caused by some sort of conflict between Electron's network & OpenCore. Electron is the framework the server uses to run, and for whatever reason, some users run into an issue where the server's UI is rendered useless when SIP is disabled.
+
+From what has been reported to us, this only occurs in environments that meet the following criteria:
+
+* macOS Ventura+
+* SIP disabled through OpenCore
+
+### How can I fix this?
+
+The fix for this should be pretty straightforward, and involves adding an additional boot-arg to your OpenCore deployed Mac.
+
+In your `config.plist` add the following to your boot arguments under `NVRAM>Add7C436110-AB2A-4BBB-A880-FE41995C9F82`
+
+* `boot-args | string | ipc_control_port_options=0`
+
+Finally, reboot your Mac and the issue should be fixed.
+
+
+# Slow Upload Speed When Connecting Over LAN
+
+This document will help you fix slow upload speeds when connecting to your BlueBubbles Server over your LAN.
+
+### What's the issue?
+
+When sending attachments via BlueBubbles, upload speeds are incredibly slow when connected over your LAN (localhost/local IP)
+
+### What's the cause?
+
+This issue only occurs in VMware deployments with `vmxnet3` is used as the network adapter.
+
+### What's the fix?
+
+To fix this issue, you just need to disable "TCP Segment Offload (TSO)" on your Mac.
+
+1. Open `Terminal` on your Mac
+2. Run the following command: `sudo sysctl -w net.inet.tcp.tso=0`
+3. Create the following file (if not created): `/etc/sysctl.conf`
+4. Add the following line to the `sysctl.conf` file: `net.inet.tcp.tso=0`
+
+
+# Restarting Your Server Without a Direct Connection
+
+This page will show you how you can restart your server, even when your app isn't connected
+
+{% hint style="warning" %}
+This will only work if you have Firebase set up with your BlueBubbles Server. Your BlueBubbles Server will also need to be running. If your Mac is offline, shutdown, or logged out, this method will not work.
+{% endhint %}
+
+On the off-chance that you are unable to get the BlueBubbles App to connect to your BlueBubbles Server, and you also do not have remote access set up (i.e. TeamViewer or VNC), you can use this guide to force restart your server.
+
+### Steps
+
+**This will restart the BlueBubbles Server, not your Mac itself**
+
+1. Login to your [Firebase Console](https://console.firebase.google.com/)
+2. Select/Open the Firebase project linked to your BlueBubbles set up
+   * This is likely named something like `bluebubbles-e82d1`, where the part after the dash is randomly generated
+3. The next steps will depend upon whether you've used the automated Firebase set up or the manual Firebase setup
+
+{% tabs %}
+{% tab title="Automated Firebase Setups" %}
+If you used the "Continue with Google" button in the BlueBubbles Server to automate the Firebase project setup, this is what you need to follow.
+
+1. Expand the `Build` section in the left sidebar of your Firebase Console
+2. Select `Firestore Database`
+3. Select the `server` collection (it should be pre-selected)
+4. Select the `commands` document (it should be pre-selected)
+5. You should now see a field called `nextRestart` within the fields of `server/commands`
+   * **Make a note of the current value of the `serverUrl` field within the `server/config` document**
+6. Go to <https://currentmillis.com/> and copy the current "milliseconds since EPOCH"
+   * It should be a large numeric value such as `1713753987263`
+7. Edit the `nextRestart` field and paste the numeric value into it
+8. Click `Update` to save the value
+   {% endtab %}
+
+{% tab title="Manual Firebase Setups" %}
+If you've been using BlueBubbles for a long time, this *may be* how you originally setup BlueBubbles before the automated setup was available. If you did this manually, you had to create a Firebase project, enable the Realtime Database, and download the Firebase configuration files for the BlueBubbles Server.
+
+1. Expand the `Build` section in the left sidebar of your Firebase Console
+2. Select `Realtime Database`
+3. Select the `config` tree item
+4. You should now see a field called `nextRestart`
+   * **Make a note of the current value of the `serverUrl` field**
+5. Go to <https://currentmillis.com/> and copy the current "milliseconds since EPOCH"
+   * It should be a large numeric value such as `1713753987263`
+6. Edit the `nextRestart` field and paste the numeric value into it
+7. Deselecting the field should apply the new value
+   {% endtab %}
+   {% endtabs %}
+
+Once the `nextRestart` field has been edited, the server will detect the modification, and restart. This restart process may take a couple of minutes, so be patient.
+
+If the BlueBubbles Server has successfully restarted, your `serverUrl` should update with the newly assigned URL (if you are using a proxy service)
+
+### Reasons Why You May Not Get a New Server URL
+
+* Your BlueBubbles Server is not running
+* Your Mac Server may be offline or not connected to the internet
+* Your home network is blocking connections to Firebase
+* Your home network is blocking connections to your proxy service
+
+
+# Fix FaceTime Features for Virtual Machines
+
+This document will guide you on possibly fixing the FaceTime features when using a macOS virtual machine.
+
+{% hint style="danger" %}
+The FaceTime features **require macOS Monterey and newer**
+{% endhint %}
+
+{% hint style="warning" %}
+Keep in mind, the FaceTime features are experimental and may not always be 100% reliable.
+{% endhint %}
+
+### Why Wouldn't the FaceTime Features Work in a Virtual Machine?
+
+Virtual machines typically do not have a microphone or webcam plugged into it, so when FaceTime tries to load and use the default audio/video devices, it fails and causes calls to fail.
+
+### What Can I Do to Fix It?
+
+A possibly way to fix the issue is to install "virtual" audio/video devices on your Mac so that FaceTime can use those.
+
+{% hint style="info" %}
+Complete the following steps on your macOS virtual machine
+{% endhint %}
+
+1. Download & install a virtual audio device: <https://vb-audio.com/Cable/>
+2. Download & install a virtual video device: <https://obsproject.com/>
+   * Open OBS and Start the Virtual Camera
+     * You only need to do this once to register it with the system and show in FaceTime
+3. Reboot your Mac
+4. Open FaceTime
+5. Using the FaceTime status bar menu...
+   * Select the OBS virtual camera as your video source
+   * Select the VB Audio virtual audio device as your audio source
+
+Now that you have virtual devices setup for both your audio/video inputs, FaceTime calling/answering should be more reliable.
+
+
+# Advanced Guides - Overview
+
+Here you will find more advanced guides for using BlueBubbles
+
+{% embed url="<https://docs.bluebubbles.app/server/advanced/disabling-sip-on-unofficial-macs-for-the-private-api>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/advanced/macos-virtualization>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/advanced/generating-an-ssl-certificate-using-certbot>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/advanced/registering-a-phone-number-with-your-imessage-account>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/advanced/byo-proxy-service-guides>" %}
+
+
+# Generating an SSL Certificate using CertBot
+
+Learn how you can generate an SSL Certificate using CertBot for BlueBubbles. This is especially useful for dynamic DNS setups.
+
+{% hint style="info" %}
+This guide is for users who are using a dynamic DNS setup, and still want to benefit from the security of using SSL certificates to encrypt traffic over HTTPS.
+{% endhint %}
+
+## Why would you want to use a SSL certificate with BlueBubbles?
+
+When using a dynamic DNS with BlueBubbles, traffic is not encrypted by default and communication is done over HTTP. In setups such as ones using the Cloudflare or Ngrok proxy services, they get their traffic encrypted via the secure tunnel that is created, and can be accessed using HTTPS.
+
+In order to use a Dynamic DNS setup and have your traffic encrypted, you'll need to setup certificates for the BlueBubbles server to use.
+
+## How to generate SSL certificates
+
+### Installing CertBot
+
+Open Terminal on your Mac and follow these instructions
+
+1. Install CertBot using the instructions on their website, up to and including step 4: <https://certbot.eff.org/instructions?ws=other&os=osx&tab=wildcard>
+2. Go to the following link to see if your dynamic DNS provider is supported by CertBot: <https://eff-certbot.readthedocs.io/en/latest/using.html#dns-plugins>
+   * Scroll down to the bottom to find 3rd-party plugins
+3. Run the following command to install your corresponding dynamic DNS plugin
+   * `$(brew --prefix certbot)/libexec/bin/python -mpip install {{plugin_name}}`
+   * Replace `{{plugin_name}}` with the name of your dynamic DNS plugin. For example: `certbot-dns-cloudflare`
+
+### Configuring CertBot
+
+The following will setup a directory in your home folder called `certbot` where all your configs and certificates will be stored.
+
+Run the following commands in Terminal:
+
+1. `mkdir -p ~/certbot/config ~/certbot/work ~/certbot/logs ~/.config/letsencrypt`
+   * This will create the 4 required directories
+2. `echo "config-dir = ~/certbot/config\nwork-dir = ~/certbot/work\nlogs-dir = ~/certbot/logs\nkey-type = rsa" > ~/.config/letsencrypt/cli.ini`
+   * This will set the directory variables in the Let's Encrypt CLI config file
+
+### Creating your Certificate
+
+You will now create your certificate using the dynamic DNS plugin you identified in step 4 of *Installing CertBot.*
+
+Run the following command in Terminal, replacing `{{plugin_flag}}` with your plugin's CLI flag:
+
+`certbot certonly {{plugin_flag}}`
+
+Cloudflare Example Plugin Flag: `--dns-cloudflare`
+
+### Configure auto-renewal of your Certificate
+
+By default, your certificate only lasts a set amount of time. In order to automatically renew your certificate, you will need to configure an app called `cron` on your Mac.
+
+1. Open Terminal and run the following command to open `cron`'s configuration:
+   * `crontab -e`
+2. Hit the `i` key on your keyboard once
+3. Paste the following line into the text area in your Terminal:
+   * `0 0,12 * * * /usr/local/bin/python3 -c 'import random; import time; time.sleep(random.random() * 3600)' && /usr/local/bin/certbot renew -q --post-hook "killall BlueBubbles ; sleep 10 && open -a BlueBubbles"`
+4. Hit the `Escape` key, then type `:wq` and then hit `Enter`
+
+The `cron` configuration is now saved and your certificate will auto-renew. To check that the renewal process is working, wait at least 12 hours, then check the certbot logs located at `~/certbot/logs/letsencrypt.log`. If you don't see any recent logs, then it's possible the paths in the crontab are not correct. Run the following command and verify the output matches the paths in the crontab entry.
+
+* `echo "\nPython Path: $(command -v python3) \nCertbot Path: $(command -v certbot) \n"`
+
+### Port-forwarding and Dynamic DNS setup
+
+In order to use a dynamic DNS, you'll need to setup port-forwarding so incoming requests to your router will be forwarded to your Mac.
+
+Follow the guide here on how to do that: <https://docs.bluebubbles.app/server/basic-guides/port-forwarding-and-dynamic-dns>
+
+### Loading your certificates into the BlueBubbles Server
+
+1. Open the BlueBubbles Server
+2. Open the Settings tab
+3. Set your `Proxy Service` to `Dynamic DNS`
+   * Set your Dynamic DNS URL using `https://`
+4. Expand the `Advanced Connection Settings` section
+5. Enable the `Use Custom Certificate` option
+6. Run the following commands, replacing `{{domain}}` with your domain for your Dynamic DNS
+   * `rm ~/Library/Application\ Support/bluebubbles-server/Certs/server.key`
+   * `rm ~/Library/Application\ Support/bluebubbles-server/Certs/server.pem`
+   * `ln -s ~/certbot/config/live/{{domain}}/privkey.pem ~/Library/Application\ Support/bluebubbles-server/Certs/server.key`
+   * `ln -s ~/certbot/config/live/{{domain}}/fullchain.pem ~/Library/Application\ Support/bluebubbles-server/Certs/server.pem`
+7. Restart the BlueBubbles Server
+
+If it all worked correctly you should be able to now configure your clients to point to your new secure server URL!
+
+{% hint style="info" %}
+You can verify that your SSL certificates are setup properly if you can access your server URL using `https://` in your browser. You should see the BlueBubbles Landing Page.
+{% endhint %}
+
+
+# Disabling SIP on Unofficial Macs for the Private API
+
+Sometimes VMs/Hackintoshes/Patched Macs can be a bit finnicky to disable SIP - oftentimes you will only end up with SIP partially disabled when running `csrutil disable` in the terminal.
+
+Here are some steps that have worked for our users running various different unofficial macOS.
+
+## OpenCore Legacy Patcher
+
+Use the OpenCore Configurator and check the following boxes:
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FDiYWcibUtHel295beHin%2Fimage.png?alt=media&amp;token=a4487c85-4fad-4ee3-a89e-878c9d47b2ec" alt=""><figcaption></figcaption></figure>
+
+Once complete, build OpenCore again and reboot. Done!
+
+## OpenCore Big Sur
+
+1. Mount the EFI Partition using OpenCore
+2. Open the config.plist file in the OC folder (I opened in OpenCore)
+3. Create two entries:
+   1. NVRAM -> Delete -> 7C436110-AB2A-4BBB-A880-FE41995C9F82 -> csr-active-config
+   2. NVRAM -> Add -> 7C436110-AB2A-4BBB-A880-FE41995C9F82 -> csr-active-config: Value: 67000000
+
+## VMWare
+
+### Method 1
+
+1. Start by booting to macOS and opening a Terminal application window. Next, enter the command given below. This will create a NVRAM variable with the desired value, but misspelled variable name. This misspelling will be corrected in a later step.\\
+
+   ```bash
+   sudo nvram Asr-active-config=%7f%00%00%00
+   ```
+2. Shutdown macOS. Add the following to the bottom of the VMX file:\\
+
+   ```config
+   bios.forceSetupOnce = "TRUE"
+   ```
+
+   \
+   Save the VMX file and boot up macOS.\\
+3. You should be brought to the Boot Manager screen below. Select the `EFI Internal Shell`, as shown below.\\
+
+   [![Boot Manager](https://i.stack.imgur.com/muLxs.png)](https://i.stack.imgur.com/muLxs.png)
+4. Set the current filesystem to the EFI volume. This should be the mapped `fs0` filesystem, so you would enter the following\\
+
+   ```bash
+   fs0:
+   ```
+
+   \
+   Next, verify the label is `EFI` by entering the command below.\\
+
+   ```bash
+   vol
+   ```
+
+   \
+   If wrong, then try `fs1:`, `fs2:`, `fs3:`, ....\\
+5. Enter the command below to save the `Asr-active-config` variable to the file `csr.bin`.\\
+
+   ```bash
+   dmpstore Asr-active-config -s csr.bin
+   ```
+
+   \
+   Next, enter the command below to edit the `csr.bin` file.\\
+
+   ```bash
+   hexedit csr.bin
+   ```
+
+   \
+   You will need to correct the spelling by replacing the letter `A` with the letter `c`. The can be done by typing a `63` over the `41` on the first line. The corrected file will appear as shown below. When finished save the changes and exit.
+
+   \
+   [<img src="https://i.stack.imgur.com/vKW6Z.png" alt="" data-size="original">](https://i.stack.imgur.com/vKW6Z.png)
+
+   \
+   Enter the command below to create the `csr-active-config` variable in NVRAM.\\
+
+   ```bash
+   dmpstore -l csr.bin
+   ```
+
+   \
+   SIP will now be disabled on the next boot of macOS. If desired, enter the command below to remove the `Asr-active-config` variable from NVRAM.\\
+
+   ```bash
+   dmpstore -d Asr-active-config
+   ```
+6. Enter the command below to leave the command shell.\\
+
+   ```bash
+   exit
+   ```
+
+   \
+   From the `Boot Manager`, select `Mac OS X` to boot macOS.\\
+
+### Method 2 (Requires VMWare Workstation Pro)
+
+1. Shutdown your VM
+2. Choose Power on to Firmware from the Virtual Machine menu
+3. Select “Enter Setup”
+4. Boot from a file
+5. Arrow down to Recovery HD
+6. Hit enter until you can pick `boot.efi`
+7. Select `boot.efi`
+8. Hit enter
+9. You are now in recovery mode - open terminal from the Utilities menu, type `csrutil disable`, and reboot your VM.
+
+SIP should now be disabled and you can proceed with setting up the Private API!
+
+
+# Registering a Phone Number with your iMessage Account
+
+This page will guide you on how you can link your phone number with your iMessage account. By default, BlueBubbles will use your iCloud email to send iMessages.
+
+{% hint style="warning" %}
+The following links are to external websites that are not affiliated with BlueBubbles and their content can change at any time. Use at your own risk.
+{% endhint %}
+
+## SIM / eSIM Swapping Methods
+
+The following guide is maintained by a BlueBubbles community member and is a really good resource to find out information about registering your phone number using SIM-swapping
+
+{% embed url="<https://guide.atbluebubbles.com/>" %}
+
+## Non-Jailbreak Methods
+
+The following guides *do not* require you to have a jailbroken iPhone to accomplish phone number registration
+
+{% embed url="<https://www.reddit.com/r/BlueBubbles/comments/1938ock/stop_using_old_methods_heres_a_new_one/>" %}
+A newer SIM-card-swap method that is easier than previous methods and with additional instructions for eSIM-only iPhone models.
+{% endembed %}
+
+{% embed url="<https://www.reddit.com/r/AirMessage/comments/avj2y5/how_to_use_phone_number_with_airmessage_sometimes/>" %}
+Despite the title, this works with BlueBubbles as well A variety of methods using a spare iPhone. May be more compatible with older models of iPhone. Some of the methods require keeping an inactive SIM card in an iPhone while others involve removing the SIM card from the iPhone and leaving it turned off.
+{% endembed %}
+
+## Jailbreak Methods
+
+The following guides *require* you to have a jailbroken iPhone to accomplish phone number registration
+
+{% embed url="<https://www.github.com/AwesomeIndustry/SIMLessPNRGateway>" %}
+A jailbreak method for a spare iPhone on iOS 12\
+A writeup with easier-to-follow instructions: [SIMLess PNR Gateway Tutorial (Beginner Version)](https://docs.google.com/document/d/1L4HijxDCHkBBJ66RysCBKvNEK7yihM-rgJ-U4W56vJ0/)
+{% endembed %}
+
+{% embed url="<https://www.github.com/AwesomeIndustry/VintagePNR>" %}
+A jailbreak method for a spare iPhone on iOS 10
+{% endembed %}
+
+{% embed url="<https://www.github.com/thatmarcel/beepserv-rewrite>" %}
+A jailbreak method for a spare iPhone, rewritten from the now-defunct [beepserv](https://github.com/beeper/phone-registration-provider)
+{% endembed %}
+
+
+# macOS Virtualization
+
+Here, you will find guides on virtualizing macOS, whether that be in a virtual machine, or in a docker container.
+
+View the child-pages for guides on how to setup your own macOS Virtual Machine. We have guides in this GitBook, as well as external guides for specific environments & deployments.
+
+* [Running a macOS VM](/server/advanced/macos-virtualization/running-a-macos-vm)
+* [Running BlueBubbles in Docker-OSX](/server/advanced/macos-virtualization/running-bluebubbles-in-docker-osx)
+
+
+# Running a macOS VM
+
+Expand the sidebar for this page to see various guides to help you set up a macOS VM.
+
+If iMessage will not let you sign in, make sure to follow [Enabling iMessage in a VM](/server/advanced/macos-virtualization/running-a-macos-vm/enabling-imessage-in-a-vm).
+
+If you plan to make your VM in Windows, we highly recommend using [VMWare Workstation Pro](https://www.vmware.com/products/desktop-hypervisor/workstation-and-fusion).
+
+{% hint style="warning" %}
+This is by no means an easy process, and it is not guaranteed to work. We recommend using real Mac hardware to avoid compromising your Apple ID, you can find cheap Mac Minis (2009) on eBay for around $50-$75.
+
+Feel free to join our Discord, linked in the header above, if you need any help!
+{% endhint %}
+
+
+# Deploying macOS in VMWare on Windows (Full Guide)
+
+This document will guide you on how to setup a macOS virtual machine on your Windows operating system. This guide has a lot of steps, but I promise it's not hard. It's mainly to provide all the context and information to make the setup easy to follow. I've also broken the steps down into multiple sections in order to make it easier to understand.
+
+### Before You Begin
+
+Make sure that your PC has Virtualization enabled in the BIOS. If you do not know if you have virtualization enabled, open Task Manager's `Performance` tab:
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FIEoHeVAdBUVWSHwBI4OB%2Fimage.png?alt=media&amp;token=6af471e2-cc9c-452b-acdd-74b8a76bfbdb" alt=""><figcaption></figcaption></figure>
+
+If virtualization is *disabled*, you need to boot into your PC's BIOS and enable it. Now, enabling it will be different per-vendor, however, here are 2 YouTube videos that may help:
+
+* <https://www.youtube.com/watch?v=ZDeje9wgDp4>
+* <https://www.youtube.com/watch?v=MOuTxfzCvMY>
+
+### Downloading a Fresh Copy of macOS
+
+The first step in setting up a virtual machine is getting an image that is compatible with our virtualization software, in this case, VMWare. To do this, we will use OpenCore. The following instructions are a shortened form of the full OpenCore Install Guide:
+
+<https://dortania.github.io/OpenCore-Install-Guide/installer-guide/windows-install.html>
+
+**Note**: This method is preferred over downloading an existing ISO from the internet because you never know when the integrity of an ISO from the internet might be compromised.
+
+#### Pre-requisites
+
+* You should have Python installed: <https://www.python.org/downloads/>
+
+#### Instructions
+
+1. Download the latest release of OpenCore.
+   * Download Link: <https://github.com/acidanthera/OpenCorePkg/releases>
+   * Choose the `zip` file labeled with `RELEASE`.
+2. Extract the OpenCore ZIP file, and open the extracted folder.
+3. Navigate into `Utilities\macrecovery`.
+4. Holding `Shift` on your keyboard, right-click your explorer window and select `Open PowerShell window here`.
+5. Run the python command corresponding to the macOS version you want to download, found in the OpenCore Install Guide.
+
+   * <https://dortania.github.io/OpenCore-Install-Guide/installer-guide/windows-install.html#downloading-macos>
+   * Running the command will download the `BaseSystem.dmg` image from Apple's servers
+
+   <div data-gb-custom-block data-tag="hint" data-style="info" class="hint hint-info"><p><strong>macOS Ventura</strong></p><p>If you'd like to download macOS Ventura, use the command below:</p><p><strong>This is not recommended for inexperienced users!</strong></p><pre class="language-bash"><code class="lang-bash">python ./macrecovery.py -b Mac-27AD2F918AE68F61 -m 00000000000000000 download
+   </code></pre></div>
+6. Next, cut/copy the `BaseSystem.dmg` file (generated in the `macrecovery` folder), to your user profile's `Documents` folder
+
+### Converting the macOS System Image to a VMWare Disk
+
+Now that you have the `BaseSystem.dmg` file, we will now need to convert it into a format that VMWare can understand and load. In order to do that, we need to use yet another open-source tool called `QEMU`. Follow the steps below to learn how to use it.
+
+#### Installing QEMU
+
+This is a short guide to show you how to install `QEMU`, an open-source tool for working with disk images.
+
+1. Download `QEMU` for Windows.
+   * Download Link: <https://qemu.weilnetz.de/w64/>
+   * You will see a bunch of folders with years on them. Ignore those. Download the `qemu-w64-setup-XXXXXXXX.exe` installer.
+2. Run the installer once the download completes.
+   * If you get a Windows SmartScreen alert, allow the installer to `Run Anyways`.
+   * If you get an error during installation saying a file cannot be written, just click the `Retry` button in the prompt.
+   * The installer will install files to `C:\Program Files\qemu`
+3. (Optional). You may want to add the `C:\Program Files\qemu` path to your Windows System Environment Variables
+   * This is optional because I will be using the full path to `qemu-img` in the rest of the guide.
+   * If you are non-technical or a beginner, I would skip this step.
+
+#### Creating the VMDK
+
+Now that we've installed `QEMU`, we need to use it to convert the `BaseSystem.dmg` to a VMWare `.vmdk` disk image.
+
+1. Open `Explorer` and navigate into your `Documents` folder (where your `BaseSystem.dmg` is located).
+2. Holding `Shift` on your keyboard, right-click your explorer window and select `Open PowerShell window here`.
+3. Run the following command to use `QEMU` to convert the image to a `.vmdk`.
+   * `& "C:\Program Files\qemu\qemu-img.exe" convert -O vmdk -o compat6 BaseSystem.dmg recovery.vmdk`
+     * Reference: <https://www.insanelymac.com/forum/topic/342603-guide-simple-steps-to-create-macos-installer-for-vmware-on-linux-or-windows/>
+4. You will now have a `recovery.vmdk` file in your `Documents` folder that you can use with VMWare.
+
+### Preparing & Unlocking VMWare
+
+In order for you to even be able to load a macOS system into VMWare, you will need to use a third-party program called `Auto-Unlocker` to patch your VMWare installation.
+
+#### Pre-requisites
+
+* You should have either VMWare Workstation Player (free), or VMWare Workstation Pro (paid) installed
+  * VMWare Workstation Player (free): <https://www.vmware.com/products/workstation-player.html> ([VMWare Workstation Player 16 download](https://support.broadcom.com/group/ecx/productfiles?subFamily=VMware%20Workstation%20Player\&displayGroup=VMware%20Workstation%20Player%2016\&release=16.2.5\&os=\&servicePk=208718\&language=EN))
+  * VMWare Workstation Pro (paid): <https://www.vmware.com/products/workstation-pro.html>
+
+#### Instructions (VMWare 16)
+
+1. Download `Auto-Unlocker`.
+   * <https://github.com/paolo-projects/auto-unlocker/releases/tag/v2.0.0a>
+2. Extract the downloaded `zip` file.
+3. Run the `Unlocker.exe` file.
+   * This will bring up a GUI to patch your VMWare installation
+   * The app will attempt to auto-fill the install locations. However, if they are empty, please locate and select your VMWare installation folder.
+4. Click the `Patch` button
+5. Once the patching is complete, you may close the Unlocker app.
+
+#### Instructions (VMWare 15 or Older)
+
+1. Download `Unlocker`.
+   * <https://github.com/paolo-projects/unlocker/releases/tag/3.0.4>
+2. Extract the downloaded `zip` file.
+3. Run the `win-install.cmd` file *as an Administrator*
+
+### Setting up the Virtual Machine
+
+#### Creating the Virtual Machine
+
+This section will detail how to create the base virtual machine using the recovery disk we created earlier.
+
+**Pre-requisites**
+
+* You should have either VMWare Workstation Player (free), or VMWare Workstation Pro (paid) installed
+  * VMWare Workstation Player (free): <https://www.vmware.com/products/workstation-player.html> ([VMWare Workstation Player 16 download](https://support.broadcom.com/group/ecx/productfiles?subFamily=VMware%20Workstation%20Player\&displayGroup=VMware%20Workstation%20Player%2016\&release=16.2.5\&os=\&servicePk=208718\&language=EN))
+  * VMWare Workstation Pro (paid): <https://www.vmware.com/products/workstation-pro.html>
+* You should have patched your VMWare installation using the Unlocker app
+
+**Instructions**
+
+1. Open VMWare and click `File -> New Virtual Machine`
+2. Select `Custom Installation` and start navigating through the New Virtual Machine setup screens.
+3. On the `Guest Operating System Installation` page, select, `I will install the operating system later.`
+4. On the `Select a Guest Operating System` page, select `Apple Mac OS X`, as well as the corresponding macOS version.
+5. On the `Processor Configuration` page, select `1` for the `Number of processors`.
+   * For the `Number of cores per processor`, select a number that is within your computer's resource constraints.
+6. On the `Memory for the Virtual Machine` page, we recommend the following:
+   * Minimum: 4096 MB
+   * Recommended: 8096 MB
+7. On the `Network Type` page, select `Use network address translation (NAT)`.
+8. On the `Select a Disk` page, select `Use an existing virtual disk`.
+9. On the `Select an Existing Disk` page, browse & select the `recovery.vmdk` disk we created earlier.
+10. Finish the setup.
+11. Edit your Virtual Machine's settings.
+12. Add a new piece of hardware.
+    * On the `Hardware Type` page, select `Hard Disk`.
+    * On the `Disk Type` page, select `SATA`.
+    * On the `Select a Disk` page, select `Create a new virtual disk`
+    * On the `Specify Disk Capacity` page, enter an amount that makes sense
+      * Minimum: 50 GB
+      * Recommended: 80 GB
+    * Complete the Hard Disk setup.
+
+#### Patching the Virtual Machine (iServices)
+
+This section will detail how to patch your virtual machine in order to properly run macOS and get iServices setup.
+
+1. Navigate to your virtual machine's files
+   * The virtual machine's files are located here: `C:\Users\<username>\Documents\Virtual Machines\`
+2. Create a backup of your virtual machine's `.vmx` file
+   * You can just copy and paste it into the same directory, appending `.bak` to the filename.
+3. Open your virtual machine's original `Configuration File` (`.vmx`) in a text editor (i.e. Notepad)
+4. Paste the following line into the `.vmx` file and save it.
+
+```vmx
+smc.version = "0"
+```
+
+* If you have an AMD CPU, also add the following to your `.vmx` file.
+
+```vmx
+cpuid.0.eax = "0000:0000:0000:0000:0000:0000:0000:1011"
+cpuid.0.ebx = "0111:0101:0110:1110:0110:0101:0100:0111"
+cpuid.0.ecx = "0110:1100:0110:0101:0111:0100:0110:1110"
+cpuid.0.edx = "0100:1001:0110:0101:0110:1110:0110:1001"
+cpuid.1.eax = "0000:0000:0000:0001:0000:0110:0111:0001"
+cpuid.1.ebx = "0000:0010:0000:0001:0000:1000:0000:0000"
+cpuid.1.ecx = "1000:0010:1001:1000:0010:0010:0000:0011"
+cpuid.1.edx = "0000:0111:1000:1011:1111:1011:1111:1111"
+```
+
+{% hint style="warning" %}
+**macOS Ventura**
+
+If your VM is macOS Ventura, you may need to add **(or edit)** the following to enable internet connectivity:
+
+```vmx
+ethernet0.virtualDev = "vmxnet3"
+```
+
+{% endhint %}
+
+#### Booting the Virtual Machine
+
+Once you've edited the `.vmx` file, you should be able to boot the virtual machine normally.
+
+**Common Issues**
+
+If you are having issues performing the initial boot for the virtual machine, take a look at the most common issues below.
+
+* **Stuck on Apple Boot Logo**: If you attempt to boot your virtual machine and it's stuck on the Apple Boot Logo, do the following to fix the issue. Power off the Virtual Machine, then open the virtual machine's settings. Once the settings window opened beside the `Hardware` tab click on `Options`. Change the `Apple Mac OS X` selection to `Microsoft Windows` then click OK. Power on the virtual machine again. Once all installed then go back to settings and set it back to `Apple Mac OS X`
+* **The CPU has been disabled by the guest operating system**: Enable virtualization in your computer's BIOS
+  * There are guides on YouTube describing how to do this.
+* **Feature 'cpuid.ds' was absent, but must be present**: This is due to a corrupted vmx file. Try using a backup of your `.vmx` file and edit the `.vmx` file carefully this time.
+  * Make sure that your editor is *not* converting the quotes (`"`) to "greek" quotes
+* **This virtual machine requires AVX2 but AVX is not present. This virtual machine cannot be powered on**: This is due to a corrupted vmx file. Try using a backup of your `.vmx` file and edit the `.vmx` file carefully this time.
+  * Make sure that your editor is *not* converting the quotes (`"`) to "greek" quotes
+* **Module 'featurecompat' power on failed**: In your `.vmx` file, make sure that your editor is *not* converting the quotes (`"`) to "greek" quotes
+
+#### Installing macOS
+
+Once you're able to boot into the recovery setup, follow these steps to properly install macOS.
+
+**Note**: You may want to power off your virtual machine and take a snapshot before continuing. If anything goes wrong during setup, you can always revert back to your snapshot.
+
+1. Select `Disk Utility` and hit `Continue`.
+2. On the `Disk Utility` page, select the Hard Disk you created.
+   * This is *not* the one labeled, `macOS Base System`
+3. With the Hard Disk selected, click `Erase` in the top right of Disk Utility.
+   * This will format the hard disk into a format that macOS can use.
+4. Close Disk Utility.
+5. On the recovery page, select `Reinstall macOS <version>` and hit `Continue`.
+6. Continue through the setup, accepting the license agreement(s).
+7. When prompted to select the disk to install macOS, select the disk you just formatted.
+8. Wait for the operating system to be installed.
+9. Once the operating system is installed, navigate through the macOS setup.
+   * You *do not* need to sign into an Apple ID when prompted.
+10. Create your macOS computer account, finish the setup, and login.
+
+**Note**: Once everything is setup, you may edit the Virtual Machine's settings and remove the `recovery.vmdk` Hard Disk. Do not delete the Hard Disk you created manually (to store the install). **Note 2**: You may want to power off your virtual machine and take another snapshot before continuing.
+
+#### Fixing iServices
+
+By default, your macOS deployment will *not* support iServices such as iMessage. In order to support iServices, additional configurations must be done. We will accomplish this by utilizing a tool called `Clover Configurator`.
+
+1. Boot up your macOS virtual machine and login.
+2. Open Safari and download `Clover Configurator`.
+   * Website: <https://mackie100projects.altervista.org/download-clover-configurator/>
+3. Open `Clover Configurator`.
+   * You may need to allow it to run via `System Preferences -> Security & Privacy`.
+4. Once opened, navigate to the `SMBIOS` tab in the sidebar.
+5. Find the up/down arrow button under the large "question mark" image, and to the right of the `Update Firmware Only` checkbox.
+6. Click on the up/down arrow button and select any product made in 2019 or newer.
+   * We recommend `MacPro7,1` or `iMac16,1`
+7. Copy the following configuration to an editor (i.e. Notepad), on your host computer (Windows).
+
+```config
+board-id = "AAA"
+hw.model.reflectHost = "FALSE"
+hw.model = "BBB"
+serialNumber.reflectHost = "FALSE"
+serialNumber = "CCC"
+smbios.reflectHost = "FALSE"
+efi.nvram.var.ROM.reflectHost = "FALSE"
+efi.nvram.var.MLB.reflectHost = "FALSE"
+efi.nvram.var.ROM = "DDD"
+efi.nvram.var.MLB = "EEE"
+```
+
+1. In Clover Configurator, click the `Generate New` button next to the `Serial Number` field to generate a new serial number.
+2. Copy & paste the following Clover Configurator SMBIOS fields into the configuration from above:
+   * `AAA`: Replace with your `Board ID` (i.e. `Mac-XXXXXXXXXXXXXX`)
+   * `BBB`: Replace with your `Product Name` (i.e. `MacPro7,1`)
+   * `CCC`: Replace with your generated `Serial Number`
+3. In Clover Configurator, click on the `Rt Variables` tab in the sidebar.
+4. Click on the `Generate` button next to the `ROM` text.
+5. Copy & paste the following Clover Configurator Rt Variable fields into the configuration from above:
+   * `DDD`: Replace with your generated `ROM`
+   * `EEE`: Replace with your generated `MLB`
+6. Close Clover Configurator & shut down your macOS virtual machine
+7. Open your virtual machine's `.vmx` file. The same one you edited earlier in the setup guide.
+   * The virtual machine's files are located here: `C:\Users\<username>\Documents\Virtual Machines\`
+8. Paste your completed configuration above into the `.vmx` file.
+9. Find the `board-id.reflectHost` configuration and verify that it is set to `"TRUE"`.
+10. Find the `ethernet0.addressType` configuration and change it from `"generated"` to `"static"`
+11. In your browser, go to the following link to grab an "OUI" for the configuration:
+    * <https://hwaddress.com/company/apple-inc/>
+    * The OUI contains 3 segments, each containing 2 characters.
+    * It does not matter which OUI you choose. Choose any.
+12. Find the `ethernet0.generatedAddress` configuration and change the first 3 segments to match the 3 segments of your chosen OUI.
+    * Example: If my current `generatedAddress` is `00:0c:29:bb:91:7f`, and I've selected the OUI, `00-1F-F3`, my new `generatedAddress` will be `00:1f:f3:bb:91:7f`
+    * It's recommended to use lower-case characters for the alphabetical letters.
+13. Rename the `ethernet0.generatedAddress` configuration to just `ethernet0.Address`
+14. Replace the `ethernet0.generatedAddressOffset = "0"` configuration with `ethernet0.checkMACAddress = "FALSE"`
+15. Save and close the `.vmx` file.
+
+Your macOS virtual machine should be good to go! You now should be able to sign into iMessage and use the other iServices. Boot up your virtual machine and sign into iMessage to verify everything is working correctly.
+
+**Note**: If something failed during setup and your macOS virtual machine will not boot, restore from an earlier snapshot and redo part of the setup!
+
+#### Final Checks
+
+Here are a few final checks to make sure that your macOS virtual machine is setup correctly.
+
+* When the macOS virtual machine is booted & running, click on the `Apple Logo` and select `About this Mac`. Verify that the serial number listed matches the serial number you configured in the steps above.
+* Open `System Preferences` and open your `Date & Time` settings. Verify that your timezone is set correctly and your time is properly synced.
+  * If you are unsure, you can open Safari and go to <https://time.is> to see if your time synchronization is misaligned.
+  * If your time synchronization is misaligned, you can synchronize it by opening `Terminal` and running this command: `sudo ntpdate -vu time.apple.com`
+
+
+# Enabling iMessage in a VM
+
+How to enable iMessage after successfully creating an unofficial Mac device
+
+iServices are 99% likely to not run on your unofficial Mac until you successfully spoof the required items to disguise your VM as a real Mac.
+
+## OpenCore
+
+If you made your macOS install using OpenCore, follow their [guide](https://dortania.github.io/OpenCore-Post-Install/universal/iservices.html) to enable iServices.
+
+## VMWare
+
+If you made your macOS inside VMWare, here is how you can enable iServices:
+
+{% hint style="warning" %}
+This guide is tailored to work on Catalina *only*. We recommend using Catalina initially and upgrading to Big Sur later because Apple changed how iMessage activation worked in Big Sur.
+{% endhint %}
+
+{% hint style="warning" %}
+
+#### AMD USERS PLEASE READ
+
+If you followed an AMD guide that required you to change your VMX file so that the VM will boot, **you will need to use the model number that the guide used, along with other modifications to the VMX.**\
+\*\*\*\*Our guides suggest using `MacBookPro14,3` - use this in GenSMBIOS.\
+The `board-id` for `MacBookPro14,3` is `Mac-551B86E5744E2388`.\
+You should also use `smbios.reflectHost = "FALSE"` instead of `TRUE`.
+{% endhint %}
+
+{% hint style="info" %}
+If you would like to use a *lower* macOS version than Catalina, you will need to use a different model number than `MacPro7,1` in step 1 of the guide. This is because that model initially launched with Catalina, so it does not support lower macOS versions. A good model to try that supports High Sierra and higher is `iMacPro1,1`.
+{% endhint %}
+
+1. Follow the OpenCore guide linked above, but only complete the following sections (make sure to save all information from these sections for later use):
+   * **Using GenSMBIOS**
+     * You will want to use the model number `MacPro7,1`. Verify your serial numbers using the [Apple Check Coverage Page.](https://checkcoverage.apple.com/) You have got a good serial number when the page highlights the entry box in red and says **Please enter a valid serial number.**. As long as it was correctly copied from GenSMBIOS you should be good to go.
+   * **Choose a Mac Address**
+   * **Derive the corresponding ROM Value**
+2. Open up a Notepad window, and type the following information (you will need this later):\
+   \
+   (AMD USERS PLEASE MAKE SURE TO READ THE ORANGE NOTE ABOVE)\\
+
+   ```config
+   board-id = "Mac-27AD2F918AE68F61" 
+   hw.model.reflectHost = "FALSE" 
+   hw.model = "MacPro7,1" 
+   serialNumber.reflectHost = "FALSE" 
+   serialNumber = "<YOUR GENERATED SERIAL NUMBER>" 
+   smbios.reflectHost = "FALSE"
+   efi.nvram.var.ROM.reflectHost = "FALSE"
+   efi.nvram.var.MLB.reflectHost = "FALSE"
+   efi.nvram.var.ROM = "<YOUR GENERATED ROM VALUE>"
+   efi.nvram.var.MLB = "<YOUR GENERATED BOARD SERIAL (AKA MLB)>"
+   ```
+3. Fully close your VM and VMware. Nothing VMware related (besides this guide of course) should be running.
+4. Open File Explorer, click Documents, open the folder named Virtual Machines, open the folder with the name of your VM, and find your .vmx file (VMware virtual machine configuration). Open it with Notepad.
+5. Scroll to the line `board-id.reflectHost = "FALSE"` and replace `FALSE` with `TRUE`.
+6. Find the line `firmware = "efi"` and paste everything from the other Notepad window right below this.
+7. Find the line `ethernet0.addressType = "generated"` and replace `generated` with `static`.
+8. Find the line `ethernet0.generatedAddress = "xx:xx:xx:xx:xx:xx"` and replace the entire line with `ethernet0.Address = "<YOUR CHOSEN MAC ADDRESS>"`
+9. Find the line `ethernet0.generatedAddressOffset = "0"` and replace the entire line with `ethernet0.checkMACAddress = "false"`.\\
+
+   <div data-gb-custom-block data-tag="hint" data-style="warning" class="hint hint-warning"><h4>AMD USERS PLEASE READ</h4><p>Make sure that your VMX does not have any duplicate items from your previous modifications to make the VM start up! You may need to delete the following from the previous modifications:</p><pre class="language-config"><code class="lang-config">smbios.reflectHost = "TRUE"
+   hw.model = "&#x3C;HW MODEL FROM AMD GUIDE>" 
+   board-id = "&#x3C;BOARD ID FROM AMD GUIDE>"
+   </code></pre></div>
+10. Save the .vmx file inside Notepad, boot it up, and try signing into your Apple ID from within the iMessage app. If all went well, you will be able to sign in and send messages.
+
+## Error Messages
+
+* You cannot sign into iMessage at this time ... contact Apple Support and provide the code below. This issue can be one of two things:
+  * Go to System Preferences and go in iCloud, make sure you are logged in - if yes, proceed to the below:
+  * You will need to do what the popup says and call Apple Support.
+    1. You need to just say something like I just got this Mac from \<online reselling store in your country> and I can't sign in and it gives me a customer code
+    2. Sometimes it takes a couple calls because the support person doesn't know what the customer code is
+    3. It helps to have photos of the customer code
+    4. Once you've got someone who knows what they're doing, it's a 5 minute process - they enter something server side, then you restart your Mac, and it works
+
+## Clearing Failed Login Attempts
+
+Run the following in terminal:
+
+```bash
+sudo rm -rf ~/Library/Caches/com.apple.iCloudHelper*
+sudo rm -rf ~/Library/Caches/com.apple.Messages*
+sudo rm -rf ~/Library/Caches/com.apple.imfoundation.IMRemoteURLConnectionAgent*
+sudo rm -rf ~/Library/Preferences/com.apple.iChat*
+sudo rm -rf ~/Library/Preferences/com.apple.icloud*
+sudo rm -rf ~/Library/Preferences/com.apple.imagent*
+sudo rm -rf ~/Library/Preferences/com.apple.imessage*
+sudo rm -rf ~/Library/Preferences/com.apple.imservice*
+sudo rm -rf ~/Library/Preferences/com.apple.ids.service*
+sudo rm -rf ~/Library/Preferences/com.apple.madrid.plist*
+sudo rm -rf ~/Library/Preferences/com.apple.imessage.bag.plist*
+sudo rm -rf ~/Library/Preferences/com.apple.identityserviced*
+sudo rm -rf ~/Library/Preferences/com.apple.ids.service*
+sudo rm -rf ~/Library/Preferences/com.apple.security*
+sudo rm -rf ~/Library/Messages
+```
+
+Reboot once done.
+
+
+# External Guides
+
+
+# Running BlueBubbles in Docker-OSX
+
+This tutorial will show you how you can setup BlueBubbles in a Docker container, within a Linux host.
+
+### Contribution Notes
+
+This guide is a contribution by @JustBen on our Discord
+
+### Disclaimer
+
+This guide is not for beginners. However, these steps should make it relatively easy to get up and running with a macOS Docker container running BlueBubbles on a Linux host. Before starting, you should familiarize yourself with the Linux CLI and be at least familiar with containerization and Docker (or Podman).
+
+This guide is provided with no guarantees or warranty. If you encounter any problems, the community may be able to provide help in the Discord (linked in the header of this page), but we cannot guarantee that this will work for every configuration.
+
+This guide has only been tested with MacOS Ventura, though it should work with only minor modifications for older versions.
+
+### Goal
+
+This guide will walk you through setting up BlueBubbles on a macOS VM running in a [Docker-OSX container](https://github.com/sickcodes/Docker-OSX). With the given configuration, your container will be accessible by VNC on port 5999.
+
+### Pre-requisites
+
+You must have all of these already setup/installed in order to continue with the guide.
+
+* A Linux host
+* Comfort with bash
+* Packages:
+  * `docker` (or `podman`)
+  * `docker-compose` (or `podman-compose`)
+  * `tigervnc` (or another vncviewer)
+  * `qemu`
+* All dependencies outlined by Docker-OSX in its [Initial Setup documentation](https://github.com/sickcodes/Docker-OSX#initial-setup)
+  * As noted in the link above, your system must support virtualization. The Docker-OSX documentation has steps on how to configure and verify that virtualization is supported and enabled on your system.
+
+### Installation
+
+1. Create a directory for all the container resources
+2. Create a virtual disk:
+
+```bash
+qemu-img create -f qcow2 maindisk.qcow2 128G
+```
+
+3\. Run:
+
+```bash
+docker run \
+  --rm \
+  --name bluebubbles-setup \
+  --dns=1.1.1.1 \
+  --device /dev/kvm \
+  -p 5999:5999 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $PWD/maindisk.qcow2:/image \
+  -e IMAGE_PATH="/image" \
+  -e EXTRA="-display none -vnc 0.0.0.0:99,password-secret=secvnc0 -object secret,id=secvnc0,data=vncpass" \
+  -e DISPLAY=:99 \
+  -e WIDTH=1920 \
+  -e HEIGHT=1080 \
+  -e GENERATE_UNIQUE=true \
+  sickcodes/docker-osx:ventura
+```
+
+This will take a while because it's downloading the image for Docker-OSX and generating a unique serial number and bootdisk for your mac VM.
+
+You may see a handful of errors particularly related to ALSA. These can be safely ignored.
+
+NOTE: If using Podman, you can add `--rmi` to also remove the image after setup. However, this flag can be annoying if you need to start/stop this step repeatedly to troubleshoot because it will re-download the image every time NOTE: If using Podman as a non-root user, the additional flag `--network slirp4netns:port_handler=slirp4netns` must be added.
+
+4\. With your vnc viewer, open a connection to your IP on port 5999. If you're using tigervnc and running this on the same phost, you can use `vncviewer localhost:5999`. The password will be `vncpass` unless you changed it in the command.
+
+5\. If presented with a boot loader (a black screen with some icons in the center), select the option `MacOS Base System` to boot into the recover/install menu.
+
+6\. Before installing, you have to format the drive with APFS for a macOS install. Go into Disk Utility and find your drive. Click "Erase". Fill in the name for the drive that you want, then leave the rest as defaults and click "Erase". Close out of Disk Utility.
+
+NOTE: On Ventura, you may have to use "MacOS extended (Journaled)" instead of APFS. See [this GitHub issue](https://github.com/sickcodes/Docker-OSX/issues/511#issuecomment-1465009278) for more information.
+
+7\. Click on "reinstall macOS" and install macOS as normal.
+
+8\. Once you're on your desktop, test sending an iMessage to yourself. If it does not succeed, it's likely best to restart from the beginning, though our Discord community may be able to help.
+
+9\. **Before shutting down your VM**, run this in a new terminal with the same user:
+
+```bash
+docker cp bluebubbles-setup:/home/arch/OSX-KVM/OpenCore/OpenCore.qcow2 ./bootdisk.qcow2
+```
+
+This copies the generated bootdisk and serial number information out of the container and saves it as `bootdisk.qcow2` so it can be used for all your future boots.
+
+10\. Shutdown your VM then take down the container.
+
+The container and image will automatically be removed from your system (to keep things clean) because of the `--rm` and `--rmi` options we passed above.
+
+```bash
+docker stop bluebubbles-setup
+```
+
+11\. Save this into a file (e.g. `start-bluebubbles.sh`) and make sure you have execute permissions to run it (`chmod +x start-bluebubbles.sh`).
+
+```bash
+docker run \
+  --rm \
+  --name bluebubbles \
+  --dns=1.1.1.1 \
+  --device /dev/kvm \
+  -p 5999:5999 \
+  -p 1234:1234 \
+  -p 50922:10022 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $PWD/maindisk.qcow2:/image \
+  -v $PWD/bootdisk.qcow2:/bootdisk \
+  -e IMAGE_PATH="/image" \
+  -e BOOTDISK="/bootdisk" \
+  -e EXTRA="-display none -vnc 0.0.0.0:99,password-secret=secvnc0 -object secret,id=secvnc0,data=vncpass" \
+  -e ADDITIONAL_PORTS="hostfwd=tcp::1234-:1234," \
+  -e DISPLAY=:99 \
+  -e WIDTH=1920 \
+  -e HEIGHT=1080 \
+  -e NOPICKER=true \
+  sickcodes/docker-osx:naked
+```
+
+This new docker run command should cut down on boot time and general overhead.
+
+As before, errors related to ALSA can be safely ignored.
+
+It is HIGHLY RECOMMENDED that you replace `$PWD` in the above command (after both `-v` flags) with an absolute path. For example, replace `$PWD/maindisk.qcow2:/image` with `/home/yourname/bluebubbles/maindisk.qcow2:/image`. This allows you to more easily run this script from any working directory (as you may want to do with a systemd service file).
+
+To change the VNC password, change `data=vncpass` to `data=<yourpassword>` in the `EXTRA` environment variable.
+
+NOTE: As before, if using Podman as a non-root user, the additional flag `--network slirp4netns:port_handler=slirp4netns` must be added.
+
+12\. Start up the container again (by running the script file you made in step 11). It might take a little while the first time as it pulls down a new container image, but it'll be quicker to boot after this first time. Once it's up, you can connect again with VNC on port 5999 with password `vncpass` (unless you changed it).
+
+13\. [Install BlueBubbles](https://bluebubbles.app/install/)
+
+14\. When you want to start the container again, run the script you made in step 11. As before, you can connect to your VM with VNC on port 5999 with `vncpass` or the password you set. To stop the container, run:
+
+```bash
+docker stop bluebubbles
+```
+
+### Private API notes
+
+* To install the BlueBubbles Private API features, just follow the normal guide [here](https://docs.bluebubbles.app/private-api/installation).
+* When disabling SIP, follow the instructions for "Physical Mac, INTEL" on the Private API installation documentation.
+  * To clarify, do NOT follow the documentation for [disabling SIP on VMs](https://docs.bluebubbles.app/server/advanced/macos-virtualization/running-a-macos-vm/disabling-sip-on-vms-for-the-private-api#opencore-big-sur). Everything you need is in the standard Private API installation guide.
+
+
+# Configuring BlueBubbles as a Service
+
+This guide will show you how to setup the BlueBubbles Docker container to run as a service on your Linux host. This is to make sure that the host starts up when your Linux host restarts.
+
+### BlueBubbles as a systemd service
+
+### Introduction
+
+If you do not have a physical Mac at your disposal and if you already have a Linux home server, it is relatively easy to turn BlueBubbles into a systemd service which you can configure to run at startup. This way, when your home server starts or reboots, it BlueBubbles automatically starts up.
+
+BlueBubbles does have to be initially configured manually, including a full install of a macOS VM. However, using Docker-OSX makes this configuration much easier. If you are not already running BlueBubbles in a Docker-OSX container, first follow our guide on Configuring BlueBubbles in a container with Docker-OSX.
+
+### Guide
+
+Once you are done configuring Docker-OSX and your BlueBubbles install:
+
+#### Inside the VM
+
+1. [Enable auto-login](https://support.apple.com/en-us/HT201476). This will make the boot faster and allow the BlueBubbles server to start automatically.
+2. In your BlueBubbles server settings, enable "Startup with MacOS".
+3. If using the Private API, ensure that MacForce launches at start:
+
+MacForge Preferences > "General" tab > Check "Launch MacForce at Login"
+
+#### On your Linux host
+
+1. Create a new systemd service:
+
+```bash
+sudo systemctl edit --force --full bluebubbles.service
+```
+
+2\. Enter the following:
+
+```bash
+[Unit]
+Description=BlueBubbles iMessage relay server
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/docker run \
+  --rm \
+  --name bluebubbles \
+  --dns=1.1.1.1 \
+  --device /dev/kvm \
+  -p 5999:5999 \
+  -p 1234:1234 \
+  -p 50922:10022 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $PWD/maindisk.qcow2:/image \
+  -v $PWD/bootdisk.qcow2:/bootdisk \
+  -e IMAGE_PATH="/image" \
+  -e BOOTDISK="/bootdisk" \
+  -e EXTRA="-display none -vnc 0.0.0.0:99,password-secret=secvnc0 -object secret,id=secvnc0,data=vncpass" \
+  -e ADDITIONAL_PORTS="hostfwd=tcp::1234-:1234," \
+  -e DISPLAY=:99 \
+  -e WIDTH=1920 \
+  -e HEIGHT=1080 \
+  -e NOPICKER=true \
+  sickcodes/docker-osx:naked
+ExecStop=/usr/bin/docker container stop bluebubbles
+
+[Install]
+WantedBy=multi-user.target
+```
+
+It's recommended that you replace the value of `ExecStart` with the script you made in Step 11 of the *Configuring BlueBubbles in a container with Docker-OSX* guide. If you do choose to paste the above code block into your new systemd service file, you will at least need to replace `$PWD` (in the `-v` options) with the full path to your Docker OSX virtual disks.
+
+Alternatively, it is possible to point to the script file you saved. In that case, replace the `ExecStart` line with this instead:
+
+```bash
+ExecStart=/usr/bin/sh /absolute/path/to/your/script.sh
+```
+
+NOTE: If using podman, replace `docker.service` with `podman.service` and the `docker run` command with `podman run`.
+
+3\. Reload the systemd daemons:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+4\. Enable the service to start it at boot, and activate it now:
+
+```bash
+sudo systemctl enable --now bluebubbles.service
+```
+
+
+# BYO Proxy Service Guides
+
+Here you will find child guides for setting up BlueBubbles with a BYO (Bring Your Own) Proxy Service (Dynamic DNS).
+
+By default, BlueBubbles has the Ngrok & Cloudflare proxy services built-into the server for you to utilize. However, these services are run by third parties and are by default, using a free license tier for the respective services. These guides will show you how you can self-host or utilize an existing license of a proxy or dynamic DNS service, to use with BlueBubbles.
+
+* [Cloudflare with a Custom Domain](/server/advanced/byo-proxy-service-guides/cloudflare-with-a-custom-domain)
+* [Caddy & DuckDNS](/server/advanced/byo-proxy-service-guides/caddy-and-duckdns)
+* [Nginx Proxy Manager](/server/advanced/byo-proxy-service-guides/nginx-proxy-manager)
+* [Nginx Manual Setup](/server/advanced/byo-proxy-service-guides/nginx-manual-setup)
+* [Tailscale VPN](/server/advanced/byo-proxy-service-guides/tailscale-vpn-setup)
+* [zrok Proxy Service](/server/advanced/byo-proxy-service-guides/zrok-proxy)
+
+
+# Cloudflare with a Custom Domain
+
+Pros:
+
+* Static URL, so no need to update Dynamic DNS in BlueBubbles server
+* Auto start at boot
+* You can configure a custom landing page to block unwanted connections to your server (in addition to the default one in BlueBubbles)
+
+Cons:
+
+* You need a domain to link to Cloudflare (subdomain services like DuckDNS and No-IP won't work)
+* Setup is a tad bit more complicated
+
+## Installation
+
+### **Linking a domain to Cloudflare**
+
+1. Sign up for a Cloudflare account at <https://dash.cloudflare.com/sign-up>
+2. Add a site on the portal
+3. Enter your root domain name (for example, `example.com`, not `bluebubbles.example.com`). You will choose the BlueBubbles subdomain when you create the tunnel.
+4. Click the free plan and click continue
+5. Before changing your name servers, review the DNS records Cloudflare imported. If the domain already hosts a website, email, or another service, compare every current record with the imported records and add anything missing so those services continue to work. Record types to check include, but are not limited to, A, AAAA, CNAME, MX, TXT, SRV, and CAA.
+6. Configure your domain name servers to Cloudflare
+7. Wait for Cloudflare to validate your domain
+
+### **Setting up Cloudflare tunnels with your domain**
+
+1. Login to the Zero Trust dashboard at <https://dash.teams.cloudflare.com/> and go to Networks > Tunnels.
+2. Select Create a tunnel
+3. Enter a name for your tunnel. For example, you could name it Bluebubbles.
+4. Select Save tunnel
+5. Next, you will need to install cloudflared and run it. You can install it here, <https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/>
+6. After installing cloudflared, you can see that when choosing your OS as Mac, cloudflare provides a command to enter into terminal. Run this command.
+7. Once the command has been run successfully, your connector will show up underneath the command in the Zero Trust Dashboard.
+8. Select Next
+9. Now in the Public Hostnames tab, type in your subdomain, for example, `bluebubbles`. (This does not have to be the name of your tunnel.)
+10. Choose the main domain you want to use for it.
+11. Below, you should see a section called Service. For this, you want to put the localhost address for the bluebubbles server. The default one would be: <HTTP://localhost:1234> .
+12. Save the tunnel
+13. After doing this, you may need to run sudo launchctl start *com.cloudflare.cloudflared* when initially setting up the tunnel to start it.
+14. In the main Cloudflare dashboard, open your domain's DNS records and confirm that the subdomain from step 9 has a CNAME record pointing to `<tunnel-UUID>.cfargotunnel.com`. Saving the public hostname normally creates this record automatically. If it is missing, copy the tunnel UUID from Networks > Tunnels and add the CNAME record manually.
+
+As we installed cloudflared as a service, it should automatically launch at startup.
+
+### **Setting the bluebubbles server to the dynamic dns**
+
+1. Navigate to the settings page of the server app
+2. Change the proxy to dynamic dns
+3. For the URL, type in the url displayed in the tunnels section of the Zero Trust dashboard. Make sure you use HTTPS as cloudflare uses that by default.
+
+Now try opening the bluebubbles app and see if it connects.
+
+### **OPTIONAL : Secure the server using Service Auth on Cloudflare**
+
+1. It is recommended that you ensure the server is fully working and the app is connecting before proceeding.
+2. Login to the Zero Trust dashboard at <https://dash.teams.cloudflare.com/> and go to Access > Service Auth.
+3. Select Create Service Token.
+4. Give it a name (This does not have to be the name of your server) like "bb".
+5. Set the duration to as long as you want before a new token is required (Non-expiring means you'll not have to reset this in the future).
+6. Click Generate Token.
+7. Record somewhere the Header and client ID and the Header and client secret. Hit Save.
+8. From the left hand menu go to Access > Applications.
+9. Select Add an application, and select Self-hosted.
+10. Leave everything as default unless specified below.
+11. Under Application Name put "Blue Bubbles".
+12. Under Subdomain set to the subdomain you used during "Setting up Cloudflare tunnels with your domain" above for example, "bluebubbles"
+13. Under Domain select the main domain you used for it.
+14. Click Next.
+15. Under Policy name, insert "servicetoken".
+16. Set Action to Service Auth.
+17. Under Configure Rules, change Selector drop-down to Service Token and select the service token name you set in step 4 above.
+18. Click Next & click Add application.
+19. In the Blue Bubbles app on Android (or Windows etc), under "Settings/Connection & Server" scroll down to "Configure Custom Headers".
+20. Add Header Key "cf-access-client-id" and set Value to your client id (remove "CF-Access-Client-Id:" from the start - ie only insert alphanumericstring.access)
+21. Add Header Key "cf-access-client-secret" and set Value to your client secret (remove "CF-Access-Client-Secret:" from the start - ie only insert longalphanumericstring)
+22. Hit OK.
+23. Test syncing your messages by selecting "Manually Sync Messages" for the last hour.
+24. In Cloudflare, from the left hand menu, go to Access > Service Auth and refresh the browser.
+25. "Last Seen" should be updated to shown the Service Token has been used.
+26. Congrats - your Blue Bubbles server is now secured so only your app can access it.
+
+
+# Caddy & DuckDNS
+
+A way to get https when portforwarding with bluebubbles
+
+This guide is written with the intention caddy is deployed on the same mac as your bluebubbles server but the process is similar if you have a remote caddy server.
+
+Benefits:
+
+* Works nonstandard ports
+
+### Requirements
+
+* A duckdns account with a domain <https://www.duckdns.org/domains>
+* A setup bluebubbles server
+* The ability to portforward your mac mini or reverse proxy to a machine that can be portforwarded (ex: aws, gcp, oracle, etc)
+
+### Steps to setup caddy
+
+1. Download caddy with duckns and move it to your home folder with the following command
+
+Intel Macs:
+
+`curl -o ./caddy https://caddyserver.com/api/download?os=darwin&arch=amd64&p=github.com/caddy-dns/duckdns&idempotency=8875705962096`
+
+Apple Silicon:
+
+`curl -o ./caddy https://caddyserver.com/api/download?os=darwin&arch=arm64&p=github.com/caddy-dns/duckdns&idempotency=28552737821716`
+
+1. Make caddy executable with the command `chmod 755 ./caddy`
+2. Download the template caddy file with the following command:
+
+`curl -o ./Caddyfile https://raw.githubusercontent.com/Rihcus/BB-dynamic-dns-duckdns/main/Caddyfile`
+
+1. Edit the Caddyfile
+
+* replace the example domains with your domains
+* replace `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` with your duckdns token
+* Optional adjust the https/http or bluebubbles server ports as needed
+
+1. For testing purposes set your duckdns domain to the local ip of your bluebubbles server using the duckdns web portal
+
+{% embed url="<https://www.duckdns.org/domains>" %}
+
+1. test the config with `./caddy run`
+2. if the config works and you can access your domain via https use `./caddy start` to make it auto run
+3. Setup portforwarding (not covered in this guide)
+4. Optional install duckdns to your mac server in order to auto-update public ip
+
+{% embed url="<https://www.duckdns.org/install.jsp>" %}
+
+#### Credit
+
+Guide created by @Deemo in the BlueBubbles Discord
+
+
+# Nginx Proxy Manager
+
+This guide will show you how to setup your own dynamic DNS using your own self-hosted server, running Nginx Proxy Manager
+
+### Requirements
+
+* NGINX Proxy Manager with port 80 and 443 forwarded properly
+* Bluebubbles server running and accessible from the machine which is running NGINX
+
+### How to
+
+1. Set Proxy Service to Dynamic DNS. Set your hostname to be `https://bb.yourdomain.com`
+   * **Keep `Use Custom Certificate` off**
+   * Ensure the local port is 1234
+2. Add a new Proxy Host in NGINX
+   1. Set the domain name to `bb.yourdomain.com`
+   2. Set scheme to `http`
+   3. Set Forward Hostname / IP to the IP address of your mac
+   4. Set Forward Port to `1234`
+   5. Turn on `Block Common Exploits` & `Websocket Support`
+   6. Click on the SSL Tab
+   7. Click on the dropdown and select `Request a new SSL Certificate`
+   8. Check all 4 options
+3. Your Bluebubbles instance should now be accessible at `https://bb.yourdomain.com` !
+
+![SSL Settings](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Ft1xCuD3f7iApyuQA0RWj%2Fimage.png?alt=media\&token=2c8535c3-5391-43dc-9b48-97d46389b6d2)
+
+![Connection Settings](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FisADDAXZRlaJW3k4t3Uj%2Fimage.png?alt=media\&token=e4b0585d-08fc-41ec-97f0-34a3b5493b7e)
+
+![Proxy Host](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FvqEK8sq5Nx2pC59bCMfZ%2Fimage.png?alt=media\&token=fbf609f3-034f-451e-9b5d-b057a260591f)
+
+#### Credit
+
+Guide created by @pablito in the BlueBubbles Discord
+
+
+# Nginx Manual Setup
+
+If you want to perform a manual setup of Nginx, instead of using the Nginx Proxy Manager, here is a guide on how to do it. Big thanks to @JustBen in the BlueBubbles Discord, for putting this guide tog
+
+This page will guide you on setting up your own reverse proxy, given that you own a server to use for it. In order for this setup to work, you will need control of a server. This is typically a Linux server but could theoretically be any operating system. **This guide will be for setting up a reverse proxy on Linux specifically.** This will also assume that you have a Linux server on the same local network as your BlueBubbles server, as having the proxy and server on different networks adds several layers of complexity.
+
+### Overview
+
+While the built-in proxy services in BlueBubbles are simple and easy to use, many users want a completely self-hosted setup where they control all pieces of the system. More specifically, control over the server, client, proxy, and domain. This eliminates almost all dependence on third-party resources and services.
+
+The best use-case for this is that you already run a personal server of some sort and maybe you're already running a proxy for services running on this personal server. There is arguably more privacy in owning and controlling the proxy that handles your BlueBubbles traffic, or maybe you just enjoy learning about and/or managing application and server tools.
+
+That said, the built-in options to BlueBubbles are more well-suited for the majority of users as they are generally reliable, secure, and (most importantly) easy to configure.
+
+#### Pros & Cons
+
+| Pros                                                                      | Cons                               |
+| ------------------------------------------------------------------------- | ---------------------------------- |
+| Completely self-hosted, no need to use a third-party service              | Server maintenance & upkeep        |
+| More secure, entirely controlled and operated by yourself                 | More prerequisites, niche use case |
+| More control, allowing you to configure everything exactly as you want it | More complex configuration         |
+
+### Pre-requisites
+
+* A server at your disposal on the same local network (LAN) as your BlueBubbles server
+* A static IP or DHCP reservation configured for your BlueBubbles server on your LAN
+* A static or reliable way to reach your home WAN IP (publicly addressable IP). This could be:
+  * A static IP on your router. This is unlikely, as your WAN IP is usually not guaranteed by your ISP to stay the same, and it may change unexpectedly
+  * A domain name and Dynamic DNS configured (more information below)
+* Port forwarding of your public BlueBubbles ports (recommended 80 and 443) to your proxy server
+  * DISCLAIMER: If you aren't able to or don't know how to configure port forwarding, it is HIGHLY recommended that you instead opt for the built-in BlueBubbles proxy services
+* (Optional) A domain name
+  * If you have a domain name, we recommend configuring Dynamic DNS. This will ensure that your domain name will always point to your WAN IP (which may change unexpectedly and/or frequently). Your registrar/DNS server must support Dynamic DNS, and configuration will depend on your router and your registrar/DNS. For a starting point, you can view the [DD-WRT wiki page on Dynamic DNS](https://wiki.dd-wrt.com/wiki/index.php/Dynamic_DNS).
+
+### Variables
+
+Of course, there are certain things that will vary depending on your configuration and setup. The following variables will be used as placeholders in the example configurations below. They will appear in the example configurations exactly as they appear here.
+
+| Variable name       | Description                                                                                                                                                 | Example values                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| \<server name>      | Domain name or WAN IP of your server to which the proxy will be responding                                                                                  | <p><code>bluebubbles.example.com</code><br><code>150.50.31.10</code></p> |
+| \<BlueBubbles IP>   | The IP of your BlueBubbles server on the local network. If the proxy is running on the same server as your BlueBubbles server (as in a VM), use `localhost` | <p><code>192.168.0.10</code><br><code>localhost</code></p>               |
+| \<BlueBubbles port> | The port that the BlueBubbles server is listening at on the local network (default is 1234)                                                                 | `1234`                                                                   |
+
+### Nginx
+
+The following is the recommended configuration for BlueBubbles to work behind an Nginx proxy. For easiest configuration, this should be placed in a new file at `/etc/nginx/conf.d/bluebubbles.conf`
+
+```config
+    server {
+        listen       80;
+        server_name      <server name>;
+        proxy_set_header    Host $host;
+        proxy_http_version  1.1;
+        proxy_set_header  Connection "Upgrade";
+        proxy_set_header  Upgrade $http_upgrade;
+        client_max_body_size 512M;
+    
+        location / {
+            proxy_pass         http://<BlueBubbles IP>:<BlueBubbles port>;
+        }
+    }
+```
+
+After creating this file and filling in the appropriate values, restart the Nginx service with `systemctl restart nginx.service` (you may need `sudo`).
+
+#### SSL
+
+If you plan to use SSL (recommended), see the SSL Configuration section at the bottom of this guide.
+
+#### Other considerations
+
+* The directory `conf.d` may be named something else like `vhosts.d`, depending on your Linux distribution
+* You can change `client_max_body_size` to whatever you want. You can use `M` and `G` to denote Megabytes and Gigabytes respectively, or you can set this to 0 (with no units) to put no restriction on the max client body size. This changes the max file size that can be sent through the proxy to BlueBubbles. For more information, you can see the [nginx documentation](http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size)
+* If you have further problems with large files not sending to BlueBubbles, you can also define the configured `client_body_buffer_size` similar to `client_max_body_size`
+
+### Apache
+
+Before writing your config, these apache modules are required for the config to work:
+
+* `mod_proxy`
+* `proxy_http`
+* `proxy_wstunnel`
+* `mod_headers`
+
+The following is the recommended configuration for BlueBubbles to work behind an Apache proxy. This should be placed in a new file at `/etc/httpd/conf.d/bluebubbles.conf`
+
+```config
+    <VirtualHost *:80>
+        ServerName <server name>
+
+        ProxyPreserveHost On
+        RequestHeader set X-ForwardedPort "80"
+        RequestHeader set X-Forwarded-Proto "http"
+
+        ErrorLog <error log location>
+        CustomLog <access log location> common
+
+        <Location />
+            ProxyPass http://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPassReverse http://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPass ws://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPassreverse ws://<BlueBubbles IP>:<BlueBubbles port>/
+        </Location>
+    </VirtualHost>
+```
+
+After creating this file and filling in the appropriate values, restart the apache service with `systemctl restart httpd` (you may need `sudo`)
+
+#### SSL
+
+If you plan to use SSL (recommended), see the SSL Configuration section at the bottom of this guide.
+
+#### Other considerations
+
+On certain Linux distributions, the configuration directory may be at `/etc/apache2/vhosts.d/` or `/etc/httpd/vhosts.d/`
+
+For reference, the following is the minimum viable configuration for BlueBubbles to work behind an Apache proxy. This configuration does not need the `mod_headers` module.
+
+```config
+    <VirtualHost *:80>
+        ServerName {server name}
+
+        <Location />
+            ProxyPass http://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPass ws://<BlueBubbles IP>:<BlueBubbles port>/
+        </Location>
+    </VirtualHost>
+```
+
+### HAProxy
+
+The following is the recommended configuration template for HAProxy. This should be in `/etc/haproxy/haproxy.cfg`.
+
+```config
+    frontend
+     use_backend <backend name> [if {ACL}]
+    
+    backend <backend name>
+     timeout client          60m
+     timeout http-keep-alive 5m
+     server <be server name> <BlueBubbles IP>:<BlueBubbles port>
+```
+
+Keep in mind that HAProxy ACL configurations can be complex. For more information on configuring HAProxy ACLs, see [this HAProxy blog post](https://www.haproxy.com/blog/introduction-to-haproxy-acls/).
+
+There are a few variables specific to HAProxy here:
+
+| Variable name     | Description                                                                                                                             | Example values                                                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| \<backend name>   | HAProxy backend name. This is an arbitrary name used to identify services in your HAProxy configuration file(s)                         | <p><code>bluebubbles</code><br><code>imessage-relay</code></p>       |
+| \<be server name> | HAProxy backend server name. This is an arbitrary name used to identify a specific backend server in your HAProxy configuration file(s) | <p><code>bb-server</code><br><code>imessage-relay-primary</code></p> |
+
+After writing/changing these files, reload HAProxy with `systemctl restart haproxy` (you may need `sudo`)
+
+#### SSL
+
+If you plan to use SSL (recommended), see the SSL Configuration section at the bottom of this guide.
+
+### SSL configuration
+
+If you do not use SSL/HTTPS (used interchangeably here), traffic sent from your client to your server will be sent in plain text. This includes message content and your BlueBubbles password. As such, configuring SSL is highly recommended if you intend to connect to your BlueBubbles server over the internet.
+
+To access your BlueBubbles to use HTTPS, you need to use an SSL certificate and configure your proxy to either terminate or pass through the SSL traffic. Here we will provide example configurations that have SSL certificates configured and link to more resources for configuring SSL on your proxy.
+
+Keep in mind that **you can only use SSL if you have a domain** -- it will not work with only an IP address.
+
+#### What is SSL termination?
+
+The easiest way to use this is to use something called "SSL termination" or "SSL offloading." This just means that the connection from client to server uses HTTPS (encrypted traffic) to the proxy, then the proxy communicates with the backend server using HTTP (unencrypted/plaintext traffic). As long as the proxy server and backend server live on the same private network, there are minimal security concerns with this setup, as the unencrypted traffic is sent over a trusted, private network.
+
+The primary alternative to SSL termination is SSL passthrough, in which the traffic is not decrypted at the proxy, but instead is passed through to the server where the traffic is decrypted. There are other alternatives such as two-way SSL in which the client talks to the proxy on one SSL connection, then the proxy opens a different SSL connection to talk with the backend server over an encrypted channel.
+
+For simplicity's sake, we will only be covering SSL offloading configuration in this guide.
+
+#### Certbot, the easy solution
+
+The simplest solution for SSL certificate management and configuration is [Certbot](https://certbot.eff.org/). Certbot is a tool built by the Electronic Frontier Foundation (EFF) and leverages [Let's Encrypt](https://letsencrypt.org/) to issue free certificates and then automatically install them in your existing server/proxy configuration. Certbot supports automatic SSL configuration for Apache, Nginx, HAProxy, and Plesk.
+
+If you are using HAProxy, there are some added layers of complexity, but Certbot can still be used to seamlessly automate the management and renewal of SSL certificates. Skip to the section *Certbot on HAProxy*.
+
+This is highly recommended as the solution for configuring SSL/HTTPS. This solution is easy, robust, and automated. Unless you have a good reason not to use Certbot, we highly recommend this option.
+
+**Certbot configuration steps**
+
+If you are using HAProxy, skip to the section *Certbot on HAProxy*.
+
+On almost all Linux systems, the configuration is simple:
+
+1. Install certbot with your distribution's package manager
+   * You may also need to install the certbot addon for your specific proxy, e.g. `certbot-nginx` (package names vary by distro)
+2. Configure your service as you normally would, with HTTP-only
+   * You need to configure your service before running Certbot to configure SSL on your service. This is because Certbot will look through your config to match the `<server name>` you provide it with the server name in your configuration file. It does this to identify where it needs to add the configuration for SSL.
+3. Issue a new certificate:
+   * Run: `sudo certbot --standalone --<proxy> -d <server name>`
+     * Fill in `<proxy>` appropriately for your proxy application (`apache`, `nginx`)
+   * If this is your first time running certbot, it will run you through a simple first-time setup that just requires your email address, confirmation of the Terms of Service, and whether or not you want to receive emails about EFF projects and campaigns
+4. Use cron to automatically renew the certificate(s) every 2 months
+   * Add a line to your crontab
+     * `sudo crontab -e`
+     * Insert on its own line: `0 0 1 */2 * certbot renew`
+   * Enable the cron service, if it isn't already:
+     * `sudo systemctl enable --now cron`
+
+**Certbot on HAProxy**
+
+Per Certbot's website: "Certificate installation with HAProxy is complicated." There are a few things that makes Certbot with HAProxy somewhat complicated:
+
+* HAProxy is not a web server, so it can not be used in `standalone` mode to run an HTTP server and respond to Let's Encrypt's HTTP-01 challenges
+* HAProxy requires a single .pem file that includes both the public certificate and the private key. This is not automatically generated by Certbot.
+
+However, there are several guides available online which show you how to generate a certificate, install it, and then automate the renewal process. In short, it works by diverting HTTP calls to the `.well-known` directory (where HTTP-01 challenges are stored) to the localhost where Certbot is running its own web server during the challenge. Then, the new certificate and key are combined into a .pem file with a simple bash script.
+
+* [Servers for Hackers - LetsEncrypt with HAProxy](https://serversforhackers.com/c/letsencrypt-with-haproxy) (Recommended)
+* [Skarlso - How to HTTPS with Hugo LetsEncrypt and HAProxy](https://skarlso.github.io/2017/02/15/how-to-https-with-hugo-letsencrypt-haproxy/)
+* [DigitalOcean - How To Secure HAProxy with Let's Encrypt on Ubuntu 14.04](https://www.digitalocean.com/community/tutorials/how-to-secure-haproxy-with-let-s-encrypt-on-ubuntu-14-04)
+
+*An example configuration file may be provided in the future after more testing can be done.*
+
+#### Self-configured SSL
+
+To reiterate: **Certbot is highly recommended as an easy solution for SSL configuration and management**. If you do intend to configure SSL yourself, we have provided example configurations below and references to further reading on the subject. If you're having trouble, feel free to join our Discord and ask questions there (linked in the header above).
+
+These example configuration files are the auto-generated files by Certbot and are provided for reference.
+
+**Nginx**
+
+[Nginx documentation SSL termination](https://docs.nginx.com/nginx/admin-guide/security-controls/terminating-ssl-http/)
+
+Contents of `/etc/nginx/conf.d/bluebubbles.conf` (could also be `/etc/nginx/vhosts.d/bluebubbles.conf`, depending on distro)
+
+```config
+    server {
+        listen               443 ssl;
+        server_name          <server name>;
+        proxy_set_header     Connection "Upgrade";
+        proxy_set_header     Upgrade $http_upgrade;
+        proxy_http_version   1.1;
+        client_max_body_size 512M;
+
+        location / {
+            proxy_pass    http://<BlueBubbles IP>:<BlueBubbles port>;
+        }
+
+        ssl_certificate /etc/letsencrypt/live/<server name>/fullchain.pem
+        ssl_certificate_key /etc/letsencrypt/live/<server name>/privkey.pem
+        include /etc/letsencrypt/options-ssl-nginx.conf
+        ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem
+    }
+    
+    server {
+        listen              80;
+        server_name         <server name>;
+        
+        # HTTP to HTTPS redirect
+        if ($host = <server name>) {
+            return 301 https://$host$request_uri;
+        }
+        
+        return 404;
+    }
+```
+
+Contents of `/etc/letsencrypt/options-ssl-nginx.conf`
+
+```
+ssl_session_cache shared:le_nginx_SSL:10m;
+ssl_session_timeout 1440m;
+ssl_session_tickets off;
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+```
+
+**Apache**
+
+[Apache documentation on mod\_ssl](https://httpd.apache.org/docs/2.4/mod/mod_ssl.html)
+
+Contents of `/etc/httpd/conf.d/bluebubbles.conf` (could also be `/etc/apache2/vhosts.d/bluebubbles.conf`, depending on Linux distribution)
+
+```config
+    <VirtualHost *:443>
+        ServerName <server name>
+
+        ProxyPreserveHost On
+        RequestHeader set X-ForwardedPort "443"
+        RequestHeader set X-Forwarded-Proto "https"
+
+        ErrorLog <error log location>
+        CustomLog <access log location> common
+
+        <Location />
+            ProxyPass http://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPassReverse http://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPass ws://<BlueBubbles IP>:<BlueBubbles port>/
+            ProxyPassreverse ws://<BlueBubbles IP>:<BlueBubbles port>/
+        </Location>
+        
+        SSLEngine on
+        SSLCertificateFile /etc/letsencrypt/live/<server name>/cert.pem
+        SSLCertificateKeyFile /etc/letsencrypt/live/<server name>/privkey.pem
+        SSLCertificateChainFile /etc/letsencrypt/live/<server name>/fullchain.pem
+
+    </VirtualHost>
+    
+    # HTTP to HTTPS redirect
+    <VirtualHost *:80>
+        ServerName <server name>
+        Redirect permanent / https://<server name>
+    </VirtualHost>
+```
+
+**HAProxy**
+
+[HAProxy documentation on SSL termination](https://www.haproxy.com/blog/haproxy-ssl-termination/)
+
+*If you intend to use Certbot with HAProxy, please reference the above section "Certbot on HAProxy"*
+
+For HAProxy, you need to have a .pem file that includes both the public certificate and the private key. If you don't already have this, you can simply create a .pem file that contains the appended content of both the .key and .cer/.crt files. Example: `cat mydomain.key mydomain.crt >> output.pem`
+
+Contents of `/etc/haproxy/haproxy.cfg`
+
+```config
+    frontend
+        bind *:80
+        bind *:443 ssl crt /etc/ssl/certs/mysite.pem
+        http-request redirect scheme https unless { ssl_fc }
+        use_backend <backend name> [if {ACL}]
+
+    backend <backend name>
+        timeout client          60m
+        timeout http-keep-alive 5m
+        server <be server name> <BlueBubbles IP>:<BlueBubbles port>
+```
+
+
+# Tailscale VPN Setup
+
+Tailscale is a mesh VPN software that uses WireGuard technology. It also include other fun features like Tailscale Funnel.
+
+[Tailscale Funnel ](https://tailscale.com/kb/1223/tailscale-funnel/)allows you to publicly expose your machine's local services without needing to purchase a domain & set up port forwarding. It hosts your machine's domain on their Funnel Servers. The Funnel Server accepts requests & sends a TCP proxy to your machine where TLS cert is terminated. Simple, secure & only requires a few short commands.
+
+***
+
+Requirements
+
+* [Tailscale account](https://login.tailscale.com/start)
+* Tailscale v1.38.3 or later
+* [MagicDNS](https://login.tailscale.com/admin/dns) enabled for your tailnet
+
+***
+
+1. Download Tailscale from the [Mac App Store](https://apps.apple.com/ca/app/tailscale/id1475387142) or [directly from Tailscale](https://pkgs.tailscale.com/stable/#macos)
+2. Login from the top right menu icon & enable start on login from preferences
+3. Add alias for the Tailscale CLI to your shell configuration by entering the command below into terminal.
+
+```bash
+echo 'alias tailscale="/Applications/Tailscale.app/Contents/MacOS/Tailscale"' | sudo tee -a ~/.zshrc
+```
+
+Alternatively, you can use `/Applications/Tailscale.app/Contents/MacOS/Tailscale <command>`
+
+4. Start a Funnel that proxies to the BlueBubbles local web server on its default port, `1234`. If your server uses a different local port, replace `1234`. Funnel can listen publicly on ports 443, 8443, or 10000.
+
+```bash
+tailscale funnel --bg --https=443 1234
+```
+
+{% hint style="warning" %}
+If you followed an older version of this guide, first inspect both `tailscale serve status` and `tailscale funnel status` for a persisted Serve route on port 443. Running the Funnel command above makes Funnel the active mode for that public port; confirm the route afterward with `tailscale funnel status`. Do not use a blanket `tailscale serve reset` as a migration shortcut because it also removes unrelated Serve routes on the machine.
+{% endhint %}
+
+The first time you run this command, Tailscale opens a browser page for you to approve Funnel. After approval, Tailscale automatically provisions the HTTPS certificate and adds the default Funnel node attribute to your tailnet policy.
+
+{% hint style="info" %}
+If the approval page does not open or the policy update fails, open [**Access controls**](https://login.tailscale.com/admin/acls), expand the **Funnel** section, and select **Add Funnel to policy**. This manual step is normally unnecessary.
+{% endhint %}
+
+5. Check the Funnel status. The output lists the public URL and its route to your local BlueBubbles server:
+
+```bash
+tailscale funnel status
+```
+
+6. Copy the entire URL shown in step 5. In BlueBubbles, select **Dynamic DNS / Custom URL** from the **Proxy Setup** dropdown and enter that URL:
+
+```bash
+https://machine-name.example.ts.net/
+```
+
+***
+
+* [Tailscale Funnel CLI](https://tailscale.com/docs/reference/tailscale-cli/funnel)
+* [Tailscale Serve CLI](https://tailscale.com/docs/reference/tailscale-cli/serve)
+* [Tailscale Funnel Documentation](https://tailscale.com/docs/features/tailscale-funnel)
+* [Access Control Lists (ACLs)](https://tailscale.com/kb/1018/acls/)
+* [Download](https://tailscale.com/download/mac)
+* [Introduction to Tailscale funnel](https://tailscale.com/blog/introducing-tailscale-funnel/)
+
+Thanks to @bobspop in Discord for creating this guide. Updated by @ampersandru
+
+
+# zrok Proxy Service
+
+[zrok](https://zrok.io/) is a modern, open-source sharing platform built on [OpenZiti](https://netfoundry.io/docs/openziti/). It's an alternative to Cloudflare or Ngrok for BlueBubbles users who need high bandwidth and stable connections.
+
+## zrok Benefits
+
+* **High bandwidth**: zrok offers a 5GB data transfer limit per 24 hours on their free tier, with pricing options to purchase more bandwidth if needed.
+* **No domain required**: Automatically provides a public URL.
+* **Open source and self-hostable**: zrok is fully [open-source on GitHub](https://github.com/openziti/zrok). You can use the managed service at zrok.io or [host it yourself](https://netfoundry.io/docs/zrok/guides/self-hosting/linux/) for total data sovereignty and unlimited bandwidth.
+* **Zero-trust security**: Unlike traditional proxies, zrok is built on OpenZiti, providing a secure, outbound-only connection without opening firewall ports.
+* **Built-in**: The zrok client is already integrated directly into the BlueBubbles Server.
+
+## Step 1: Sign up for zrok
+
+1. Go to [myzrok.io](https://myzrok.io) and sign up for a free account. Follow the email instructions to set your password.
+2. Log into the zrok dashboard and copy your **Account Token** from the portal.
+
+## Step 2: Set up BlueBubbles Server
+
+### Option A: Configure via the Setup Wizard (New Install)
+
+Firebase is required to sync your tunnel URL with your mobile devices and to deliver real-time notifications.
+
+#### Firebase Configuration
+
+You can configure Firebase either automatically via **Google Login** or manually by uploading JSON files. For automatic configuration, click **Continue with Google**. For manual configuration, click the **Manual Setup** tab and follow these steps:
+
+1. Create a project in the [Firebase Console](https://console.firebase.google.com/).
+2. Register an **Android** app using the package name `com.bluebubbles.messaging`.
+3. Download the `google-services.json` file from the **General** tab in your Firebase Project Settings.
+4. Go to the **Service accounts** tab and click **Generate new private key** to download your service account JSON file.
+5. Drag both JSON files into the BlueBubbles setup wizard.
+6. Click **Next** to proceed to the **Connection** slide.
+
+   ![Firebase manual config](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Fgit-blob-7dc2d74c116ebc9ab7ead1d87f5ef7a06f999370%2Ffirebase-manual-config.png?alt=media)
+
+#### Configure zrok
+
+1. Enter a **Server Password** and click the **floppy disk save icon**.
+2. In the **Proxy Setup** dropdown, select **zrok**.
+3. Paste your **Account Token** into the token field and click the **floppy disk save icon**.
+4. Confirm that a `*.share.zrok.io` URL appears, then click **Next** and proceed through the wizard.
+
+   ![zrok BlueBubbles setup](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Fgit-blob-63d0812644aa5687abda39ac91197124fa88404e%2Fzrok-bb-setup.png?alt=media)
+
+### Option B: Configure via Settings (Existing Install)
+
+If you've already completed the initial setup and configured Firebase, you can switch to zrok in the settings:
+
+1. Open the BlueBubbles Server app and navigate to **Settings > Connection Settings**.
+2. Change the **Proxy Service** dropdown to **zrok**.
+3. Paste your **Account Token** into the text field.
+4. Click the **floppy disk save icon** next to the token.
+5. Click **Save** at the bottom of the page and **Restart** the server when prompted.
+
+## Connect your Clients
+
+1. Find the public URL (e.g., `https://*.share.zrok.io`) at the top of the server home screen once you've finished the setup.
+2. Use this URL or the displayed QR code to link your Android, Windows, or Linux clients to the server.
+3. Log into your [zrok portal](https://myzrok.io) to verify the connection is active.
+
+   ![Successful zrok connection](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Fgit-blob-322d7e0fd73bc9ef2de77796505f89c2a881c0c7%2Fzrok-success.png?alt=media)
+
+{% hint style="info" %}
+For production-grade environments requiring even more advanced networking, zrok is also available as a managed service called [Frontdoor](https://netfoundry.io/docs/frontdoor/intro).
+{% endhint %}
+
+
+# Developer Guides - Overview
+
+Here you will find guides on how to develop against BlueBubbles
+
+{% embed url="<https://docs.bluebubbles.app/server/developer-guides/build-yourself-contribution-guide>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/developer-guides/rest-api-and-webhooks>" %}
+
+{% embed url="<https://docs.bluebubbles.app/server/developer-guides/simple-web-server-for-webhooks>" %}
+
+
+# Build Yourself / Contribution Guide
+
+How to build the server on your own system, or how to contribute to the project
+
+## Pre-requisites
+
+1. NodeJS: <https://nodejs.org/en/>
+2. Yarn Package Manager: <https://yarnpkg.com/>
+3. Git: <https://git-scm.com/>
+4. Code editor. Here are a few recommended editors:
+
+   * [Visual Studio Code](https://code.visualstudio.com/download)
+   * [Android Studio](https://developer.android.com/studio)
+   * [Atom](https://atom.io/)
+
+   Once you have a code editor installed, remember to install all of the required plugins/extensions such as the following:
+
+   * Typescript
+   * ESLint
+   * Prettier
+
+## Development
+
+1. Clone the repository
+   * `git clone git@github.com:BlueBubblesApp/BlueBubbles-Server.git`
+2. Navigate into the repository on your local machine
+   * `cd BlueBubbles-Server`
+3. Install the server dependencies
+   * `yarn`
+4. Run the dev server (this will start both the renderer and server)
+   * `yarn run start-dev`
+
+### Contribution Guide
+
+We encourage all contributions to this project! All we ask are you follow these simple rules when contributing:
+
+1. Write clean code
+2. Comment your code
+3. Follow Typescript and React best practices
+   * [Typescript Best Practices](https://www.typescriptlang.org/docs/handbook/declaration-files/do-s-and-don-ts.html)
+   * [React Best Practices](https://reactjs.org/docs/thinking-in-react.html)
+
+## Structure / Directory Map
+
+### Back-end
+
+* Backend Code: `/src/main`
+* BlueBubbles Server: `/src/main/server/index.ts`
+  * **Description**: This class is the main entry point to the whole backend. This classes manages the ngrok connection, the config database connection, the socket.io connection, and handles any inter-process-communications (IPC) from the "renderer" (UI).
+* BlueBubbles Types: `/src/main/server/types.ts`
+  * **Description**: Holds the types for the BlueBubbles server. Defines what fields are required and optional, as well as which keys are required in a request/response
+* iMessage Library: `/src/main/server/api/imessage`
+  * **Description**: This directory contains all of the classes and code needed to communicate with the iMessage Chat database. We use TypeORM as our decorator library for connecting to the database. This allows us to request information from the database in an object-oriented way
+* iMessage Database Models: `/src/main/server/api/imessage/entity`
+  * **Description**" This directory contains all of the entities within the iMessage Chat database. These are also known as database "models". They defined the columns and their types. These files determine what "properties" are associated with each entity, and what we can get from the database table
+* iMessage Database Transformers: `/src/main/server/api/imessage/transformers`
+  * **Description**: This directory contains what we cann "transformers". They allow us to automatically convert values that we get from the database, as well as insert into the database. These are super helpful for the iMessage database. One instance they really help is with date conversions. iMessage stores dates as seconds since 2001. This is opposed to a "normal" seconds since EPOCH. On top of that, they switched the date formats from v10.12 to v10.13. The transformers allows us to seemlessly convert those date without having to worry about it in our "fetching" code. There are also transformers for integers to booleans as well as reaction IDs to strings
+* iMessage Database Listeners: `/src/main/server/api/imessage/listeners`
+  * **Description**: These classes are "listeners". They allow you to listen on certain things. For instance, the MessageListener allows you to "listen" for new messages. It does this by polling the database for new information, then "emitting" that message to whoever is listening. These classes inherit the JS EventEmitter class
+* Filesystem Lib: `/src/main/fileSystem`
+  * **Description**: This class allows us, and helps us, interact with the MacOS filesystem. Mostly, reading/writing files to the app's directory.
+* Filesystem Scripts: `/src/main/fileSystem/scripts.ts`
+  * **Description**: File that holds the Apple Scripts that get executed when sending a message, creating a chat, etc.
+* Server Helpers: `/src/main/helpers`
+  * **Description**: Some helpers for executing actions from the client, or sending results back to the client
+* Socket Server: `/src/main/services/socket`
+  * **Description**: The socket server that handles all incoming requests from connected sockets. Allows clients to request for bulk information such as getting chats, messages, etc.
+* FCM Server: `/src/main/services/fcm`
+  * **Description**: This class will handle all communication with Google Firebase. This includes registering devices with FCM, sending notifications, etc.
+
+### Front-end
+
+* Frontend Code: `/src/renderer`
+* Fronend Layouts: `/src/renderer/layouts`
+  * **Description**: This directory contains the layouts for the frontend. In essence, these are the "containers" for all the pages. For example, the `Admin` layout in that directory is what shows the sidebar navigation, and all of its' children
+* Frontend Views: `/src/renderer/views`
+  * **Description**: The components in this directory are the "views" or "pages" within a layout. For instance, you'll find the configuration page here. It is a child within the Admin layout.
+* Frontend Components: `/src/renderer/components`
+  * **Description**: These are the re-usable components that you may use anywhere within the frontend. These may be "cards", or "buttons", or any other custom UI element.
+* Frontend Entrypoint: `/src/renderer/app.tsx`
+
+
+# REST API & Webhooks
+
+Documentation for BlueBubbles REST API & Webhooks
+
+{% hint style="warning" %}
+The REST API is currently only compatible with https Ngrok, Cloudflare, or Dynamic DNS connections with valid SSL certificates (when used in a Browser). We hope to add support for LocalTunnel in the near future. If you plan to use the REST API in a non-browser environment, it should work as expected.
+{% endhint %}
+
+{% hint style="warning" %}
+The REST API requires server version 0.2.0 or greater, though we recommend you use the latest server as some methods in the documentation may not exist on older versions.\
+\
+Webhooks require server version 1.0.0 or greater.
+{% endhint %}
+
+## API Wrappers
+
+* <https://git.elliotnash.org/elliotnash/blueify> (Java)
+
+## Who's Using It?
+
+{% embed url="<https://www.textgpt.chat/>" %}
+ChatGPT Bot for iMessage (Paid | Closed Source)
+{% endembed %}
+
+If you've built something using the API or webhooks that you'd like to share, let us know on our Discord!
+
+## API Documentation
+
+{% embed url="<https://documenter.getpostman.com/view/765844/UV5RnfwM>" %}
+Postman Collection with full documentation
+{% endembed %}
+
+## Authentication
+
+Most requests require authentication. Simply add the query parameter `guid` (aliases include `password` & `token`) to the end of the request URL, with the server password as the value.
+
+For example: `https://some-url.ngrok.io/api/v1/ping?guid=password`
+
+## Response Format
+
+All requests are returned with the basic format as below:
+
+```
+{
+    status: (int) Status Code,
+    message: (String) Status Message,
+    data: (Variable)
+}
+```
+
+Or in the case of an error:
+
+```
+{
+    status: (int) Status Code,
+    message: (String) Status Message,
+    error: {
+        type: (String) Error Type,
+        error: (String) Error Message
+    },
+    data?: (any)
+}
+```
+
+## Webhooks
+
+We support listening to the following events:
+
+1. New Messages
+2. Message Updates (delivered, read, etc)
+3. Message Errors
+4. Group Name Changes
+5. Participant Added / Removed / Left
+6. Chat Read Status Changes
+7. Typing Indicators
+8. BB Server Update
+9. BB Server URL Change
+10. Hello World (for testing)
+
+You can also subscribe to an event that listens to all of the above at once.
+
+Simply provide a URL and the server will POST to it whenever your desired event occurs.
+
+
+# Simple Web Server for Webhooks
+
+This page will show you how you can create a simple HTTP web server to receive webhooks from the BlueBubbles Server.
+
+## Goal
+
+The goal of this page is to show you how you can do some automation around iMessage using the BlueBubbles Server and the webhook events that it emits.
+
+## Building the HTTP Web Server
+
+Before setting up any webhooks with the BlueBubbles Server, you need to create a web server to receive the webhook requests that the server will be emitting.
+
+There are tools out there built for automation that do this for you such as [n8n](https://n8n.io/). However, if you want full controller over the code, I recommend building a webserver yourself.
+
+Here are some quick implementation code in various languages.
+
+{% embed url="<https://docs.bluebubbles.app/server/developer-guides/simple-web-server-for-webhooks/python-web-server>" %}
+
+## Creating a Webhook
+
+Once you've built your HTTP server, note the port that the server runs on (if running it on localhost).
+
+Open up the BlueBubbles Server and open the `API & Webhooks` page. Then click on the `Manage` drop down, and select `Add Webhook`
+
+![](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2F6BFMpxz4HgSneIN0zh0R%2FCleanShot%202023-03-17%20at%2010.01.02.png?alt=media\&token=6cf5976a-9d06-4a0a-84a1-3f03203e574a)
+
+In the popup, enter your webserver's URL + port (if on localhost). Here is an example where my localhost webserver is listening on port 8000:
+
+![](https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2FPbWgjXd37ZBYpchNTs4s%2FCleanShot%202023-03-17%20at%2010.02.22.png?alt=media\&token=f48003d4-d07f-43c2-87fe-96af910664db)
+
+Next, select the events you want to subscribe to from the `Event Subscriptions` drop down.
+
+Lastly, hit save. You should see your new entry show up in the table.
+
+<figure><img src="https://3303548698-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FThJZqK6Woy4I46skzbiC%2Fuploads%2Fy1tRBlirH8kFkPMWC3Hs%2FCleanShot%202023-03-17%20at%2010.03.30.png?alt=media&amp;token=f6df7723-c3fe-4535-8d55-b266dd94f83e" alt=""><figcaption></figcaption></figure>
+
+Assuming your webserver is running, it should now receive HTTP POST requests when the subscribed events are emitted from the server!
+
+{% hint style="info" %}
+If you have a cool automation project, please share it with us in our Discord! We love to see all the cool ways people are using BlueBubbles and its' API!
+{% endhint %}
+
+
+# Python Web Server Example
+
+Here is a sample of a web server written in Python to receive new message events.
+
+Most of the code below is boilerplate code. The important pieces to change are lines 9 and 64-104.
+
+On line 9, you need to set your server password.
+
+Lines 64-104 define which events are handled, and how they are being handled. Those are likely the lines you want to modify the most to customize the functionality.
+
+{% code lineNumbers="true" %}
+
+```python
+import json
+import requests
+
+from time import sleep
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Your BlueBubbles local address + port
+server_addr = 'http://localhost:1234'
+server_password = 'your-server-password'
+
+# Create a class to handle a POST request on port 8000
+class PostHandler(BaseHTTPRequestHandler):
+
+    def return_bad_request(self, error="Bad Request"):
+        """
+        A function to return a 400 error.
+
+        Args:
+            error (str): The error message to return
+        """
+
+        self.send_response(400)
+        self.end_headers()
+        self.wfile.write(error.encode('utf-8'))
+
+    def return_ok(self, message="OK"):
+        """
+        A function to return a 200 response.
+
+        Args:
+            message (str): The message to return
+        """
+
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(message.encode('utf-8'))
+
+    def do_POST(self):
+        """
+        A POST request handler. This is called when a POST request is received.
+        This function does some validation around "valid" requests relative to
+        what the BlueBubbles server will emit via Webhooks.
+        """
+
+        print("Received POST request")
+
+        # Ignore any request that isn't JSON
+        if self.headers["Content-Type"] != "application/json":
+            return self.return_bad_request()
+
+        # Read the data
+        content_length = int(self.headers["Content-Length"])
+        post_data = self.rfile.read(content_length)
+
+        try:
+            # Convert the data to a JSON object and pass it to the handler
+            data = json.loads(post_data)
+            self.handle_json(data)
+        except ValueError as ex:
+            return self.return_bad_request(ex.message or "Invalid JSON received")
+
+        self.return_ok()
+
+    def handle_json(self, data):
+        """
+        Handles a generic JSON object. This function will check the type of the
+        event and handle it accordingly.
+
+        Args:
+            data (dict): The JSON data        
+        """
+
+        print("Received JSON data: ", data)
+
+        if data.get('type') == 'new-message':
+            self.handle_new_message()
+        else:
+            print("Unhandled event type: ", data.get('type'))
+
+    def handle_new_message(self, data):
+        """
+        Handles a new-message event.
+        This is a general handler that will respond to any new message with "Hello World!"
+
+        Args:
+            data (dict): The JSON data        
+        """
+
+        if not isinstance(data.get('data'), dict):
+            return
+        
+        # Ignore messages that I sent
+        if data.get('data').get('isFromMe'):
+            return
+        
+        # Extract the chat guid and message text
+        chats = data.get('data').get('chats', [])
+        if not chats:
+            raise ValueError('No chats found in data')
+
+        chat_guid = chats[0].get('guid')
+        print("Detected incoming message... Dispatching response...")
+        self.send_text(chat_guid, "Hello World!")
+        print("Response dispatched")
+
+    def send_text(self, chat_guid, text, method='private-api'):
+        """
+        Sends a text message to a chat via the BlueBubbles server.
+
+        Args:
+            chat_guid (str): The chat guid to send the message to
+            text (str): The text to send
+            method (str): The method to use to send the message. Defaults to "private-api"
+        """
+        params = {'password': server_password}
+        data = {
+            'chatGuid': chat_guid,
+            'text': text,
+            'method': method
+        }
+
+        requests.post(
+            '{}/api/v1/message/text'.format(server_addr),
+            json=data,
+            params=params,
+            headers={'Content-Type': 'application/json'}
+        )
+
+
+# Create a server on port 8000
+server = HTTPServer(("", 8000), PostHandler)
+print("Server started on port 8000")
+server.serve_forever()
+```
+
+{% endcode %}
+
+
