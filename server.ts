@@ -13,6 +13,8 @@ import { whatsappTimestamp } from './src/timestamps';
 import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
+import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
+import { readInBrowser } from './src/linkedin-browser';
 import { pickGmailBodies } from './src/gmail-body';
 import { gmailCursorUnchanged, gmailIdsToFetch, whatsappListUnchanged } from './src/sync-plan';
 import { approvalHash, confirmProposalRequest, latestInboundId } from './src/whatsapp-confirm';
@@ -26,7 +28,7 @@ import { existsSync } from 'node:fs';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 
 const exec = promisify(execFile);
-const account = z.enum(['personal', 'business', 'whatsapp', 'imessage']);
+const account = z.enum(['personal', 'business', 'whatsapp', 'imessage', 'linkedin']);
 const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
@@ -237,6 +239,19 @@ async function confirmInWhatsAgent(proposalId: number, baseHash: string, inbound
   const payload = await response.json().catch(() => ({})) as { error?: unknown };
   if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'WhatsApp did not accept the confirmation. It has not been sent.');
 }
+const linkedinGate = createAsyncGate();
+/** Reads LinkedIn inside the BB browser's signed-in session; nothing is clicked, accepted, or sent. */
+async function linkedin<T>(read: (payload: any) => T): Promise<T> {
+  return linkedinGate(async () => {
+    try {
+      return read(await readInBrowser({ mode: 'list' }));
+    } catch (cause) {
+      // Cookie values, message bodies, and raw response text stay out of this message and the logs.
+      throw new Error(cause instanceof Error && cause.message.startsWith('LinkedIn') ? cause.message : 'LinkedIn is unavailable. Open LinkedIn in the BB browser and stay signed in.');
+    }
+  });
+}
+async function listLinkedIn() { return linkedinItems(await linkedin(payload => payload)); }
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id))');
@@ -253,6 +268,12 @@ export default function plugin(bb: BbPluginApi) {
     if (account === 'imessage') {
       const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
       cache.saveThread(account, id, messages);
+      return { messages };
+    }
+    if (account === 'linkedin') {
+      if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
+      const messages = linkedinMessages(await linkedin(() => readInBrowser({ mode: 'thread', id })) as { messages?: unknown });
+      cache.saveThread('linkedin', id, messages);
       return { messages };
     }
     if (account === 'whatsapp') {
@@ -293,7 +314,7 @@ export default function plugin(bb: BbPluginApi) {
       return { ids: ranked.slice(0, 50).flatMap(row => {
         const split = row.id.indexOf('\u0000');
         const name = row.id.slice(0, split);
-        if (name !== 'personal' && name !== 'business' && name !== 'whatsapp' && name !== 'imessage') return [];
+        if (name !== 'personal' && name !== 'business' && name !== 'whatsapp' && name !== 'imessage' && name !== 'linkedin') return [];
         const accountName: Account = name;
         return [{ account: accountName, id: row.id.slice(split + 1), score: row.score }];
       }) };
@@ -305,6 +326,11 @@ export default function plugin(bb: BbPluginApi) {
     clear_cache() { cache.clear(); return {cleared: true}; },
     async list_source({ account, limit }) {
       if (account === 'imessage') return { items: await listImsg(limit ?? 20) };
+      if (account === 'linkedin') {
+        const items = await listLinkedIn();
+        cache.save('linkedin', items.map(item => ({ ...item, account: 'linkedin' as const })));
+        return {items};
+      }
       if (account === 'whatsapp') {
         const items = (await listWa()).map((item: { account: 'whatsapp'; id: string; unread: boolean }) => cache.keptUnread(item.account, item.id) ? { ...item, unread: true } : item);
         const previous = cache.list().filter(item => item.account === 'whatsapp');
@@ -314,11 +340,11 @@ export default function plugin(bb: BbPluginApi) {
       return { items: await listGmail(account, limit ?? 20, cache) };
     },
     async list() {
-      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg()]);
-      const names = ['Personal Gmail','Business Gmail','WhatsApp','Messages']; const errors:string[] = []; const items:any[] = [];
+      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg(), listLinkedIn()]);
+      const names = ['Personal Gmail','Business Gmail','WhatsApp','Messages','LinkedIn']; const errors:string[] = []; const items:any[] = [];
       results.forEach((r,i) => {
         if (r.status === 'fulfilled') items.push(...r.value);
-        else if (r.reason instanceof Error && (r.reason.message.startsWith('WhatsAgent backend is unavailable.') || r.reason.message.startsWith('Gmail '))) errors.push(r.reason.message);
+        else if (r.reason instanceof Error && (r.reason.message.startsWith('WhatsAgent backend is unavailable.') || r.reason.message.startsWith('Gmail ') || r.reason.message.startsWith('LinkedIn '))) errors.push(r.reason.message);
         else errors.push(`${names[i]} unavailable. Check its connection.`);
       });
       return { items: items.sort((a,b) => b.date-a.date), errors };
@@ -354,6 +380,7 @@ export default function plugin(bb: BbPluginApi) {
     },
     async action({account,id,action,text,proposalId}) {
       if (account === 'imessage') throw new Error('Messages actions are not enabled.');
+      if (account === 'linkedin') throw new Error('LinkedIn is read-only here: nothing can be sent, accepted, or marked read.');
       if (account === 'whatsapp') {
         if (action === 'read') { cache.dropUnread(account, id); await wa('mark-read',{chatJid:id}); return {status:'Marked read in WhatsAgent (no WhatsApp read receipt).'}; }
         if (action === 'unread') { cache.keepUnread(account, id); return {status:'Marked unread.'}; }

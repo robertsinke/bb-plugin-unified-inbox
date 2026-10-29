@@ -1,0 +1,55 @@
+export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string };
+export type LinkedInMessage = { sender: string; text: string; date: number; fromMe: boolean };
+export type LinkedInPayload = { conversations?: unknown; invitations?: unknown };
+
+const PREVIEW_LIMIT = 300;
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function row(value: unknown): LinkedInRow | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const id = text(raw.id);
+  if (!id) return null;
+  const title = text(raw.title) || 'LinkedIn conversation';
+  const preview = text(raw.preview);
+  // A boolean "has a note" flag once shipped where the note text belongs; never render "true".
+  const usable = preview === 'true' || preview === 'false' ? '' : preview.slice(0, PREVIEW_LIMIT);
+  const date = Number(raw.date);
+  const sender = text(raw.sender);
+  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}) };
+}
+
+/** Inbox rows for LinkedIn conversations and pending invitations, newest first, one row per id. */
+export function linkedinItems(payload: LinkedInPayload): LinkedInRow[] {
+  const rows = [...(Array.isArray(payload?.conversations) ? payload.conversations : []), ...(Array.isArray(payload?.invitations) ? payload.invitations : [])];
+  const seen = new Set<string>();
+  const items: LinkedInRow[] = [];
+  for (const value of rows) {
+    const item = row(value);
+    if (!item || seen.has(item.id)) continue;
+    seen.add(item.id);
+    items.push(item);
+  }
+  return items.sort((a, b) => b.date - a.date);
+}
+
+/** Conversation messages in reading order. Empty bodies are dropped rather than rendered blank. */
+export function linkedinMessages(payload: { messages?: unknown }): LinkedInMessage[] {
+  const rows = Array.isArray(payload?.messages) ? payload.messages : [];
+  return rows.flatMap(value => {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Record<string, unknown>;
+    const body = text(raw.text);
+    if (!body) return [];
+    const date = Number(raw.date);
+    return [{ sender: text(raw.sender) || 'LinkedIn', text: body, date: Number.isFinite(date) && date > 0 ? date : 0, fromMe: raw.fromMe === true }];
+  }).sort((a, b) => a.date - b.date);
+}
+
+/** Rejects anything that is not a LinkedIn conversation URN before it reaches the page. */
+export function isConversationId(id: string): boolean {
+  return /^urn:li:msg_conversation:.+/.test(id) && id.length <= 512;
+}
