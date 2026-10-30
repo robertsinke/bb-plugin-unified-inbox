@@ -15,7 +15,7 @@ import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
-import { openLinkedInSignIn, readLinkedInInChrome } from './src/linkedin-chrome';
+import { openLinkedInSignIn, readLinkedInInChrome, stopLinkedInBrowser } from './src/linkedin-chrome';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
 import { latestReceivedMessage } from './src/gmail-inbox';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from './src/sync-plan';
@@ -364,6 +364,7 @@ export default function plugin(bb: BbPluginApi) {
   const imsgPath = [join(home, '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
+  bb.onDispose(() => { void stopLinkedInBrowser(); });
   async function listImsg(limit = 20) {
     const items = mapImsgChats(await imsg.request('chats.list', { limit }));
     cache.save('imessage', items);
@@ -490,8 +491,8 @@ export default function plugin(bb: BbPluginApi) {
       searchIndex.warm();
       return { items: normalized, updatedAt: Date.now() };
     },
-    linkedin_signin() {
-      const profile = openLinkedInSignIn();
+    async linkedin_signin() {
+      const profile = await openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };
     },
     async list() {
@@ -576,9 +577,9 @@ export default function plugin(bb: BbPluginApi) {
     name: 'unified-inbox',
     summary: 'Unified Inbox helpers, such as the one-time LinkedIn sign-in',
     commands: [{ name: 'linkedin-signin', summary: 'Open the inbox LinkedIn profile so you can sign in once', usage: 'bb unified-inbox linkedin-signin' }],
-    run(argv) {
+    async run(argv) {
       if (argv[0] !== 'linkedin-signin') return { exitCode: 1, stderr: 'Usage: bb unified-inbox linkedin-signin' };
-      const profile = openLinkedInSignIn();
+      const profile = await openLinkedInSignIn();
       return { exitCode: 0, stdout: `Sign in to LinkedIn in the window that just opened, then close it. Profile: ${profile}\n` };
     },
   });
