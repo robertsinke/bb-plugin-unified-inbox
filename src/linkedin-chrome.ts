@@ -176,7 +176,13 @@ export function chromeStartupError(stderr: string, code: number | null): Error {
   return new Error(`Chrome exited before LinkedIn could be read (code ${code ?? 'unknown'})${tail ? `: ${tail}` : '.'}`);
 }
 
-type Browser = { wsUrl: string; stop(): Promise<void> };
+type Browser = { wsUrl: string; alive: boolean; stop(): Promise<void> };
+type Page = { client: ReturnType<typeof createCdpClient>; sessionId: string; browser: Browser };
+
+/** Chrome's own start dominates a read, so one page is kept open for a short while between reads. */
+const IDLE_MS = 90_000;
+let warm: Page | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function startBrowser(profile: string): Promise<Browser> {
   const child = spawn(linkedinChromePath(), browserArgs({ profile, url: 'about:blank', headless: true, debugging: true }), { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -186,6 +192,7 @@ async function startBrowser(profile: string): Promise<Browser> {
     const exited = await Promise.race([once(child, 'exit'), sleep(3000).then(() => false)]);
     if (exited === false && child.exitCode === null) child.kill('SIGKILL');
   };
+  const browser: Browser = { wsUrl: '', alive: true, stop };
   const wsUrl = await new Promise<string>((resolve, reject) => {
     let buffered = '';
     const timer = setTimeout(() => finish(new Error('The LinkedIn browser did not start in time.')), START_TIMEOUT);
@@ -200,56 +207,95 @@ async function startBrowser(profile: string): Promise<Browser> {
       if (found) finish(null, found);
     });
     child.once('error', error => finish(new Error(`Could not start Chrome for LinkedIn: ${error.message}`)));
-    child.once('exit', code => finish(chromeStartupError(buffered, code)));
+    child.once('exit', code => { browser.alive = false; finish(chromeStartupError(buffered, code)); });
   }).catch(async error => {
     await stop();
     throw error;
   });
-  return { wsUrl, stop };
+  browser.wsUrl = wsUrl;
+  return browser;
 }
 
 /** Runs one in-page read. Rejects rather than returning a partial result. */
 export async function readLinkedInInChrome(read: LinkedInRead): Promise<unknown> {
   if (read.mode === 'thread' && !/^urn:li:msg_conversation:.+/.test(read.id)) throw new Error('That LinkedIn conversation cannot be opened.');
+  return linkedinReadResult(await evaluateInLinkedInProfile(linkedinPageExpression(read)));
+}
+
+/** Evaluates one expression in a signed-in LinkedIn page of the plugin's own profile. */
+export async function evaluateInLinkedInProfile(expression: string): Promise<unknown> {
   return gate(async () => {
-    const profile = linkedinProfileDir();
-    mkdirSync(profile, { recursive: true });
-    const browser = await startBrowser(profile);
-    let client: ReturnType<typeof createCdpClient> | undefined;
+    const page = await warmPage();
+    keepWarm();
     try {
-      client = createCdpClient(await webSocketTransport(browser.wsUrl));
-      const { targetId } = await client.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' });
-      const { sessionId } = await client.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
-      await client.send('Page.enable', {}, sessionId);
-      const loaded = waitForLoad(client, sessionId);
-      await client.send('Page.navigate', { url: START_URL }, sessionId).catch(() => undefined);
-      await loaded;
       const evaluated = await withTimeout(
-        client.send<{ result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: unknown } } }>(
+        page.client.send<{ result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: unknown } } }>(
           'Runtime.evaluate',
-          { expression: linkedinPageExpression(read), awaitPromise: true, returnByValue: true },
-          sessionId,
+          { expression, awaitPromise: true, returnByValue: true },
+          page.sessionId,
         ),
         READ_TIMEOUT,
         'LinkedIn did not answer in time.',
       );
       const description = evaluated.exceptionDetails?.exception?.description;
       if (typeof description === 'string') throw new Error(`LinkedIn read failed in the browser: ${description.split('\n')[0].slice(0, 200)}`);
-      return linkedinReadResult(evaluated.result?.value);
-    } finally {
-      try { client?.close(); } catch { /* the connection is going away anyway */ }
-      await browser.stop();
+      return evaluated.result?.value;
+    } catch (error) {
+      // A page that failed mid-read is not trusted for the next one.
+      await stopLinkedInBrowser();
+      throw error;
     }
   });
 }
 
+/** Stops the warm browser, if any; safe to call repeatedly. */
+export async function stopLinkedInBrowser(): Promise<void> {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+  const page = warm;
+  warm = null;
+  if (!page) return;
+  try { page.client.close(); } catch { /* the connection is going away anyway */ }
+  await page.browser.stop();
+}
+
 /** Opens the same profile in a visible window so the owner can sign in once. */
-export function openLinkedInSignIn(): string {
+export async function openLinkedInSignIn(): Promise<string> {
+  await stopLinkedInBrowser();
   const profile = linkedinProfileDir();
   mkdirSync(profile, { recursive: true });
   const child = spawn(linkedinChromePath(), browserArgs({ profile, url: 'https://www.linkedin.com/login', headless: false, debugging: false }), { detached: true, stdio: 'ignore' });
   child.unref();
   return profile;
+}
+
+async function warmPage(): Promise<Page> {
+  if (warm?.browser.alive) return warm;
+  await stopLinkedInBrowser();
+  const profile = linkedinProfileDir();
+  mkdirSync(profile, { recursive: true });
+  const browser = await startBrowser(profile);
+  const client = createCdpClient(await webSocketTransport(browser.wsUrl));
+  try {
+    const { targetId } = await client.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await client.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
+    await client.send('Page.enable', {}, sessionId);
+    const loaded = waitForLoad(client, sessionId);
+    await client.send('Page.navigate', { url: START_URL }, sessionId).catch(() => undefined);
+    await loaded;
+    warm = { client, sessionId, browser };
+    return warm;
+  } catch (error) {
+    try { client.close(); } catch { /* nothing left to close */ }
+    await browser.stop();
+    throw error;
+  }
+}
+
+function keepWarm(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { void stopLinkedInBrowser(); }, IDLE_MS);
+  idleTimer.unref?.();
 }
 
 function waitForLoad(client: ReturnType<typeof createCdpClient>, sessionId: string): Promise<void> {

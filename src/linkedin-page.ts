@@ -13,13 +13,14 @@ const BODY = `
     const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
     const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
     const get = async url => { const response = await fetch(url, { headers, credentials: 'include' }); if (!response.ok) throw new Error('LinkedIn ' + response.status + ' for ' + url.split('?')[0]); return JSON.parse(await response.text()); };
-    const idOf = ref => String(ref || '').split(':').pop();
 
     const names = new Map();
     const avatars = new Map();
     const avatarOf = person => {
-      const picture = person?.profilePicture || {};
-      const display = picture['displayImage~'] || picture.displayImage || {};
+      const picture = person?.profilePicture || person?.picture || person || {};
+      // Shapes differ: a profile nests displayImage.vectorImage, a company logo wraps { image }, older payloads hand the vector image itself.
+      const image = picture.image || picture['displayImage~'] || picture.displayImage || picture;
+      const display = image.vectorImage || image;
       const identifiers = (display.elements || []).flatMap(element => element.identifiers || []).map(value => value.identifier).filter(value => typeof value === 'string');
       const direct = identifiers.find(value => value.startsWith('https://'));
       if (direct) return direct;
@@ -31,57 +32,72 @@ const BODY = `
       try { const url = new URL(String(value)); return url.protocol === 'https:' && (url.hostname === 'licdn.com' || url.hostname.endsWith('.licdn.com')) ? url.href : ''; }
       catch { return ''; }
     };
-    const nameOf = async id => {
-      if (!id) return '';
-      if (names.has(id)) return names.get(id);
-      names.set(id, '');
+    // A participant is a member profile or a company page, and only the urn says which.
+    const identityKey = ref => {
+      const match = /urn:li:fsd_(profile|company):([^,)]+)/.exec(String(ref || ''));
+      return match ? 'fsd_' + match[1] + ':' + match[2] : '';
+    };
+    const nameOf = async ref => {
+      const key = identityKey(ref);
+      if (!key) return '';
+      if (names.has(key)) return names.get(key);
+      names.set(key, '');
       try {
-        const profile = await get('/voyager/api/identity/dash/profiles/' + enc('urn:li:fsd_profile:' + id));
-        const person = (profile.included || []).find(e => e && e.firstName) || profile.data || {};
-        names.set(id, [person.firstName, person.lastName].filter(Boolean).join(' '));
-        avatars.set(id, linkedinImage(avatarOf(person)));
+        if (key.startsWith('fsd_company:')) {
+          const company = await get('/voyager/api/organization/companies/' + enc(key.slice('fsd_company:'.length)));
+          const organization = company?.data || company || {};
+          names.set(key, String(organization.localizedName || organization.name || ''));
+          avatars.set(key, linkedinImage(avatarOf({ profilePicture: organization.logo })));
+        } else {
+          const profile = await get('/voyager/api/identity/dash/profiles/' + enc('urn:li:' + key));
+          const person = (profile.included || []).find(e => e && e.firstName) || profile.data || {};
+          names.set(key, [person.firstName, person.lastName].filter(Boolean).join(' '));
+          avatars.set(key, linkedinImage(avatarOf(person)));
+        }
       } catch { /* a name is presentation detail; the row still carries its id and message */ }
-      return names.get(id);
+      return names.get(key);
     };
 
     const me = await get('/voyager/api/me');
     // This reference survives when LinkedIn omits the inlined MiniProfile, so read it first.
     const meRef = String(me.data?.['*miniProfile'] || (me.included || []).find(e => /miniProfile/.test(String(e.$type || '')))?.entityUrn || '');
     if (!/^urn:li:fs_miniProfile:/.test(meRef)) throw new Error('LinkedIn session is not signed in');
-    const meId = meRef.split(':').pop();
+    const meKey = identityKey(meRef.replace('fs_miniProfile', 'fsd_profile'));
 
     if (request.mode === 'thread') {
       const json = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.5846eeb71c981f11e0134cb6626cc314&variables=(conversationUrn:' + enc(request.id) + ')');
       const events = (json.included || []).filter(e => /linkedin\\.messenger\\.Message$/.test(String(e.$type || '')));
-      const actorIds = [...new Set(events.map(e => idOf(e['*sender'] || e['*actor'])))].filter(id => id && id !== meId);
-      await Promise.all(actorIds.map(nameOf));
+      const actors = [...new Set(events.map(e => String(e['*sender'] || e['*actor'] || '')))].filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
+      await Promise.all(actors.map(nameOf));
       return { messages: events.map(e => {
-        const actor = idOf(e['*sender'] || e['*actor']);
-        return { sender: actor === meId ? 'You' : names.get(actor) || 'LinkedIn', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: actor === meId };
+        const key = identityKey(e['*sender'] || e['*actor']);
+        const mine = key === meKey;
+        return { sender: mine ? 'You' : names.get(key) || 'LinkedIn', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: mine };
       }) };
     }
 
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
     const entities = (inbox.included || []).filter(e => /msg_conversation/.test(String(e.entityUrn || '')));
-    const counterpartIds = [...new Set(entities.flatMap(e => (e['*conversationParticipants'] || []).map(idOf)).filter(id => id && id !== meId))];
-    await Promise.all(counterpartIds.map(nameOf));
+    const counterparts = [...new Set(entities.flatMap(e => e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; }))];
+    await Promise.all(counterparts.map(nameOf));
     const conversations = entities.map(e => {
-      const others = (e['*conversationParticipants'] || []).map(idOf).filter(id => id && id !== meId);
-      const avatarUrl = others.length === 1 ? avatars.get(others[0]) : '';
-      return { id: String(e.entityUrn), title: String(e.title || '') || others.map(id => names.get(id)).filter(Boolean).join(', '), preview: String(e.descriptionText || ''), date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, ...(avatarUrl ? { avatarUrl } : {}) };
+      const others = (e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
+      const people = others.map(ref => names.get(identityKey(ref))).filter(Boolean).join(', ');
+      const avatarUrl = others.length === 1 ? avatars.get(identityKey(others[0])) : '';
+      return { id: String(e.entityUrn), title: String(e.title || '') || people, preview: String(e.descriptionText || ''), date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
     });
 
     const invites = await get('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20');
     const invitePeople = new Map((invites.included || []).filter(e => e?.entityUrn).map(e => [e.entityUrn, e]));
     const inviteRows = (invites.included || []).filter(e => /relationships\\.invitation\\.Invitation$/.test(String(e.$type || '')));
-    await Promise.all(inviteRows.filter(e => !invitePeople.has(String(e['*fromMember'] || ''))).map(e => nameOf(idOf(e['*fromMember']))));
+    await Promise.all(inviteRows.filter(e => !invitePeople.has(String(e['*fromMember'] || ''))).map(e => nameOf(e['*fromMember'])));
     const invitations = inviteRows.map(e => {
       const ref = String(e['*fromMember'] || '');
       const person = invitePeople.get(ref) || {};
-      const title = [person.firstName, person.lastName].filter(Boolean).join(' ') || names.get(idOf(ref)) || '';
+      const title = [person.firstName, person.lastName].filter(Boolean).join(' ') || names.get(identityKey(ref)) || '';
       // customMessage only says whether a note exists; the note itself is the message field.
       const note = String(typeof e.message === 'string' ? e.message : '').trim();
-      const avatarUrl = linkedinImage(avatarOf(person)) || avatars.get(idOf(ref)) || '';
+      const avatarUrl = linkedinImage(avatarOf(person)) || avatars.get(identityKey(ref)) || '';
       return { id: String(e.entityUrn || e.mailboxItemId || ''), title, preview: note, date: Number(e.sentTime || 0), unread: e.unseen === true, sender: title, ...(avatarUrl ? { avatarUrl } : {}) };
     });
 
