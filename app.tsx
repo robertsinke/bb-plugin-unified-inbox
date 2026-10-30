@@ -322,7 +322,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
     try {
       await Promise.all(pending.map(async account=>{
         try {
-          const listed=await rpc.call('list_source',{account});
+          const listed=await rpc.call('list_source',{account,...(account==='linkedin'&&threadId?{threadId}:{})});
           setItems(old=>[...old.filter(item=>item.account!==account),...listed.items].sort((a,b)=>b.date-a.date));
           setRefreshedAt(old=>({...old,[account]:Date.now()}));
           setErrors(old=>old.filter(error=>!error.startsWith(accounts[account].label)));
@@ -367,7 +367,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
     if(!current||(current.date===selected.date&&current.preview===selected.preview))return;
     const seq=++request.current;
     setSelected(current);
-    void rpc.call('open',{account:current.account,id:current.id}).then(result=>{if(seq===request.current)setMessages(result.messages);}).catch(()=>{ /* the messages already on screen stay */ });
+    void rpc.call('open',{account:current.account,id:current.id,...(current.account==='linkedin'&&threadId?{threadId}:{})}).then(result=>{if(seq===request.current)setMessages(result.messages);}).catch(()=>{ /* the messages already on screen stay */ });
   },[items,rpc,selected]);
   useEffect(()=>{
     if (!selected || selected.account !== 'whatsapp') return;
@@ -407,7 +407,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
       const remembered=await rpc.call('cached_open',{account:i.account,id:i.id});
       if(seq===request.current && remembered.messages.length){ setMessages(remembered.messages); setOpening(false); }
       else if(seq===request.current) setMessages([]);
-      const r=await rpc.call('open',{account:i.account,id:i.id});
+      const r=await rpc.call('open',{account:i.account,id:i.id,...(i.account==='linkedin'&&threadId?{threadId}:{})});
       if(seq===request.current) setMessages(r.messages);
       if (i.account !== 'imessage' && i.unread && seq===request.current) {
         void rpc.call('action', { account: i.account, id: i.id, action: 'read' }).then(() => {
@@ -634,7 +634,7 @@ function useInboxBadge(): ExperimentalBadge | null {
     let alive = true;
     const tick = async () => {
       try {
-        await Promise.all((['whatsapp', 'personal', 'business', 'imessage', 'linkedin'] as const).map(account => rpc.call('list_source', { account })));
+        await Promise.all((['whatsapp', 'personal', 'business', 'imessage'] as const).map(account => rpc.call('list_source', { account })));
         const cached = await rpc.call('cached', null);
         if (alive) setCount(cached.items.filter(item => item.unread).length);
       } catch { /* a later refresh can still update the count */ }
