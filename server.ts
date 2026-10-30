@@ -15,6 +15,7 @@ import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
+import { openLinkedInSignIn, readLinkedInInChrome } from './src/linkedin-chrome';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
 import { latestReceivedMessage } from './src/gmail-inbox';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from './src/sync-plan';
@@ -35,8 +36,6 @@ const item = z.object({ account, id: z.string(), title: z.string(), preview: z.s
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
-const linkedinCacheItem = z.object({ id: z.string().min(1).max(512).refine(id => isConversationId(id) || /^urn:li:fs_relInvitation:.+$/.test(id)), title: z.string().max(1000), preview: z.string().max(300), date: z.number().finite().nonnegative(), unread: z.boolean(), sender: z.string().max(1000).optional(), avatarUrl: z.string().max(2048).optional() }).strict();
-const linkedinCacheMessage = z.object({ sender: z.string().max(500), text: z.string().max(20_000), date: z.number().finite().nonnegative(), fromMe: z.boolean() }).strict();
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -47,8 +46,8 @@ export const rpcContract = defineRpcContract({
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
-  linkedin_sync: { input: z.object({ items: z.array(linkedinCacheItem).max(60) }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative() }) },
-  linkedin_cache_thread: { input: z.object({ id: z.string().min(1).max(512).refine(isConversationId), messages: z.array(linkedinCacheMessage).max(100) }).strict(), output: z.object({ messages: z.array(message) }) },
+  linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative() }) },
+  linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
@@ -378,8 +377,19 @@ export default function plugin(bb: BbPluginApi) {
     }
     if (account === 'linkedin') {
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
-      const messages = linkedinMessages({ messages: cache.readThread('linkedin', id) ?? [] });
-      return { messages };
+      const keep = () => ({ messages: linkedinMessages({ messages: cache.readThread('linkedin', id) ?? [] }) });
+      let live: ReturnType<typeof linkedinMessages>;
+      try {
+        live = linkedinMessages(await readLinkedInInChrome({ mode: 'thread', id }) as { messages?: unknown });
+      } catch (error) {
+        // A browser that cannot start must not hide messages this plugin already has.
+        const cached = keep();
+        if (cached.messages.length) return cached;
+        throw error;
+      }
+      cache.saveThread('linkedin', id, live);
+      searchIndex.warm();
+      return { messages: live };
     }
     if (account === 'whatsapp') {
       const group = id.endsWith('@g.us');
@@ -473,16 +483,16 @@ export default function plugin(bb: BbPluginApi) {
       searchIndex.warm();
       return { items };
     },
-    async linkedin_sync({ items }) {
-      const normalized = linkedinItems({ conversations: items }).map(item => ({ ...item, account: 'linkedin' as const }));
+    async linkedin_sync() {
+      const payload = await readLinkedInInChrome({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
+      const normalized = linkedinItems(payload).map(item => ({ ...item, account: 'linkedin' as const }));
       cache.save('linkedin', normalized);
       searchIndex.warm();
       return { items: normalized, updatedAt: Date.now() };
     },
-    linkedin_cache_thread({ id, messages }) {
-      cache.saveThread('linkedin', id, messages);
-      searchIndex.warm();
-      return { messages };
+    linkedin_signin() {
+      const profile = openLinkedInSignIn();
+      return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };
     },
     async list() {
       const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg(), Promise.resolve(listLinkedIn())]);
@@ -560,6 +570,16 @@ export default function plugin(bb: BbPluginApi) {
       const body = action === 'archive' ? {removeLabelIds:['INBOX']} : action === 'read' ? {removeLabelIds:['UNREAD']} : {addLabelIds:['UNREAD']};
       await gmail(account,['users','threads','modify','--params',JSON.stringify({userId:'me',id}),'--json',JSON.stringify(body)]);
       return {status: action === 'archive' ? 'Archived.' : 'Updated.'};
+    },
+  });
+  bb.cli.register({
+    name: 'unified-inbox',
+    summary: 'Unified Inbox helpers, such as the one-time LinkedIn sign-in',
+    commands: [{ name: 'linkedin-signin', summary: 'Open the inbox LinkedIn profile so you can sign in once', usage: 'bb unified-inbox linkedin-signin' }],
+    run(argv) {
+      if (argv[0] !== 'linkedin-signin') return { exitCode: 1, stderr: 'Usage: bb unified-inbox linkedin-signin' };
+      const profile = openLinkedInSignIn();
+      return { exitCode: 0, stdout: `Sign in to LinkedIn in the window that just opened, then close it. Profile: ${profile}\n` };
     },
   });
   bb.ui.registerMentionProvider({
