@@ -15,7 +15,6 @@ import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
-import { readInBrowser } from './src/linkedin-browser';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
 import { latestReceivedMessage } from './src/gmail-inbox';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from './src/sync-plan';
@@ -36,6 +35,8 @@ const item = z.object({ account, id: z.string(), title: z.string(), preview: z.s
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const linkedinCacheItem = z.object({ id: z.string().min(1).max(512).refine(id => isConversationId(id) || /^urn:li:fs_relInvitation:.+$/.test(id)), title: z.string().max(1000), preview: z.string().max(300), date: z.number().finite().nonnegative(), unread: z.boolean(), sender: z.string().max(1000).optional(), avatarUrl: z.string().max(2048).optional() }).strict();
+const linkedinCacheMessage = z.object({ sender: z.string().max(500), text: z.string().max(20_000), date: z.number().finite().nonnegative(), fromMe: z.boolean() }).strict();
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -44,8 +45,10 @@ export const rpcContract = defineRpcContract({
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
-  list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional(), threadId: z.string().regex(/^thr_[a-z0-9]+$/).optional() }).strict(), output: z.object({ items: z.array(item) }) },
-  open: { input: z.object({ account, id: z.string().min(1).max(512), threadId: z.string().regex(/^thr_[a-z0-9]+$/).optional() }).strict(), output: z.object({ messages: z.array(message) }) },
+  list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
+  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
+  linkedin_sync: { input: z.object({ items: z.array(linkedinCacheItem).max(60) }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative() }) },
+  linkedin_cache_thread: { input: z.object({ id: z.string().min(1).max(512).refine(isConversationId), messages: z.array(linkedinCacheMessage).max(100) }).strict(), output: z.object({ messages: z.array(message) }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
@@ -353,23 +356,11 @@ async function confirmInWhatsAgent(proposalId: number, baseHash: string, inbound
   const payload = await response.json().catch(() => ({})) as { error?: unknown };
   if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'WhatsApp did not accept the confirmation. It has not been sent.');
 }
-const linkedinGate = createAsyncGate();
-/** Reads LinkedIn inside the BB browser's signed-in session; nothing is clicked, accepted, or sent. */
-async function linkedin<T>(read: (payload: any) => T, threadId?: string): Promise<T> {
-  return linkedinGate(async () => {
-    try {
-      return read(await readInBrowser({ mode: 'list' }, threadId));
-    } catch (cause) {
-      // Cookie values, message bodies, and raw response text stay out of this message and the logs.
-      throw new Error(cause instanceof Error && cause.message.startsWith('LinkedIn') ? cause.message : 'LinkedIn is unavailable. Open LinkedIn in the BB browser and stay signed in.');
-    }
-  });
-}
-async function listLinkedIn(threadId?: string) { return linkedinItems(await linkedin(payload => payload, threadId)); }
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id))');
   const cache = createInboxCache(db);
+  const listLinkedIn = () => cache.list().filter(item => item.account === 'linkedin');
   const searchIndex = createSearchIndex(cache, createSearchStore(db));
   const imsgPath = [join(home, '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
@@ -379,7 +370,7 @@ export default function plugin(bb: BbPluginApi) {
     cache.save('imessage', items);
     return items;
   }
-  async function openConversation(account: Account, id: string, threadId?: string) {
+  async function openConversation(account: Account, id: string) {
     if (account === 'imessage') {
       const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
       cache.saveThread(account, id, messages);
@@ -387,8 +378,7 @@ export default function plugin(bb: BbPluginApi) {
     }
     if (account === 'linkedin') {
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
-      const messages = linkedinMessages(await linkedin(() => readInBrowser({ mode: 'thread', id }, threadId), threadId) as { messages?: unknown });
-      cache.saveThread('linkedin', id, messages);
+      const messages = linkedinMessages({ messages: cache.readThread('linkedin', id) ?? [] });
       return { messages };
     }
     if (account === 'whatsapp') {
@@ -463,13 +453,9 @@ export default function plugin(bb: BbPluginApi) {
       return { messages };
     },
     clear_cache() { cache.clear(); return {cleared: true}; },
-    async list_source({ account, limit, threadId }) {
+    async list_source({ account, limit }) {
       if (account === 'imessage') return { items: await listImsg(limit ?? 20) };
-      if (account === 'linkedin') {
-        const items = (await listLinkedIn(threadId)).map(item => ({ ...item, account: 'linkedin' as const }));
-        cache.save('linkedin', items);
-        return { items };
-      }
+      if (account === 'linkedin') return { items: listLinkedIn() };
       if (account === 'whatsapp') {
         const listed = await listWa();
         await migrateWhatsAppCache(cache);
@@ -487,8 +473,19 @@ export default function plugin(bb: BbPluginApi) {
       searchIndex.warm();
       return { items };
     },
+    async linkedin_sync({ items }) {
+      const normalized = linkedinItems({ conversations: items }).map(item => ({ ...item, account: 'linkedin' as const }));
+      cache.save('linkedin', normalized);
+      searchIndex.warm();
+      return { items: normalized, updatedAt: Date.now() };
+    },
+    linkedin_cache_thread({ id, messages }) {
+      cache.saveThread('linkedin', id, messages);
+      searchIndex.warm();
+      return { messages };
+    },
     async list() {
-      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg(), listLinkedIn()]);
+      const results = await Promise.allSettled([listGmail('personal', 20, cache), listGmail('business', 20, cache), listWa(), listImsg(), Promise.resolve(listLinkedIn())]);
       const names = ['Personal Gmail','Business Gmail','WhatsApp','Messages','LinkedIn']; const errors:string[] = []; const items:any[] = [];
       results.forEach((r,i) => {
         if (r.status === 'fulfilled') items.push(...r.value);
@@ -508,7 +505,7 @@ export default function plugin(bb: BbPluginApi) {
       const attachment = findImsgAttachment(history, messageId, index);
       return readImsgImage(attachment.filename, attachment.mime);
     },
-    async open({ account, id, threadId }) { return openConversation(account, id, threadId); },
+    async open({ account, id }) { return openConversation(account, id); },
     async send_gmail(input) {
       // Disabled until the BB owner-confirmation boundary is verified; RPC is agent-callable.
       const sendingVerified = false;

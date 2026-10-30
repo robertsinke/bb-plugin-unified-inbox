@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { linkedinPageScript, linkedinRunOutput } from '../src/linkedin-page.ts';
+import { linkedinPageExpression } from '../src/linkedin-page.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
 
-test('LinkedIn in-page scripts compile after template-string escaping', () => {
-  for (const mode of [{ mode: 'list' }, { mode: 'thread', id: 'urn:li:msg_conversation:test' }] as const) {
-    assert.doesNotThrow(() => new AsyncFunction('browser', linkedinPageScript(mode)));
-  }
+test('LinkedIn Browser-page expression compiles and reads only through same-origin fetch', () => {
+  const expression = linkedinPageExpression({ mode: 'list' });
+  assert.doesNotThrow(() => new AsyncFunction(`return (${expression});`));
+  assert.match(expression, /credentials: 'include'/);
+  assert.match(expression, /voyagerMessagingGraphQL/);
+  assert.doesNotMatch(expression, /\.goto\(|browser\.getPage|document\.cookie\s*=/);
 });
 
-test('LinkedIn run output accepts direct successful JSON and wrapped runtime output', () => {
-  const result = { ok: true, payload: { conversations: [], invitations: [] } };
-  assert.deepEqual(linkedinRunOutput(JSON.stringify(result)), result);
-  assert.deepEqual(linkedinRunOutput(JSON.stringify({ text: JSON.stringify(result), exitCode: 0 })), result);
+test('LinkedIn thread identifier is safely serialized into the page expression', () => {
+  const expression = linkedinPageExpression({ mode: 'thread', id: 'urn:li:msg_conversation:123' });
+  assert.match(expression, /urn:li:msg_conversation:123/);
+  assert.doesNotThrow(() => new AsyncFunction(`return (${expression});`));
 });

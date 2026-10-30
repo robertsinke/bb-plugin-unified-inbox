@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
-import type { ExperimentalBadge } from '@get-bb/plugin-sdk/app';
+import type { ExperimentalBadge, ExperimentalPluginBrowserToolbarActionProps } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './server';
 import { mailDocument, sanitizeMailMarkup } from './src/mail-html';
 import type { WhatsAppMedia } from './src/whatsapp-media';
@@ -11,6 +11,8 @@ import './layout.css';
 import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
 import { messagesAfterSend } from './src/sent-message';
+import { linkedinItems, linkedinMessages, type LinkedInPayload } from './src/linkedin-inbox';
+import { isLinkedInPageUrl, readLinkedInPage, readRegisteredLinkedInPage, registerLinkedInPage } from './src/linkedin-page-bridge';
 import { inboxDraftKey, readInboxDraft, writeInboxDraft } from './src/inbox-drafts';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
@@ -23,6 +25,34 @@ type MailDraft = {account:'personal'|'business'; to:string; cc:string; subject:s
 const accounts: Record<Account, {label:string}> = {
   personal:{label:'Personal Gmail'}, business:{label:'Inhouse Gmail'}, whatsapp:{label:'WhatsApp'}, imessage:{label:'Messages'}, linkedin:{label:'LinkedIn'},
 };
+const LINKEDIN_SYNC_EVENT = 'unified-inbox:linkedin-sync';
+function normalizedLinkedInRows(payload: unknown) {
+  if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('LinkedIn returned an invalid inbox response.');
+  const value=payload as LinkedInPayload;
+  if(!Array.isArray(value.conversations)||!Array.isArray(value.invitations))throw new Error('LinkedIn returned an incomplete inbox response.');
+  return linkedinItems(value).map(item => ({ ...item, account: 'linkedin' as const }));
+}
+function LinkedInBrowserToolbarAction({tabId,url,experimental_page}:ExperimentalPluginBrowserToolbarActionProps) {
+  const rpc=useRpc<typeof rpcContract>();
+  const [busy,setBusy]=useState(false); const [status,setStatus]=useState('');
+  useEffect(()=>registerLinkedInPage(tabId,url,experimental_page),[tabId,url,experimental_page]);
+  if(!isLinkedInPageUrl(url))return null;
+  async function sync() {
+    if(!experimental_page)return;
+    setBusy(true);setStatus('');
+    try {
+      const payload=await readLinkedInPage(experimental_page,url,{mode:'list'});
+      const result=await rpc.call('linkedin_sync',{items:normalizedLinkedInRows(payload)});
+      setStatus(`Synced ${result.items.length} rows`);
+      window.dispatchEvent(new Event(LINKEDIN_SYNC_EVENT));
+    } catch(error) {setStatus(error instanceof Error?error.message:'LinkedIn could not sync from this tab.');}
+    finally {setBusy(false);}
+  }
+  return <div className="ui-linkedin-browser-sync">
+    <button type="button" className="ui-toolbar-sync" onClick={()=>void sync()} disabled={busy||!experimental_page} aria-label="Sync LinkedIn inbox from this tab" title="Read the existing LinkedIn tab without opening or focusing a browser">{busy?'Syncing…':'Sync LinkedIn'}</button>
+    <span role="status" aria-live="polite">{status}</span>
+  </div>;
+}
 /* Only the Gmail sources have compose, reply, and archive; LinkedIn, Messages, and WhatsApp are conversation-only. */
 const isMail = (account: Account) => account === 'personal' || account === 'business';
 const linkedinPath = 'M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.55V9h3.57v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.22.79 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.72C24 .77 23.2 0 22.22 0z'
@@ -314,7 +344,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
     for(const child of Array.from(scroller.children))observer.observe(child);
     return()=>observer.disconnect();
   },[selected?.account,selected?.id,messages,opening]);
-  const refresh=useCallback(async(sources:Account[]=['whatsapp','personal','business','imessage','linkedin'])=>{
+  const refresh=useCallback(async(sources:Account[]=['whatsapp','personal','business','imessage'])=>{
     const pending=sources.filter(account=>!refreshing.current.has(account));
     if(!pending.length)return;
     for (const account of pending) refreshing.current.add(account);
@@ -322,15 +352,20 @@ function Inbox({ threadId }: { threadId: string | null }) {
     try {
       await Promise.all(pending.map(async account=>{
         try {
-          const listed=await rpc.call('list_source',{account,...(account==='linkedin'&&threadId?{threadId}:{})});
+          const listed=account==='linkedin'
+            ? await rpc.call('linkedin_sync',{items:normalizedLinkedInRows(await readRegisteredLinkedInPage({mode:'list'}))})
+            : await rpc.call('list_source',{account});
           setItems(old=>[...old.filter(item=>item.account!==account),...listed.items].sort((a,b)=>b.date-a.date));
+          if(account==='linkedin')window.dispatchEvent(new Event(LINKEDIN_SYNC_EVENT));
           setRefreshedAt(old=>({...old,[account]:Date.now()}));
           setErrors(old=>old.filter(error=>!error.startsWith(accounts[account].label)));
-        } catch {setErrors(old=>old.some(error=>error.startsWith(accounts[account].label))?old:[...old,account==='imessage'?'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.':`${accounts[account].label} could not refresh. Previously loaded messages may be stale.`]);}
+        } catch(error) {const detail=account==='linkedin'&&error instanceof Error?` ${error.message}`:'';setErrors(old=>old.some(error=>error.startsWith(accounts[account].label))?old:[...old,account==='imessage'?'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.':`${accounts[account].label} could not refresh.${detail} Previously loaded messages may be stale.`]);}
       }));
     } finally { for (const account of pending) refreshing.current.delete(account); setRefreshingInbox(refreshing.current.size>0); }
   },[rpc]);
-  useEffect(()=>{let alive=true; void (async()=>{try {const cached=await rpc.call('cached',null); if(alive)setItems(cached.items);} catch { /* the next sync still fills the list */ } if(alive)void refresh();})(); const whatsappTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['whatsapp','imessage']);},8000); const gmailTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['personal','business']);},45000); const linkedinTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['linkedin']);},120000); return()=>{alive=false;window.clearInterval(whatsappTimer);window.clearInterval(gmailTimer);window.clearInterval(linkedinTimer);};},[refresh,rpc]);
+  function refreshManually(){void refresh(['whatsapp','personal','business','imessage','linkedin']);}
+  useEffect(()=>{let alive=true; void (async()=>{try {const cached=await rpc.call('cached',null); if(alive)setItems(cached.items);} catch { /* the next sync still fills the list */ } if(alive)void refresh();})(); const whatsappTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['whatsapp','imessage']);},8000); const gmailTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['personal','business']);},45000); return()=>{alive=false;window.clearInterval(whatsappTimer);window.clearInterval(gmailTimer);};},[refresh,rpc]);
+  useEffect(()=>{const update=()=>{void rpc.call('list_source',{account:'linkedin'}).then(listed=>{setItems(old=>[...old.filter(item=>item.account!=='linkedin'),...listed.items].sort((a,b)=>b.date-a.date));setRefreshedAt(old=>({...old,linkedin:Date.now()}));setErrors(old=>old.filter(error=>!error.startsWith(accounts.linkedin.label)));}).catch(()=>{});};window.addEventListener(LINKEDIN_SYNC_EVENT,update);return()=>window.removeEventListener(LINKEDIN_SYNC_EVENT,update);},[rpc]);
   useEffect(()=>{
     const q=query.trim();
     if(!q){setHits(null);return;}
@@ -367,7 +402,8 @@ function Inbox({ threadId }: { threadId: string | null }) {
     if(!current||(current.date===selected.date&&current.preview===selected.preview))return;
     const seq=++request.current;
     setSelected(current);
-    void rpc.call('open',{account:current.account,id:current.id,...(current.account==='linkedin'&&threadId?{threadId}:{})}).then(result=>{if(seq===request.current)setMessages(result.messages);}).catch(()=>{ /* the messages already on screen stay */ });
+    if(current.account==='linkedin')return;
+    void rpc.call('open',{account:current.account,id:current.id}).then(result=>{if(seq===request.current)setMessages(result.messages);}).catch(()=>{ /* the messages already on screen stay */ });
   },[items,rpc,selected]);
   useEffect(()=>{
     if (!selected || selected.account !== 'whatsapp') return;
@@ -407,16 +443,23 @@ function Inbox({ threadId }: { threadId: string | null }) {
       const remembered=await rpc.call('cached_open',{account:i.account,id:i.id});
       if(seq===request.current && remembered.messages.length){ setMessages(remembered.messages); setOpening(false); }
       else if(seq===request.current) setMessages([]);
-      const r=await rpc.call('open',{account:i.account,id:i.id,...(i.account==='linkedin'&&threadId?{threadId}:{})});
-      if(seq===request.current) setMessages(r.messages);
-      if (i.account !== 'imessage' && i.unread && seq===request.current) {
+      let messagesToShow:Message[];
+      if(i.account==='linkedin') {
+        const payload=await readRegisteredLinkedInPage({mode:'thread',id:i.id});
+        const freshMessages=linkedinMessages(payload as {messages?:unknown});
+        messagesToShow=(await rpc.call('linkedin_cache_thread',{id:i.id,messages:freshMessages})).messages;
+      } else {
+        messagesToShow=await rpc.call('open',{account:i.account,id:i.id}).then(result=>result.messages);
+      }
+      if(seq===request.current) setMessages(messagesToShow);
+      if (i.account !== 'imessage' && i.account !== 'linkedin' && i.unread && seq===request.current) {
         void rpc.call('action', { account: i.account, id: i.id, action: 'read' }).then(() => {
           if (seq !== request.current) return;
           setItems(old => old.map(item => item.account===i.account && item.id===i.id ? { ...item, unread: false } : item));
           setSelected(cur => cur && cur.account===i.account && cur.id===i.id ? { ...cur, unread: false } : cur);
         }).catch(() => { /* the conversation stays unread if the source rejects the update */ });
       }
-    } catch {if(seq===request.current) setStatus('Could not load this conversation. Please try again.');} finally {if(seq===request.current) setOpening(false);}
+    } catch(error) {if(seq===request.current) setStatus(error instanceof Error?error.message:'Could not load this conversation.');} finally {if(seq===request.current) setOpening(false);}
   }
   function back(){ void dropProposal(); ++request.current;setSelected(null);setStatus('');setOpening(false);}
   function tag(item: Item) {
@@ -478,20 +521,20 @@ function Inbox({ threadId }: { threadId: string | null }) {
     setBusy(true);setMailStatus('Sending…');try {const result=await rpc.call('send_gmail',mail);setMailStatus(result.status);setMail(null);setStatus(result.status);}catch(e){setMailStatus(e instanceof Error?e.message:'Send outcome unknown. Check Gmail Sent before retrying.');}finally{setBusy(false);}
   }
   const latestRefresh=Math.max(0,...Object.values(refreshedAt).filter((value): value is number => typeof value==='number'));
-  const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}`:'Refresh inbox';
+  const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
   const filtered=items.filter(i=>filter==='all'||(filter==='unread'?i.unread:i.account===filter));
   const shown=hits===null?filtered:hits.flatMap(hit=>{const item=filtered.find(row=>row.account===hit.account&&row.id===hit.id);return item?[item]:[];});
   return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
-    {!selected && <header className="ui-mail-bar"><button type="button" aria-pressed={filter==='all'} onClick={()=>setFilter('all')}>All</button><button type="button" className="ui-icon-button" aria-pressed={filter==='unread'} aria-label="Unread" title="Unread" onClick={()=>setFilter('unread')}><Icon name="Mail" aria-hidden="true"/></button>{(['whatsapp','personal','business','imessage','linkedin'] as const).map(key=><button type="button" key={key} className="ui-icon-button ui-filter-source" aria-pressed={filter===key} aria-label={accounts[key].label} title={accounts[key].label} onClick={()=>setFilter(key)}><AppIcon account={key}/></button>)}<input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" /><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={()=>void refresh()} /></header>}
+    {!selected && <header className="ui-mail-bar"><button type="button" aria-pressed={filter==='all'} onClick={()=>setFilter('all')}>All</button><button type="button" className="ui-icon-button" aria-pressed={filter==='unread'} aria-label="Unread" title="Unread" onClick={()=>setFilter('unread')}><Icon name="Mail" aria-hidden="true"/></button>{(['whatsapp','personal','business','imessage','linkedin'] as const).map(key=><button type="button" key={key} className="ui-icon-button ui-filter-source" aria-pressed={filter===key} aria-label={accounts[key].label} title={accounts[key].label} onClick={()=>setFilter(key)}><AppIcon account={key}/></button>)}<input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" /><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
     {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>startMail('new','personal')}>Personal Gmail</button><button onClick={()=>startMail('new','business')}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
     {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
 
-    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={back} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={()=>void refresh()} /><button type="button" className="ui-icon-button" onMouseDown={event=>event.preventDefault()} onClick={()=>tag(selected)} title="Tag in the thread beside the inbox" aria-label="Tag this conversation in the thread"><Icon name="Plus" aria-hidden="true"/></button>{selected.account!=='imessage'&&selected.account!=='linkedin'&&<button className="ui-icon-button" disabled={busy} onClick={()=>void mark(selected, selected.unread?'read':'unread')} title={selected.unread?'Mark read':'Mark unread'} aria-label={selected.unread?'Mark read':'Mark unread'}><Icon name={selected.unread?'MailOpen':'Mail'} aria-hidden="true"/></button>}{isMail(selected.account)&&<button className="ui-icon-button" disabled={busy} onClick={()=>void mark(selected,'archive')} title="Archive" aria-label="Archive"><Icon name="Archive" aria-hidden="true"/></button>}</div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}{isMail(selected.account) && <div className="ui-mail-actions"><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('reply',selected.account as 'personal'|'business')}>Reply</button><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('replyAll',selected.account as 'personal'|'business')}>Reply all</button><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('forward',selected.account as 'personal'|'business')}>Forward</button></div>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
+    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={back} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /><button type="button" className="ui-icon-button" onMouseDown={event=>event.preventDefault()} onClick={()=>tag(selected)} title="Tag in the thread beside the inbox" aria-label="Tag this conversation in the thread"><Icon name="Plus" aria-hidden="true"/></button>{selected.account!=='imessage'&&selected.account!=='linkedin'&&<button className="ui-icon-button" disabled={busy} onClick={()=>void mark(selected, selected.unread?'read':'unread')} title={selected.unread?'Mark read':'Mark unread'} aria-label={selected.unread?'Mark read':'Mark unread'}><Icon name={selected.unread?'MailOpen':'Mail'} aria-hidden="true"/></button>}{isMail(selected.account)&&<button className="ui-icon-button" disabled={busy} onClick={()=>void mark(selected,'archive')} title="Archive" aria-label="Archive"><Icon name="Archive" aria-hidden="true"/></button>}</div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}{isMail(selected.account) && <div className="ui-mail-actions"><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('reply',selected.account as 'personal'|'business')}>Reply</button><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('replyAll',selected.account as 'personal'|'business')}>Reply all</button><button className="ui-text-button" disabled={opening&&!messages.length} onClick={()=>startMail('forward',selected.account as 'personal'|'business')}>Forward</button></div>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:(selected.account==='whatsapp'||selected.account==='imessage')?<div className="ui-chat" aria-label={selected.account==='imessage'?'Messages conversation':'WhatsApp messages'}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{(selected.account==='personal'||selected.account==='business')&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}</article>)}
       </div>
       {selected.account==='whatsapp'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); if(proposal) void confirmSend(); else void proposeSend();}}><div className="ui-promptbox">{proposal&&proposal.chatId===selected.id?<p className="ui-prompt-preview">{proposal.text}</p>:<textarea id="ui-reply-text" value={text} aria-label="WhatsApp reply" onChange={e=>{setText(e.target.value);saveComposerDraft(selected.account,selected.id,e.target.value);}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); void proposeSend();}}} rows={2} placeholder="Write a reply…"/>}{proposal&&proposal.chatId===selected.id?<button type="button" className="ui-prompt-cancel" disabled={busy} onClick={()=>void dropProposal()}>Don't send</button>:null}<button type="submit" className="ui-prompt-send" disabled={busy||(!proposal&&!text.trim())} aria-label={proposal?'Send this WhatsApp message':'Send'}><Icon name="ArrowUp" aria-hidden="true"/></button></div></form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:<><div className="ui-list">{shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><button className="ui-row-open" onClick={()=>void open(i)}><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{accounts[i.account].label}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><time className="ui-row-time">{date(i.date)}</time></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></button><div className="ui-row-side"><div className="ui-row-actions"><button type="button" className="ui-icon-button" onMouseDown={event=>event.preventDefault()} onClick={()=>tag(i)} title="Tag in the thread beside the inbox" aria-label={`Tag ${i.title||i.preview} in the thread`}><Icon name="Plus" aria-hidden="true"/></button>{i.account!=='imessage'&&<button className="ui-icon-button" onClick={()=>void mark(i, i.unread?'read':'unread')} aria-label={i.unread?`Mark ${i.title} read`:`Mark ${i.title} unread`} title={i.unread?'Mark read':'Mark unread'}><Icon name={i.unread?'MailOpen':'Mail'} aria-hidden="true"/></button>}</div></div></div>)}</div><p className="ui-footnote">Showing the latest 20 threads per Gmail and Messages account, 50 WhatsApp chats, and the latest 20 LinkedIn conversations.</p></>}
+    </section>:<><div className="ui-list">{shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><button className="ui-row-open" onClick={()=>void open(i)}><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{accounts[i.account].label}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><time className="ui-row-time">{date(i.date)}</time></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></button><div className="ui-row-side"><div className="ui-row-actions"><button type="button" className="ui-icon-button" onMouseDown={event=>event.preventDefault()} onClick={()=>tag(i)} title="Tag in the thread beside the inbox" aria-label={`Tag ${i.title||i.preview} in the thread`}><Icon name="Plus" aria-hidden="true"/></button>{i.account!=='imessage'&&i.account!=='linkedin'&&<button className="ui-icon-button" onClick={()=>void mark(i, i.unread?'read':'unread')} aria-label={i.unread?`Mark ${i.title} read`:`Mark ${i.title} unread`} title={i.unread?'Mark read':'Mark unread'}><Icon name={i.unread?'MailOpen':'Mail'} aria-hidden="true"/></button>}</div></div></div>)}</div><p className="ui-footnote">Showing the latest 20 threads per Gmail and Messages account, 50 WhatsApp chats, and the latest 20 LinkedIn conversations.</p></>}
   </div>;
 }
 const CHAT_THREAD_KEY = 'unified-inbox.chat-thread';
@@ -647,6 +690,7 @@ function useInboxBadge(): ExperimentalBadge | null {
   return { count, label: count === 1 ? '1 unread message' : `${count} unread messages` };
 }
 export default definePluginApp(app => {
+  app.slots.experimental_browserToolbarAction({ id: 'linkedin-inbox-sync', title: 'LinkedIn inbox sync', component: LinkedInBrowserToolbarAction });
   app.slots.navPanel({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', path: 'inbox', component: InboxWorkspace, experimental_useBadge: useInboxBadge });
   app.slots.experimental_tab({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', context: { kind: 'thread' }, availability: 'fixed', layout: 'flush', component: Inbox });
 });
