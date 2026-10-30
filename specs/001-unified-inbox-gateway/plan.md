@@ -10,6 +10,10 @@ tags: [spec, plan]
 
 # Plan — Unified Inbox gateway and adapters
 
+## Source sync design input
+
+The [source synchronization model](../../docs/plans/2026-10-30-inbox-source-sync-model.md) defines the shared domain terms, independent conversation/message paging, provider-owned sync cursors, cache semantics, and source-specific freshness guarantees. Use it when refining gateway states 2+; it is design input, not authorization to expand the current adapter tasks.
+
 ## Approach
 
 In-process gateway plus per-provider adapters (spec DL-2): one adapter interface in `src/adapters/types.ts`, one registry in `src/adapters/index.ts`, `server.ts` reduced to routing plus gateway-owned concerns, and a single policy layer in front of every adapter `send`. The five migration states in the spec are executed in order, each keeping the full test suite green and the cache schema untouched. Messages sending and Gmail sending stay disabled throughout; the policy layer exists to gate them, not to enable them. Deployment to the installed plugin is **not** part of this plan — it follows the existing activation protocol when the owner separately approves it.
