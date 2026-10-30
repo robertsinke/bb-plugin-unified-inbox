@@ -399,7 +399,7 @@ export default function plugin(bb: BbPluginApi) {
       ]);
       const messages = (p.items ?? []).filter((m:any) => !isWhatsAppNoise(String(m.type || ''), String(m.text || ''))).map((m:any) => {
         const media = whatsAppMedia(m);
-        return { sender:whatsappSender(!!m.from_me, String(m.sender?.name || whatsappPhone(String(m.sender?.display_jid || '')) || ''), group, chatTitle), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(media ? { media } : {}) };
+        return { sender:whatsappSender(!!m.from_me, String(m.sender?.name || whatsappPhone(String(m.sender?.display_jid || '')) || ''), group, chatTitle), fromMe:!!m.from_me, text:String(m.text || (media ? '' : m.type ? `[${m.type}]` : '')), date:whatsappTimestamp(m.ts), ...(m.edited ? { edited:true } : {}), ...(media ? { media } : {}) };
       });
       cache.saveThread(account, id, messages);
       return { messages };
