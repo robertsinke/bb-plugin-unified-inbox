@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
-import type { ExperimentalBadge, ExperimentalPluginBrowserToolbarActionProps } from '@get-bb/plugin-sdk/app';
+import type { ExperimentalBadge } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './server';
 import { mailDocument, sanitizeMailMarkup } from './src/mail-html';
 import type { WhatsAppMedia } from './src/whatsapp-media';
@@ -11,8 +11,6 @@ import './layout.css';
 import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
 import { messagesAfterSend } from './src/sent-message';
-import { linkedinItems, linkedinMessages, type LinkedInPayload } from './src/linkedin-inbox';
-import { isLinkedInPageUrl, readLinkedInPage, readRegisteredLinkedInPage, registerLinkedInPage } from './src/linkedin-page-bridge';
 import { inboxDraftKey, readInboxDraft, writeInboxDraft } from './src/inbox-drafts';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
@@ -25,34 +23,6 @@ type MailDraft = {account:'personal'|'business'; to:string; cc:string; subject:s
 const accounts: Record<Account, {label:string}> = {
   personal:{label:'Personal Gmail'}, business:{label:'Inhouse Gmail'}, whatsapp:{label:'WhatsApp'}, imessage:{label:'Messages'}, linkedin:{label:'LinkedIn'},
 };
-const LINKEDIN_SYNC_EVENT = 'unified-inbox:linkedin-sync';
-function normalizedLinkedInRows(payload: unknown) {
-  if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('LinkedIn returned an invalid inbox response.');
-  const value=payload as LinkedInPayload;
-  if(!Array.isArray(value.conversations)||!Array.isArray(value.invitations))throw new Error('LinkedIn returned an incomplete inbox response.');
-  return linkedinItems(value).map(item => ({ ...item, account: 'linkedin' as const }));
-}
-function LinkedInBrowserToolbarAction({tabId,url,experimental_page}:ExperimentalPluginBrowserToolbarActionProps) {
-  const rpc=useRpc<typeof rpcContract>();
-  const [busy,setBusy]=useState(false); const [status,setStatus]=useState('');
-  useEffect(()=>registerLinkedInPage(tabId,url,experimental_page),[tabId,url,experimental_page]);
-  if(!isLinkedInPageUrl(url))return null;
-  async function sync() {
-    if(!experimental_page)return;
-    setBusy(true);setStatus('');
-    try {
-      const payload=await readLinkedInPage(experimental_page,url,{mode:'list'});
-      const result=await rpc.call('linkedin_sync',{items:normalizedLinkedInRows(payload)});
-      setStatus(`Synced ${result.items.length} rows`);
-      window.dispatchEvent(new Event(LINKEDIN_SYNC_EVENT));
-    } catch(error) {setStatus(error instanceof Error?error.message:'LinkedIn could not sync from this tab.');}
-    finally {setBusy(false);}
-  }
-  return <div className="ui-linkedin-browser-sync">
-    <button type="button" className="ui-toolbar-sync" onClick={()=>void sync()} disabled={busy||!experimental_page} aria-label="Sync LinkedIn inbox from this tab" title="Read the existing LinkedIn tab without opening or focusing a browser">{busy?'Syncing…':'Sync LinkedIn'}</button>
-    <span role="status" aria-live="polite">{status}</span>
-  </div>;
-}
 /* Only the Gmail sources have compose, reply, and archive; LinkedIn, Messages, and WhatsApp are conversation-only. */
 const isMail = (account: Account) => account === 'personal' || account === 'business';
 const linkedinPath = 'M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.55V9h3.57v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.22.79 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.72C24 .77 23.2 0 22.22 0z'
@@ -352,11 +322,8 @@ function Inbox({ threadId }: { threadId: string | null }) {
     try {
       await Promise.all(pending.map(async account=>{
         try {
-          const listed=account==='linkedin'
-            ? await rpc.call('linkedin_sync',{items:normalizedLinkedInRows(await readRegisteredLinkedInPage({mode:'list'}))})
-            : await rpc.call('list_source',{account});
+          const listed=account==='linkedin' ? await rpc.call('linkedin_sync',null) : await rpc.call('list_source',{account});
           setItems(old=>[...old.filter(item=>item.account!==account),...listed.items].sort((a,b)=>b.date-a.date));
-          if(account==='linkedin')window.dispatchEvent(new Event(LINKEDIN_SYNC_EVENT));
           setRefreshedAt(old=>({...old,[account]:Date.now()}));
           setErrors(old=>old.filter(error=>!error.startsWith(accounts[account].label)));
         } catch(error) {const detail=account==='linkedin'&&error instanceof Error?` ${error.message}`:'';setErrors(old=>old.some(error=>error.startsWith(accounts[account].label))?old:[...old,account==='imessage'?'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.':`${accounts[account].label} could not refresh.${detail} Previously loaded messages may be stale.`]);}
@@ -365,7 +332,6 @@ function Inbox({ threadId }: { threadId: string | null }) {
   },[rpc]);
   function refreshManually(){void refresh(['whatsapp','personal','business','imessage','linkedin']);}
   useEffect(()=>{let alive=true; void (async()=>{try {const cached=await rpc.call('cached',null); if(alive)setItems(cached.items);} catch { /* the next sync still fills the list */ } if(alive)void refresh();})(); const whatsappTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['whatsapp','imessage']);},8000); const gmailTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['personal','business']);},45000); return()=>{alive=false;window.clearInterval(whatsappTimer);window.clearInterval(gmailTimer);};},[refresh,rpc]);
-  useEffect(()=>{const update=()=>{void rpc.call('list_source',{account:'linkedin'}).then(listed=>{setItems(old=>[...old.filter(item=>item.account!=='linkedin'),...listed.items].sort((a,b)=>b.date-a.date));setRefreshedAt(old=>({...old,linkedin:Date.now()}));setErrors(old=>old.filter(error=>!error.startsWith(accounts.linkedin.label)));}).catch(()=>{});};window.addEventListener(LINKEDIN_SYNC_EVENT,update);return()=>window.removeEventListener(LINKEDIN_SYNC_EVENT,update);},[rpc]);
   useEffect(()=>{
     const q=query.trim();
     if(!q){setHits(null);return;}
@@ -443,14 +409,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
       const remembered=await rpc.call('cached_open',{account:i.account,id:i.id});
       if(seq===request.current && remembered.messages.length){ setMessages(remembered.messages); setOpening(false); }
       else if(seq===request.current) setMessages([]);
-      let messagesToShow:Message[];
-      if(i.account==='linkedin') {
-        const payload=await readRegisteredLinkedInPage({mode:'thread',id:i.id});
-        const freshMessages=linkedinMessages(payload as {messages?:unknown});
-        messagesToShow=(await rpc.call('linkedin_cache_thread',{id:i.id,messages:freshMessages})).messages;
-      } else {
-        messagesToShow=await rpc.call('open',{account:i.account,id:i.id}).then(result=>result.messages);
-      }
+      const messagesToShow=await rpc.call('open',{account:i.account,id:i.id}).then(result=>result.messages);
       if(seq===request.current) setMessages(messagesToShow);
       if (i.account !== 'imessage' && i.account !== 'linkedin' && i.unread && seq===request.current) {
         void rpc.call('action', { account: i.account, id: i.id, action: 'read' }).then(() => {
@@ -690,7 +649,6 @@ function useInboxBadge(): ExperimentalBadge | null {
   return { count, label: count === 1 ? '1 unread message' : `${count} unread messages` };
 }
 export default definePluginApp(app => {
-  app.slots.experimental_browserToolbarAction({ id: 'linkedin-inbox-sync', title: 'LinkedIn inbox sync', component: LinkedInBrowserToolbarAction });
   app.slots.navPanel({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', path: 'inbox', component: InboxWorkspace, experimental_useBadge: useInboxBadge });
   app.slots.experimental_tab({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', context: { kind: 'thread' }, availability: 'fixed', layout: 'flush', component: Inbox });
 });
