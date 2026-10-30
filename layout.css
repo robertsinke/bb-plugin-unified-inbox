@@ -76,3 +76,31 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-row-open p{margin:2px 0 0;padding-left:41px;width:100%;opacity:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ui-row-snippet{opacity:.65;font-weight:400}
 @media(max-width:860px){.ui-workspace{grid-template-columns:1fr}.ui-split{display:none}.ui-workspace-mail{border-top:1px solid color-mix(in srgb, currentColor 16%, transparent)}}
+
+/* Inbox refinement: keep the row metadata and controls on the contact line. */
+.ui-row{position:relative;display:block;width:auto;margin:6px 4px;padding:8px 76px 8px 4px;border:0;border-radius:10px;text-align:left}
+.ui-row-open{display:block;width:100%;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.ui-row-top{display:flex;width:100%;min-width:0;align-items:center;justify-content:flex-start;gap:9px}
+.ui-row-top .ui-row-time{margin-left:auto;flex:none;font-size:10px;opacity:.6;white-space:nowrap;line-height:16px}
+.ui-row-side{position:absolute;top:4px;right:4px;display:flex;align-items:center;justify-content:flex-end}
+.ui-row-actions{display:flex;align-items:center;gap:2px}
+.ui-list>.ui-empty{margin:0;padding:24px 16px;text-align:center}
+.ui-conversation-header{min-width:0;overflow:hidden}
+.ui-inbox-detail .ui-conversation-header>.ui-avatar{flex:none}
+.ui-conversation-title{min-width:0;flex:1 1 0%}
+.ui-conversation-title h3{display:block;width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-conversation-actions{display:flex;flex:none;gap:3px}
+.ui-conversation-actions button{position:relative;flex:none}
+.ui-refresh-button{position:relative}
+.ui-refresh-error-dot{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:#e05a47;box-shadow:0 0 0 2px var(--background,#fff)}
+.ui-row-open{display:flex;align-items:center;gap:9px}
+.ui-row-copy{flex:1;min-width:0}
+.ui-row-top{align-items:baseline;gap:8px}
+.ui-row-name{flex:0 1 auto}
+.ui-row-top .ui-row-time{margin-left:0}
+.ui-row-open p{margin:2px 0 0;padding:0}
+.ui-refresh-button{transition:background-color 120ms ease,transform 120ms ease}
+.ui-refresh-button:hover:not(:disabled){background:color-mix(in srgb,currentColor 14%,transparent);transform:scale(1.08)}
+.ui-refresh-button:active:not(:disabled){transform:scale(.92)}
+.ui-refresh-button>span:first-child{display:inline-grid;place-items:center}
+@media(prefers-reduced-motion:reduce){.ui-refresh-button{transition:none}}
