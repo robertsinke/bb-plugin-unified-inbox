@@ -88,28 +88,15 @@ const BODY = `
     return { conversations, invitations };
 `;
 
-/** The script the BB browser runs on a LinkedIn page; it prints one JSON payload. */
-export function linkedinPageScript(read: LinkedInRead): string {
-  // The script reports its own failure as JSON so the bridge can name the reason instead of
-  // parsing a CLI error, and so a signed-out session never reads as an empty inbox.
-  return `const request = ${JSON.stringify(read)};
-try {
-  const payload = await page.evaluate(async (request) => {${BODY}}, request);
-  console.log(JSON.stringify({ ok: true, payload }));
-} catch (error) {
-  console.log(JSON.stringify({ ok: false, error: String((error && error.message) || error).split(String.fromCharCode(10))[0] }));
-}`;
-}
-
-/** Reads the payload out of `bb browser-automation run --json` output. */
-export function linkedinRunOutput(stdout: string): unknown {
-  let run: { text?: unknown; exitCode?: unknown; ok?: unknown; payload?: unknown; error?: unknown };
-  try { run = JSON.parse(stdout) as typeof run; } catch { throw new Error('LinkedIn did not answer from the browser.'); }
-  // The CLI can emit the script's JSON directly on success, but wraps script output in
-  // {text, exitCode} when reporting a runtime failure. Accept both shapes.
-  if (typeof run.ok === 'boolean') return run;
-  if (run.exitCode !== 0 || typeof run.text !== 'string') throw new Error('LinkedIn did not answer from the browser.');
-  const payload = run.text.trim();
-  if (!payload.startsWith('{')) throw new Error('LinkedIn did not answer from the browser.');
-  return JSON.parse(payload);
+/** Expression for BB's Browser-page API; evaluates in the already-open LinkedIn tab. */
+export function linkedinPageExpression(read: LinkedInRead): string {
+  return `(async () => {
+  const request = ${JSON.stringify(read)};
+  try {
+    const payload = await (async (request) => {${BODY}})(request);
+    return { ok: true, payload };
+  } catch (error) {
+    return { ok: false, error: String((error && error.message) || error).split(String.fromCharCode(10))[0] };
+  }
+})()`;
 }

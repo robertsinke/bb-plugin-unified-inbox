@@ -8,7 +8,7 @@ function parseAttachments(value: string | null): string[] | undefined {
   } catch { return undefined; }
 }
 
-export type CachedItem = { account:'personal'|'business'|'whatsapp'|'imessage'|'linkedin'; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; recipients?:string; attachments?:string[] };
+export type CachedItem = { account:'personal'|'business'|'whatsapp'|'imessage'|'linkedin'; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
 export function createInboxCache(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id));
@@ -21,16 +21,17 @@ export function createInboxCache(db: Database.Database) {
   if (!columns.some(column => column.name === 'sender')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sender TEXT NOT NULL DEFAULT ""');
   if (!columns.some(column => column.name === 'recipients')) db.exec('ALTER TABLE inbox_cache ADD COLUMN recipients TEXT');
   if (!columns.some(column => column.name === 'attachments')) db.exec('ALTER TABLE inbox_cache ADD COLUMN attachments TEXT');
-  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
+  if (!columns.some(column => column.name === 'avatar_url')) db.exec('ALTER TABLE inbox_cache ADD COLUMN avatar_url TEXT');
+  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, avatar_url, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
-  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@recipients,@attachments)');
+  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,avatar_url,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@avatarUrl,@recipients,@attachments)');
   const save = db.transaction((account: CachedItem['account'], items: CachedItem[]) => {
     if (items.some(item => item.account !== account)) throw new Error('Cache account mismatch');
     clear.run(account);
-    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null });
+    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', avatarUrl: item.avatarUrl ?? null, recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null });
   });
   return {
-    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'recipients'|'attachments'> & {unread:number; sender:string; recipients:string|null; attachments:string|null}>).map(({sender,recipients,attachments,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{})};}); },
+    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'avatarUrl'|'recipients'|'attachments'> & {unread:number; sender:string; avatar_url:string|null; recipients:string|null; attachments:string|null}>).map(({sender,avatar_url,recipients,attachments,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{})};}); },
     save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); listener?.({kind:'items', account}); },
     onChange(fn: (change: CacheChange) => void) { listener = fn; },
     clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); listener?.({kind:'clear'}); },
