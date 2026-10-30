@@ -21,7 +21,7 @@ const BODY = `
       const picture = person?.profilePicture || {};
       const display = picture['displayImage~'] || picture.displayImage || {};
       const identifiers = (display.elements || []).flatMap(element => element.identifiers || []).map(value => value.identifier).filter(value => typeof value === 'string');
-      const direct = identifiers.find(value => /^https:\/\//.test(value));
+      const direct = identifiers.find(value => value.startsWith('https://'));
       if (direct) return direct;
       const root = String(display.rootUrl || '');
       const path = (display.artifacts || []).map(value => value.fileIdentifyingUrlPathSegment).filter(value => typeof value === 'string').at(-1);
@@ -103,8 +103,11 @@ try {
 
 /** Reads the payload out of `bb browser-automation run --json` output. */
 export function linkedinRunOutput(stdout: string): unknown {
-  let run: { text?: unknown; exitCode?: unknown };
-  try { run = JSON.parse(stdout) as { text?: unknown; exitCode?: unknown }; } catch { throw new Error('LinkedIn did not answer from the browser.'); }
+  let run: { text?: unknown; exitCode?: unknown; ok?: unknown; payload?: unknown; error?: unknown };
+  try { run = JSON.parse(stdout) as typeof run; } catch { throw new Error('LinkedIn did not answer from the browser.'); }
+  // The CLI can emit the script's JSON directly on success, but wraps script output in
+  // {text, exitCode} when reporting a runtime failure. Accept both shapes.
+  if (typeof run.ok === 'boolean') return run;
   if (run.exitCode !== 0 || typeof run.text !== 'string') throw new Error('LinkedIn did not answer from the browser.');
   const payload = run.text.trim();
   if (!payload.startsWith('{')) throw new Error('LinkedIn did not answer from the browser.');

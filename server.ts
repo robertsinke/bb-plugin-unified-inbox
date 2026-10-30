@@ -44,8 +44,8 @@ export const rpcContract = defineRpcContract({
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
-  list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
-  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
+  list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional(), threadId: z.string().regex(/^thr_[a-z0-9]+$/).optional() }).strict(), output: z.object({ items: z.array(item) }) },
+  open: { input: z.object({ account, id: z.string().min(1).max(512), threadId: z.string().regex(/^thr_[a-z0-9]+$/).optional() }).strict(), output: z.object({ messages: z.array(message) }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
@@ -355,17 +355,17 @@ async function confirmInWhatsAgent(proposalId: number, baseHash: string, inbound
 }
 const linkedinGate = createAsyncGate();
 /** Reads LinkedIn inside the BB browser's signed-in session; nothing is clicked, accepted, or sent. */
-async function linkedin<T>(read: (payload: any) => T): Promise<T> {
+async function linkedin<T>(read: (payload: any) => T, threadId?: string): Promise<T> {
   return linkedinGate(async () => {
     try {
-      return read(await readInBrowser({ mode: 'list' }));
+      return read(await readInBrowser({ mode: 'list' }, threadId));
     } catch (cause) {
       // Cookie values, message bodies, and raw response text stay out of this message and the logs.
       throw new Error(cause instanceof Error && cause.message.startsWith('LinkedIn') ? cause.message : 'LinkedIn is unavailable. Open LinkedIn in the BB browser and stay signed in.');
     }
   });
 }
-async function listLinkedIn() { return linkedinItems(await linkedin(payload => payload)); }
+async function listLinkedIn(threadId?: string) { return linkedinItems(await linkedin(payload => payload, threadId)); }
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id))');
@@ -379,7 +379,7 @@ export default function plugin(bb: BbPluginApi) {
     cache.save('imessage', items);
     return items;
   }
-  async function openConversation(account: Account, id: string) {
+  async function openConversation(account: Account, id: string, threadId?: string) {
     if (account === 'imessage') {
       const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
       cache.saveThread(account, id, messages);
@@ -387,7 +387,7 @@ export default function plugin(bb: BbPluginApi) {
     }
     if (account === 'linkedin') {
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
-      const messages = linkedinMessages(await linkedin(() => readInBrowser({ mode: 'thread', id })) as { messages?: unknown });
+      const messages = linkedinMessages(await linkedin(() => readInBrowser({ mode: 'thread', id }, threadId), threadId) as { messages?: unknown });
       cache.saveThread('linkedin', id, messages);
       return { messages };
     }
@@ -463,12 +463,12 @@ export default function plugin(bb: BbPluginApi) {
       return { messages };
     },
     clear_cache() { cache.clear(); return {cleared: true}; },
-    async list_source({ account, limit }) {
+    async list_source({ account, limit, threadId }) {
       if (account === 'imessage') return { items: await listImsg(limit ?? 20) };
       if (account === 'linkedin') {
-        const items = await listLinkedIn();
-        cache.save('linkedin', items.map(item => ({ ...item, account: 'linkedin' as const })));
-        return {items};
+        const items = (await listLinkedIn(threadId)).map(item => ({ ...item, account: 'linkedin' as const }));
+        cache.save('linkedin', items);
+        return { items };
       }
       if (account === 'whatsapp') {
         const listed = await listWa();
@@ -508,7 +508,7 @@ export default function plugin(bb: BbPluginApi) {
       const attachment = findImsgAttachment(history, messageId, index);
       return readImsgImage(attachment.filename, attachment.mime);
     },
-    async open({ account, id }) { return openConversation(account, id); },
+    async open({ account, id, threadId }) { return openConversation(account, id, threadId); },
     async send_gmail(input) {
       // Disabled until the BB owner-confirmation boundary is verified; RPC is agent-callable.
       const sendingVerified = false;
