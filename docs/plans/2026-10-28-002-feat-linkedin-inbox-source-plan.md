@@ -10,7 +10,17 @@ deepened: 2026-10-28
 
 ## Summary
 
-Add LinkedIn as a fourth source in the Unified Inbox by attaching to a locally run LinkedIn MCP server over loopback HTTP — the same attach-and-fail-closed shape the plugin already uses for WhatsAgent. Items are real LinkedIn conversations (DMs, InMail) and whatever LinkedIn shows in its own inbox (invites), read-only in v1. No Gmail involvement, no LinkedIn credential inside the plugin, no send or accept path.
+Add LinkedIn as a fourth source in the Unified Inbox by reading LinkedIn's own inbox inside the BB browser's signed-in session. Items are real LinkedIn conversations (DMs, InMail) and whatever LinkedIn shows in its own inbox (invites), read-only in v1. No Gmail involvement, no LinkedIn credential inside the plugin, no send or accept path. (The plan below was written for a locally run MCP server; U1 rejected that path before any adapter code existed. See [Outcome](#outcome-2026-10-30-implemented-by-in-page-reads-not-the-sidecar).)
+
+## Outcome (2026-10-30): implemented by in-page reads, not the sidecar
+
+Shipped on `main`: `e403e8c` (read-only source), `3eedb2b` (profile photos), `e6a9d67` (spike record). U2 assumed the MCP sidecar; U1 returned NO-GO and the design changed before U2 was written.
+
+- **U1 spike — NO-GO for the sidecar** ([spike](../research/linkedin/spike-sidecar.md)). It returned DMs and InMail and survived 30 minutes of polling, but one `get_inbox` call was followed by an owner-marked unread conversation becoming read, because its implementation clicks conversation rows to derive thread ids. Reading BB's cookies from Node also worked briefly and then lost `li_at` — LinkedIn invalidated the session used by a second client. Both paths were rejected, the second on evidence.
+- **U2 replaced.** No `src/linkedin-mcp.ts` and no endpoint configuration exist. `src/linkedin-page.ts` runs a same-origin script inside the BB browser's signed-in tab and issues the Voyager requests the web app itself makes (conversations, one conversation's messages, received invitations, display-name and photo lookups); `src/linkedin-browser.ts` reuses one tab and never navigates away or clicks. Session cookies never leave the browser.
+- **U3 delivered as specified.** `linkedin` is a first-class source in `app.tsx`: own chip, badge, icon, unread contribution, and a 120 s refresh — slower than Gmail and WhatsApp because each poll is a browser round trip.
+- **U4 delivered in part.** Unread comes from the payload's `unreadCount` and `unseen`, never recomputed locally; every write path is absent rather than disabled (`action` throws before any request, and mark-read and reply controls are not rendered for LinkedIn rows); failures collapse to one message naming LinkedIn. **Still unproven on this account:** whether these in-page GETs preserve unread state. The spike's row-click side effect motivated the in-page read, but no controlled unread-before/after run has been made against this implementation.
+- **U5 delivered.** README documents the source and the rejected paths; the access-path survey, spike, linkedincli review, and unread-preservation comparison live in `docs/research/linkedin/`.
 
 ---
 
@@ -80,7 +90,7 @@ Given that, the design question is not "which scraping library" but "how little 
 
 ## Key Technical Decisions
 
-- **MCP attachment, not a client we own.** The maintained server owns the browser, the session, and the `Voyager` surface; the plugin owns normalization and rendering. Owning either half of the session (raw cookies or our own Playwright) duplicates a maintained project and inherits its fragility without its user base.
+- **MCP attachment, not a client we own.** ~~The maintained server owns the browser, the session, and the `Voyager` surface; the plugin owns normalization and rendering.~~ **Rejected by U1:** the maintained server's inbox read clicks conversation rows and destroyed an unread flag, and holding the session outside the browser lost it. The plugin now issues the same reads in-page inside BB's own signed-in tab, which is the one place the session demonstrably survives.
 - **Attach and fail closed, never launch.** Mirrors the WhatsAgent invariant exactly: discover the endpoint, validate it is loopback HTTP, connect, and clear the cached promise so the next attempt re-attaches. Auto-supervision is deferred.
 - **Read-only means no mutating branch exists.** `action` has no LinkedIn send, reply, connect, or accept case registered at all — not a disabled flag. An agent cannot reach a LinkedIn write path through RPC because there is no code path to reach.
 - **Unread is whatever the source reports, and reading may change it.** LinkedIn's own inbox marks threads read on open; whether `get_conversation` does so is a spike question (R8) and, if it does, the UI must not claim an unread state it silently destroyed. This is the one behavioral uncertainty that could reshape the item model, so it is resolved before U2 rather than papered over.
@@ -155,6 +165,8 @@ flowchart LR
 
 ### U1. Sidecar and inbox-surface spike
 
+**Outcome:** run; NO-GO, see [Outcome](#outcome-2026-10-30-implemented-by-in-page-reads-not-the-sidecar) and the [spike note](../research/linkedin/spike-sidecar.md).
+
 **Goal:** Establish what the LinkedIn MCP server actually returns — conversations, InMail, invites, ids, read-state side effects — and whether it answers unattended, before any adapter code exists (R8, and the deferred questions R2 and R5 depend on).
 
 **Requirements:** R8
@@ -184,6 +196,8 @@ flowchart LR
 ---
 
 ### U2. LinkedIn MCP client and normalization
+
+**Superseded:** the sidecar never reached this unit. Delivered instead as `src/linkedin-page.ts` (in-page read script) plus `src/linkedin-browser.ts` (one reused tab), normalized through `src/linkedin-inbox.ts`. The files, endpoint configuration, and attach semantics described below no longer apply.
 
 **Goal:** Read LinkedIn conversations through the local MCP endpoint into the plugin's item and message shapes, attaching and failing closed exactly like WhatsAgent (R2, R3, R4, R6, R7).
 
