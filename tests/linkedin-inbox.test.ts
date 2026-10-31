@@ -35,8 +35,10 @@ test('linkedinItems treats a missing or unusable date as unknown rather than cur
 });
 
 test('linkedinItems never renders a boolean flag as a preview', () => {
-  const items = linkedinItems({ invitations: [{ id: 'urn:li:fs_relInvitation:1', title: 'Someone', preview: 'true', date: 1 }] });
+  const items = linkedinItems({ conversations: [{ id: 'urn:li:msg_conversation:(a,2-b)', title: 'Someone', preview: 'true', date: 1 }] });
   assert.equal(items[0].preview, '');
+  // The same flag on a connection request leaves nothing to show, so the row is not an inbox row.
+  assert.deepEqual(linkedinItems({ invitations: [{ id: 'urn:li:fs_relInvitation:1', title: 'Someone', preview: 'true', date: 1 }] }), []);
 });
 
 test('linkedinItems returns no rows and no error for an empty payload', () => {
@@ -77,4 +79,16 @@ test('only received-invitation urns are treated as pending invitations', () => {
   assert.equal(isInvitationId('urn:li:msg_conversation:(urn:li:fsd_profile:ACoAA,2-ZWQ)'), false);
   assert.equal(isInvitationId('urn:li:fs_relInvitation:'), false);
   assert.equal(isInvitationId(`urn:li:fs_relInvitation:${'x'.repeat(600)}`), false);
+});
+
+test('a connection request without a note is not an inbox row, one with a note is', () => {
+  const items = linkedinItems({
+    conversations: [{ id: 'urn:li:msg_conversation:(a,2-b)', title: 'Dan Le', preview: 'Hi', date: 5, unread: false }],
+    invitations: [
+      { id: 'urn:li:fs_relInvitation:111', title: 'Bare request', preview: '', date: 4, unread: false },
+      { id: 'urn:li:fs_relInvitation:222', title: 'Deina Kellezi', preview: 'Want a virtual coffee?', date: 3, unread: false },
+    ],
+  });
+  assert.deepEqual(items.map(item => item.title), ['Dan Le', 'Deina Kellezi']);
+  assert.equal(items.some(item => item.id === 'urn:li:fs_relInvitation:111'), false);
 });

@@ -25,7 +25,7 @@ function row(value: unknown): LinkedInRow | null {
   return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}) };
 }
 
-/** Inbox rows for LinkedIn conversations and pending invitations, newest first, one row per id. */
+/** Inbox rows for LinkedIn conversations and invitations that carry a note, newest first, one row per id. */
 export function linkedinItems(payload: LinkedInPayload): LinkedInRow[] {
   const rows = [...(Array.isArray(payload?.conversations) ? payload.conversations : []), ...(Array.isArray(payload?.invitations) ? payload.invitations : [])];
   const seen = new Set<string>();
@@ -33,6 +33,8 @@ export function linkedinItems(payload: LinkedInPayload): LinkedInRow[] {
   for (const value of rows) {
     const item = row(value);
     if (!item || seen.has(item.id)) continue;
+    // A bare connection request carries no message, so it is not an inbox row.
+    if (isInvitationId(item.id) && !item.preview) continue;
     seen.add(item.id);
     items.push(item);
   }
