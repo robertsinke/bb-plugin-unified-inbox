@@ -374,8 +374,7 @@ export default function plugin(bb: BbPluginApi) {
   }
   async function openConversation(account: Account, id: string) {
     if (account === 'imessage') {
-      const chatTitle = cache.list().find(item => item.account === 'imessage' && item.id === id)?.title;
-      const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }), { businessName: chatTitle });
+      const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
       cache.saveThread(account, id, messages);
       return { messages };
     }

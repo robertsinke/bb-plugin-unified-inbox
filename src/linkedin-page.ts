@@ -8,6 +8,20 @@
  */
 export type LinkedInRead = { mode: 'list' } | { mode: 'thread'; id: string };
 
+/**
+ * A conversation's preview is its newest message body. LinkedIn messages without text carry the
+ * content in `renderContent` instead, so these labels name the shapes seen in the payload.
+ */
+export const LINKEDIN_PREVIEW_LABELS: Record<string, string> = {
+  feed_update: 'Shared a post',
+  file: 'File',
+  vectorImage: 'Photo',
+  video: 'Video',
+  audio: 'Voice message',
+  repliedMessageContent: 'Replied to a message',
+  forwardedMessageContent: 'Forwarded a message',
+};
+
 const BODY = `
     const enc = u => encodeURIComponent(u).replace(/\\(/g, '%28').replace(/\\)/g, '%29');
     const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
@@ -79,11 +93,23 @@ const BODY = `
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
     const entities = (inbox.included || []).filter(e => /msg_conversation/.test(String(e.entityUrn || '')));
     // The payload inlines each conversation's latest messages, so a body can stand in for the empty descriptionText.
+    const previewLabels = ${JSON.stringify(LINKEDIN_PREVIEW_LABELS)};
+    const previewOf = item => {
+      const text = String(item.body?.text || item.renderContentFallbackText || '').trim();
+      if (text) return text;
+      const content = Array.isArray(item.renderContent) ? item.renderContent[0] : item.renderContent;
+      if (!content) return '';
+      if (content.hostUrnData && content.hostUrnData.type === 'FEED_UPDATE') return previewLabels.feed_update;
+      for (const key of ['file', 'vectorImage', 'video', 'audio', 'repliedMessageContent', 'forwardedMessageContent']) {
+        if (content[key]) return previewLabels[key] || '';
+      }
+      return '';
+    };
     const previews = new Map();
     for (const item of inbox.included || []) {
       if (!/linkedin\.messenger\.Message$/.test(String(item.$type || ''))) continue;
       const key = String(item['*conversation'] || '');
-      const body = String(item.body?.text || item.renderContentFallbackText || '').trim();
+      const body = previewOf(item);
       if (!key || !body) continue;
       const at = Number(item.deliveredAt || 0);
       const seen = previews.get(key);

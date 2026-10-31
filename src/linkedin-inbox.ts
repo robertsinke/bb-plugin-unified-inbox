@@ -52,6 +52,11 @@ export function linkedinMessages(payload: { messages?: unknown }): LinkedInMessa
   }).sort((a, b) => a.date - b.date);
 }
 
+/** Received invitations awaiting a response; they carry their own urn instead of a conversation urn. */
+export function isInvitationId(id: string): boolean {
+  return /^urn:li:fs_relInvitation:.+/.test(id) && id.length <= 512;
+}
+
 /** Rejects anything that is not a LinkedIn conversation URN before it reaches the page. */
 export function isConversationId(id: string): boolean {
   return /^urn:li:msg_conversation:.+/.test(id) && id.length <= 512;
