@@ -56,6 +56,11 @@ Acceptance: no `account ===` branch decides behaviour in `server.ts` or
 sources; one test per adapter proving its declared capabilities match what its
 `action` actually accepts.
 
+**Slice B is done** (`f7de939`, `d2a204d`, `f93bb73`): registry, capabilities,
+frontend driven by declarations, parity tests. See
+`docs/plans/2026-11-02-slice-b-work-units.md` for the units and the live parity
+numbers.
+
 ## Slice C — Drafts as a toolbox primitive
 
 Local-first: a draft is keyed by `(account, conversation id)` and never leaves the

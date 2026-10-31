@@ -63,6 +63,21 @@ Acceptance: every capability flag is exercised in both directions (supported →
 accepted, unsupported → refused); the README names the ownership boundary in one
 screen.
 
+## Status
+
+| Unit | State | Commit |
+|---|---|---|
+| B1 | done | `f7de939` — registry, five adapters, `capabilities` RPC, no account branches left in `server.ts` |
+| B2 | done | `f93bb73` — `src/ui-capabilities.ts` plus `app.tsx` driven by declarations, failing closed until they load |
+| B3 | done | `d2a204d` — parity tests per account and `src/adapters/README.md` |
+
+Live parity after merging all three: `list` 131 rows with zero errors
+(whatsapp 50, business 20, personal 20, imessage 20, linkedin 21), and the same
+conversation counts per source as before the refactor (personal 1, business 1,
+whatsapp 49, imessage 60, linkedin 18 in the Dan Le thread). 142 tests pass.
+`app.tsx` keeps only presentation branches (`chatLayout`, avatar path, mail
+account label); every behavioural control now comes from a capability.
+
 ## Sequencing
 
 B1 → (B2, B3 in parallel). B2 and B3 own disjoint files, so they can run at the
