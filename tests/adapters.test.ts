@@ -190,7 +190,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: false, markRead: false, archive: false, media: false, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: false, markRead: false, archive: false, media: true, attachments: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;

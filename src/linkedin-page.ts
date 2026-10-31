@@ -46,6 +46,23 @@ const BODY = `
       try { const url = new URL(String(value)); return url.protocol === 'https:' && (url.hostname === 'licdn.com' || url.hostname.endsWith('.licdn.com')) ? url.href : ''; }
       catch { return ''; }
     };
+    // A message without text carries its content here, and every payload returns all of these keys: only a set one is content.
+    const contentOf = item => {
+      const content = Array.isArray(item?.renderContent) ? item.renderContent[0] : item?.renderContent;
+      return content && typeof content === 'object' ? content : null;
+    };
+    // A photo's largest element is the image the inbox shows; anything not on LinkedIn's CDN is not an image.
+    const photoOf = item => {
+      const content = contentOf(item);
+      return content && content.vectorImage ? linkedinImage(avatarOf(content.vectorImage)) : '';
+    };
+    // A shared post has no thumbnail in the payload, only the update it points at.
+    const activityOf = item => {
+      const host = contentOf(item)?.hostUrnData;
+      if (!host || host.type !== 'FEED_UPDATE') return '';
+      const match = /urn:li:activity:\\d+/.exec(String(host.hostUrn || ''));
+      return match ? match[0] : '';
+    };
     // A participant is a member profile or a company page, and only the urn says which.
     const identityKey = ref => {
       const match = /urn:li:fsd_(profile|company):([^,)]+)/.exec(String(ref || ''));
@@ -86,7 +103,8 @@ const BODY = `
       return { messages: events.map(e => {
         const key = identityKey(e['*sender'] || e['*actor']);
         const mine = key === meKey;
-        return { sender: mine ? 'You' : names.get(key) || 'LinkedIn', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: mine };
+        // The message urn is what a later media request names, so the picture travels with it.
+        return { id: String(e.entityUrn || ''), sender: mine ? 'You' : names.get(key) || 'LinkedIn', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: mine, mediaUrl: photoOf(e), activityUrn: activityOf(e) };
       }) };
     }
 
@@ -97,7 +115,7 @@ const BODY = `
     const previewOf = item => {
       const text = String(item.body?.text || item.renderContentFallbackText || '').trim();
       if (text) return text;
-      const content = Array.isArray(item.renderContent) ? item.renderContent[0] : item.renderContent;
+      const content = contentOf(item);
       if (!content) return '';
       if (content.hostUrnData && content.hostUrnData.type === 'FEED_UPDATE') return previewLabels.feed_update;
       for (const key of ['file', 'vectorImage', 'video', 'audio', 'repliedMessageContent', 'forwardedMessageContent']) {
