@@ -5,7 +5,7 @@
  * can keep the cached rows is testable on its own. The marker rides in the existing
  * `inbox_sync` cursor column, so it needs no schema of its own.
  */
-import type { LinkedInProbe } from './linkedin-probe.ts';
+import { linkedinMailboxUrn, type LinkedInProbe } from './linkedin-probe.ts';
 
 /** Bumped when the marker's meaning changes, which turns every stored marker back into a full read. */
 export const LINKEDIN_MARKER_PREFIX = 'linkedin-v1';
@@ -24,10 +24,26 @@ export type LinkedInReadReason =
 
 export type LinkedInDelta = { action: 'skip' } | { action: 'read'; reason: LinkedInReadReason };
 
-/** The marker string to store after a probe, or after a full read made from that probe. */
-export function linkedinMarker(probe: LinkedInProbe): string {
+/**
+ * The marker string to store after a probe, or after a full read made from that probe. The
+ * member's mailbox rides along so the next probe needs no identity request; it is state about
+ * the session, never part of what the comparison checks.
+ */
+export function linkedinMarker(probe: LinkedInProbe, mailbox?: string): string {
   const marker = Object.fromEntries(FIELDS.map(field => [field, probe[field]]));
-  return `${LINKEDIN_MARKER_PREFIX}:${JSON.stringify(marker)}`;
+  const urn = linkedinMailboxUrn(mailbox);
+  return `${LINKEDIN_MARKER_PREFIX}:${JSON.stringify(urn ? { ...marker, mailboxUrn: urn } : marker)}`;
+}
+
+/** The mailbox a stored marker remembers, or the empty string, which makes the probe ask who it is. */
+export function linkedinMarkerMailbox(stored: string | null | undefined): string {
+  if (typeof stored !== 'string' || !stored.startsWith(`${LINKEDIN_MARKER_PREFIX}:`)) return '';
+  try {
+    const parsed = JSON.parse(stored.slice(LINKEDIN_MARKER_PREFIX.length + 1)) as { mailboxUrn?: unknown };
+    return linkedinMailboxUrn(parsed?.mailboxUrn);
+  } catch {
+    return '';
+  }
 }
 
 /**

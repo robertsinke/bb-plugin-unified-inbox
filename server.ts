@@ -90,7 +90,7 @@ export default function plugin(bb: BbPluginApi) {
     whatsapp: createWhatsAgent(),
     imsg,
     readLinkedIn: readLinkedInInChrome,
-    probeLinkedIn: () => readLinkedInInChrome({ mode: 'probe' }),
+    probeLinkedIn: mailbox => readLinkedInInChrome({ mode: 'probe', mailbox }),
     providerError: toProviderError,
   });
 
