@@ -219,8 +219,9 @@ async function startBrowser(profile: string): Promise<Browser> {
 
 /** Runs one in-page read. Rejects rather than returning a partial result. */
 export async function readLinkedInInChrome(read: LinkedInRead): Promise<unknown> {
-  // The probe is its own expression: a refresh asks only whether anything moved.
-  if (read.mode === 'probe') return evaluateInLinkedInProfile(linkedinProbeExpression(read.mailbox));
+  // The probe is its own expression, but it answers through the same envelope as the other two
+  // reads: a page that failed must throw here, not hand back a half-empty payload.
+  if (read.mode === 'probe') return linkedinReadResult(await evaluateInLinkedInProfile(linkedinProbeExpression(read.mailbox)));
   if (read.mode === 'thread' && !/^urn:li:msg_conversation:.+/.test(read.id)) throw new Error('That LinkedIn conversation cannot be opened.');
   return linkedinReadResult(await evaluateInLinkedInProfile(linkedinPageExpression(read)));
 }
