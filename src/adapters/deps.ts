@@ -20,6 +20,12 @@ export interface RegistryDeps {
   readLinkedIn: (read: LinkedInRead) => Promise<unknown>;
   /** The change probe: the timestamps and counters a refresh compares, with no names or bodies. */
   probeLinkedIn: (mailbox?: string) => Promise<unknown>;
+  /**
+   * One write-side page expression, built by `src/linkedin-write.ts`: arming the
+   * recorder, listing what it saw, or replaying a request a real action produced.
+   * Nothing here decides what to send; that is the adapter's job.
+   */
+  runLinkedInWrite: (expression: string) => Promise<unknown>;
   /** The provider-error factory: classification and redaction, never raw stderr. */
   providerError: (account: Account, source: ProviderError['source'], cause: unknown) => ProviderError;
 }

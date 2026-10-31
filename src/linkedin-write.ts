@@ -237,6 +237,18 @@ export function isMessageSend(write: RecordedWrite, conversationId: string): boo
 }
 
 /**
+ * The text a recorded send carried, so a replay that supplies no replacement repeats exactly what
+ * was recorded instead of blanking the message. Null when the template has no single text field.
+ */
+export function recordedSendText(write: RecordedWrite, conversationId: string): string | null {
+  const body = parsedBody(write);
+  if (!body) return null;
+  if (!carriesConversation(body, conversationId)) return null;
+  const fields = textFields(body);
+  return fields.length === 1 ? fields[0].value : null;
+}
+
+/**
  * The same recorded send, carrying `text`. Works on the parsed JSON and replaces only the one
  * outgoing text field, so every other field travels byte for byte as LinkedIn wrote it.
  *
