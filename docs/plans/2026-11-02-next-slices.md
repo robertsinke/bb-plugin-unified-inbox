@@ -74,6 +74,15 @@ host, so it works for every source including the read-only ones.
 Acceptance: a draft survives a reload and a source switch, and clearing it is
 explicit.
 
+**Slice C is done.** Drafts stay a toolbox primitive rather than a source
+capability: the box appears for every conversation that is a sequence of
+messages (WhatsApp, Messages, and now LinkedIn), the draft is kept in local
+storage keyed by account and conversation, and only the send control depends on
+the source's declaration. `canCompose` became `canSend`, because drafting never
+needed the source. LinkedIn therefore gets a working draft box with the send
+control absent and an explicit line saying so. Gmail keeps its own document
+draft form.
+
 ## Slice D — LinkedIn writes
 
 Requires a mechanism decision, because guessing a GraphQL mutation against a real

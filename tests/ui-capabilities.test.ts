@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canArchive, canCompose, canMarkRead, type CapabilityMap } from '../src/ui-capabilities.ts';
+import { canArchive, canSend, canMarkRead, type CapabilityMap } from '../src/ui-capabilities.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Capabilities } from '../src/adapters/types.ts';
 
@@ -11,7 +11,7 @@ const everySource = (declaration: Capabilities): CapabilityMap =>
   Object.fromEntries(accounts.map(account => [account, { ...declaration }])) as CapabilityMap;
 
 const RULES = [
-  ['compose', canCompose],
+  ['send', canSend],
   ['mark read', canMarkRead],
   ['archive', canArchive],
 ] as const;
@@ -45,7 +45,7 @@ test('each source is judged by its own declaration, not the account name', () =>
       assert.equal(decide(everySourceButThisOne, account), false, `${account} withholding ${rule} wins over every other source declaring it`);
     }
     for (const other of accounts.filter(name => name !== account)) {
-      assert.equal(canCompose(everySourceButThisOne, other), true, `${account} withholding send does not hide ${other}'s composer`);
+      assert.equal(canSend(everySourceButThisOne, other), true, `${account} withholding send does not hide ${other}'s composer`);
     }
   }
 });
@@ -56,17 +56,17 @@ test('one capability declared does not stand in for another', () => {
   const onlyArchive = everySource({ ...NOTHING, archive: true });
   for (const account of accounts) {
     assert.deepEqual(
-      [canCompose(onlySend, account), canMarkRead(onlySend, account), canArchive(onlySend, account)],
+      [canSend(onlySend, account), canMarkRead(onlySend, account), canArchive(onlySend, account)],
       [true, false, false],
       `${account}: only the composer follows send`,
     );
     assert.deepEqual(
-      [canCompose(onlyMarkRead, account), canMarkRead(onlyMarkRead, account), canArchive(onlyMarkRead, account)],
+      [canSend(onlyMarkRead, account), canMarkRead(onlyMarkRead, account), canArchive(onlyMarkRead, account)],
       [false, true, false],
       `${account}: only the read toggle follows markRead`,
     );
     assert.deepEqual(
-      [canCompose(onlyArchive, account), canMarkRead(onlyArchive, account), canArchive(onlyArchive, account)],
+      [canSend(onlyArchive, account), canMarkRead(onlyArchive, account), canArchive(onlyArchive, account)],
       [false, false, true],
       `${account}: only archive follows archive`,
     );
@@ -79,4 +79,12 @@ test('unknown declarations offer no control at all', () => {
       assert.equal(decide(null, account), false, `${account} is offered no ${rule} before its declaration is known`);
     }
   }
+});
+
+test('a source that cannot send still keeps a draft locally', () => {
+  // Drafting is a toolbox primitive: it never needs the source, so only the send control is withheld.
+  const capabilities = everySource(NOTHING);
+  for (const account of accounts) assert.equal(canSend(capabilities, account), false);
+  assert.equal(canSend({ ...capabilities, linkedin: { ...NOTHING, send: false } }, 'linkedin'), false);
+  assert.equal(canSend({ ...capabilities, linkedin: { ...NOTHING, send: true } }, 'linkedin'), true);
 });
