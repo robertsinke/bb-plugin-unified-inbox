@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LINKEDIN_MARKER_PREFIX, linkedinDelta, linkedinMarker, parseLinkedInMarker } from '../src/linkedin-delta.ts';
+import { LINKEDIN_MARKER_PREFIX, linkedinDelta, linkedinMarker, linkedinMarkerMailbox, parseLinkedInMarker } from '../src/linkedin-delta.ts';
 import { EMPTY_LINKEDIN_PROBE, type LinkedInProbe } from '../src/linkedin-probe.ts';
 
 const probe: LinkedInProbe = {
@@ -79,4 +79,18 @@ test('a marker whose fields happened to match an empty probe still reads when it
 
 test('no probe means no evidence, so the refresh reads', () => {
   assert.deepEqual(linkedinDelta({ stored, probe: null }), { action: 'read', reason: 'probe' });
+});
+
+test('the marker remembers the mailbox without letting it steer the comparison', () => {
+  const probe = { newestActivityAt: 10, unreadTotal: 2, conversationCount: 3, newestInvitationAt: 4, invitationCount: 5, unreadInvitations: 1 };
+  const marker = linkedinMarker(probe, 'urn:li:fsd_profile:ACoAAExample');
+  assert.equal(linkedinMarkerMailbox(marker), 'urn:li:fsd_profile:ACoAAExample');
+  assert.deepEqual(parseLinkedInMarker(marker), probe);
+  // A marker with no mailbox, a foreign marker, or junk all ask the probe to identify itself.
+  assert.equal(linkedinMarkerMailbox(linkedinMarker(probe)), '');
+  assert.equal(linkedinMarkerMailbox('something-else'), '');
+  assert.equal(linkedinMarkerMailbox(`${LINKEDIN_MARKER_PREFIX}:{"mailboxUrn":"urn:li:fsd_profile:EVIL"}`), 'urn:li:fsd_profile:EVIL');
+  assert.equal(linkedinMarkerMailbox(`${LINKEDIN_MARKER_PREFIX}:not json`), '');
+  // The mailbox is session state, so it changes nothing about when a read is needed.
+  assert.deepEqual(linkedinDelta({ stored: marker, probe }), { action: 'skip' });
 });

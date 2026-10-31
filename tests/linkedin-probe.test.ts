@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { linkedinProbe, linkedinProbeExpression } from '../src/linkedin-probe.ts';
+import { linkedinMailboxUrn, linkedinProbe, linkedinProbeExpression } from '../src/linkedin-probe.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
 
@@ -14,9 +14,11 @@ test('probe expression compiles and reads only through the same authenticated sa
   assert.doesNotMatch(expression, /\.goto\(|browser\.getPage|document\.cookie\s*=/);
 });
 
-test('probe makes three requests and resolves no names, avatars, or message bodies', () => {
-  // Session check, the conversation window, and the invitation view — nothing per participant.
-  assert.equal(expression.match(/await get\(/g)?.length, 3);
+test('probe reads three endpoints and resolves no names, avatars, or message bodies', () => {
+  // The invitation view starts before the identity request, so the probe waits for two rounds
+  // rather than three: identity, then the conversation window.
+  assert.equal(expression.match(/await get\(/g)?.length, 2);
+  assert.match(expression, /const invites = get\('\/voyager\/api\/relationships\/invitationViews/);
   assert.doesNotMatch(expression, /identity\/dash\/profiles|organization\/companies|avatarOf|nameOf/);
   assert.doesNotMatch(expression, /messengerMessages|body\?\.text|renderContent/);
 });
@@ -52,14 +54,14 @@ test('an empty inbox and a thinner payload both count as zero rather than throwi
 });
 
 /** Runs the real expression against a fake page: three same-origin GETs, no other global needed. */
-async function runProbe(replies: (url: string) => { status: number; body: unknown }) {
+async function runProbe(replies: (url: string) => { status: number; body: unknown }, mailbox?: string) {
   const seen: { url: string; headers: Record<string, string>; credentials?: string }[] = [];
   const fetchStub = async (url: string, init: { headers: Record<string, string>; credentials?: string }) => {
     seen.push({ url, headers: init.headers, credentials: init.credentials });
     const reply = replies(url);
     return { ok: reply.status === 200, status: reply.status, text: async () => JSON.stringify(reply.body) };
   };
-  const evaluate = new AsyncFunction('fetch', 'document', `return (${expression});`);
+  const evaluate = new AsyncFunction('fetch', 'document', `return (${linkedinProbeExpression(mailbox)});`);
   return { result: await evaluate(fetchStub, { cookie: 'JSESSIONID="token-1"' }), seen };
 }
 
@@ -80,11 +82,13 @@ test('the probe asks for the conversation window and invitation view under the s
     payload: {
       conversations: [{ at: 1000, unread: 2 }, { at: 2000, unread: 0 }],
       invitations: [{ at: 3000, unread: true }],
+      mailboxUrn: 'urn:li:fsd_profile:ME',
     },
   });
   assert.equal(seen.length, 3);
   assert.ok(seen.every(request => request.credentials === 'include' && request.headers['csrf-token'] === 'token-1'));
-  assert.ok(seen[1].url.includes('mailboxUrn:urn%3Ali%3Afsd_profile%3AME'));
+  const conversations = seen.find(request => request.url.includes('messengerConversations'));
+  assert.ok(conversations?.url.includes('mailboxUrn:urn%3Ali%3Afsd_profile%3AME'));
   assert.deepEqual(linkedinProbe((result as { payload: unknown }).payload), {
     newestActivityAt: 2000, unreadTotal: 2, conversationCount: 2, newestInvitationAt: 3000, invitationCount: 1, unreadInvitations: 1,
   });
@@ -106,4 +110,26 @@ test('nonsense numbers in a payload never produce a negative or NaN marker', () 
   assert.equal(probe.newestInvitationAt, 0);
   assert.equal(probe.unreadInvitations, 0);
   assert.equal(probe.conversationCount, 3);
+});
+
+test('a remembered mailbox drops the identity request, so a repeat probe is one round', async () => {
+  const { result, seen } = await runProbe(url => {
+    if (url.includes('messengerConversations')) return { status: 200, body: { included: [{ entityUrn: 'urn:li:msg_conversation:1', lastActivityAt: 1000, unreadCount: 0 }] } };
+    return { status: 200, body: { included: [] } };
+  }, 'urn:li:fsd_profile:ME');
+  assert.equal(seen.length, 2);
+  assert.ok(seen.every(request => !request.url.includes('/voyager/api/me')));
+  assert.equal((result as { payload: { mailboxUrn: string } }).payload.mailboxUrn, 'urn:li:fsd_profile:ME');
+});
+
+test('a mailbox that is not a profile urn never reaches the evaluated script', () => {
+  // The urn is interpolated into page code, so anything that is not the exact shape is refused
+  // rather than escaped: a rejection here costs one identity request, a wrong guess costs the page.
+  for (const hostile of ["urn:li:fsd_profile:X'); fetch('https://elsewhere.test')//", 'urn:li:fs_miniProfile:ME', '', null, 42, 'urn:li:fsd_profile:' + 'A'.repeat(120)]) {
+    const expression = linkedinProbeExpression(hostile as string);
+    assert.ok(!expression.includes('elsewhere.test'));
+    assert.match(expression, /let mailboxUrn = '';/);
+    assert.equal(linkedinMailboxUrn(hostile), '');
+  }
+  assert.equal(linkedinMailboxUrn('urn:li:fsd_profile:ACoAAExample'), 'urn:li:fsd_profile:ACoAAExample');
 });

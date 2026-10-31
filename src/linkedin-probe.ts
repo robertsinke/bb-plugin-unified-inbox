@@ -38,7 +38,19 @@ export const EMPTY_LINKEDIN_PROBE: LinkedInProbe = {
 const CONVERSATIONS_QUERY = 'messengerConversations.0d5e6781bbee71c3e51c8843c6519f48';
 const INVITATIONS_PATH = '/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20';
 
-const BODY = `
+/** The signed-in member's own `fsd_profile` urn, which the conversations query needs. */
+const MAILBOX = /^urn:li:fsd_profile:[A-Za-z0-9_-]{1,80}$/;
+
+/**
+ * A mailbox urn safe to inject, or the empty string. The pattern is the whole guard: anything
+ * else would be script text rather than an argument, so a stranger never becomes code.
+ */
+export function linkedinMailboxUrn(value: unknown): string {
+  return typeof value === 'string' && MAILBOX.test(value) ? value : '';
+}
+
+/** The page body, given whatever mailbox the caller already knows (empty string asks the page). */
+const body = (mailboxUrn: string) => `
     const enc = u => encodeURIComponent(u).replace(/\\(/g, '%28').replace(/\\)/g, '%29');
     const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
     const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
@@ -46,28 +58,39 @@ const BODY = `
     const time = value => { const number = Number(value); return Number.isFinite(number) && number > 0 ? number : 0; };
     const counter = value => { const number = Math.floor(Number(value)); return Number.isFinite(number) && number > 0 ? number : 0; };
 
-    const me = await get('/voyager/api/me');
-    const meRef = String(me.data?.['*miniProfile'] || (me.included || []).find(e => /miniProfile/.test(String(e.$type || '')))?.entityUrn || '');
-    if (!/^urn:li:fs_miniProfile:/.test(meRef)) throw new Error('LinkedIn session is not signed in');
+    // A remembered mailbox saves the identity round trip; invitations start immediately either way,
+    // so the probe is one round of two parallel requests, not three in a row.
+    // Started early but settled here, so a failure is this read's error and never an unhandled one.
+    const invites = get('${INVITATIONS_PATH}').then(value => ({ value }), error => ({ error }));
+    let mailboxUrn = '${mailboxUrn}';
+    if (!mailboxUrn) {
+      const me = await get('/voyager/api/me');
+      const meRef = String(me.data?.['*miniProfile'] || (me.included || []).find(e => /miniProfile/.test(String(e.$type || '')))?.entityUrn || '');
+      if (!/^urn:li:fs_miniProfile:/.test(meRef)) throw new Error('LinkedIn session is not signed in');
+      mailboxUrn = meRef.replace('fs_miniProfile', 'fsd_profile');
+    }
 
-    const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${CONVERSATIONS_QUERY}&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
+    const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${CONVERSATIONS_QUERY}&variables=(mailboxUrn:' + enc(mailboxUrn) + ')');
     const conversations = (inbox.included || [])
       .filter(e => /msg_conversation/.test(String(e.entityUrn || '')))
       .map(e => ({ at: time(e.lastActivityAt), unread: counter(e.unreadCount) }));
 
-    const invites = await get('${INVITATIONS_PATH}');
-    const invitations = (invites.included || [])
+    const settled = await invites;
+    if (settled.error) throw settled.error;
+    const invitations = (settled.value.included || [])
       .filter(e => /relationships\\.invitation\\.Invitation$/.test(String(e.$type || '')))
       .map(e => ({ at: time(e.sentTime), unread: e.unseen === true }));
 
-    return { conversations, invitations };
+    return { conversations, invitations, mailboxUrn };
 `;
 
 /** Expression for BB's Browser-page API; evaluates in the already-open LinkedIn tab. */
-export function linkedinProbeExpression(): string {
+export function linkedinProbeExpression(mailbox?: string): string {
+  // Whatever the caller remembers is injected into an evaluated script, so it is re-validated here.
+  const mailboxUrn = linkedinMailboxUrn(mailbox);
   return `(async () => {
   try {
-    const payload = await (async () => {${BODY}})();
+    const payload = await (async () => {${body(mailboxUrn)}})();
     return { ok: true, payload };
   } catch (error) {
     return { ok: false, error: String((error && error.message) || error).split(String.fromCharCode(10))[0] };

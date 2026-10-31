@@ -4,8 +4,8 @@
 // — a reply, an invitation answer, and a read mark all change the owner's real
 // account, so none is enabled in this build.
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
-import { linkedinDelta, linkedinMarker } from '../linkedin-delta.ts';
-import { linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
+import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
+import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -103,17 +103,22 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
      */
     async sync(force?: boolean): Promise<SyncResult> {
       const cached = (): Conversation[] => cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
+      const stored = cache.cursor(ACCOUNT);
+      let payload: unknown = null;
       let probe: LinkedInProbe | null = null;
-      try { probe = linkedinProbe(await deps.probeLinkedIn()); } catch { probe = null; }
-      const decision = linkedinDelta({ stored: cache.cursor(ACCOUNT), probe, force });
+      try {
+        payload = await deps.probeLinkedIn(linkedinMarkerMailbox(stored));
+        probe = linkedinProbe(payload);
+      } catch { probe = null; }
+      const decision = linkedinDelta({ stored, probe, force });
       // A skip is only safe with rows to show; an empty cache always reads.
       if (decision.action === 'skip' && cached().length) return { items: cached(), updatedAt: Date.now(), reason: decision.action };
 
-      const payload = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
-      const items = linkedinItems(payload).map((item): Conversation => ({ ...item, account: ACCOUNT }));
+      const listed = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
+      const items = linkedinItems(listed).map((item): Conversation => ({ ...item, account: ACCOUNT }));
       cache.save(ACCOUNT, items);
       // Only a probe can describe the state this read produced, so the marker is stored from it.
-      if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe));
+      if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, linkedinMailboxUrn((payload as { mailboxUrn?: unknown })?.mailboxUrn)));
       return { items, updatedAt: Date.now(), reason: decision.action };
     },
   };
