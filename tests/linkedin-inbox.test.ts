@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isConversationId, linkedinItems, linkedinMessages } from '../src/linkedin-inbox.ts';
+import { isInvitationId, isConversationId, linkedinItems, linkedinMessages } from '../src/linkedin-inbox.ts';
 
 const conversation = { id: 'urn:li:msg_conversation:(urn:li:fsd_profile:A,2-B)', title: 'Jan-Terje Sørlie', preview: 'You: Hi Jan-Terje', date: 1_800_000_000_000, unread: true };
 const invitation = { id: 'urn:li:fsd_invitation:7499907539443032065', title: 'Deina Kellezi', preview: 'Hey Robert! Would you like to grab a virtual coffee?', date: 1_800_000_100_000, unread: true, sender: 'Deina Kellezi' };
@@ -70,4 +70,11 @@ test('isConversationId accepts only conversation URNs', () => {
   assert.equal(isConversationId('urn:li:fsd_invitation:1'), false);
   assert.equal(isConversationId('2-B'), false);
   assert.equal(isConversationId(''), false);
+});
+
+test('only received-invitation urns are treated as pending invitations', () => {
+  assert.equal(isInvitationId('urn:li:fs_relInvitation:(urn:li:fsd_profile:ACoAA,123)'), true);
+  assert.equal(isInvitationId('urn:li:msg_conversation:(urn:li:fsd_profile:ACoAA,2-ZWQ)'), false);
+  assert.equal(isInvitationId('urn:li:fs_relInvitation:'), false);
+  assert.equal(isInvitationId(`urn:li:fs_relInvitation:${'x'.repeat(600)}`), false);
 });

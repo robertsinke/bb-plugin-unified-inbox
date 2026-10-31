@@ -9,7 +9,7 @@ const chat = z.object({
 });
 const attachment = z.object({ filename: z.string().nullish(), transfer_name: z.string().nullish(), mime_type: z.string().nullish(), total_bytes: z.number().nonnegative().nullish(), missing: z.boolean().nullish() }).passthrough();
 const historyMessage = z.object({
-  id: z.number().int().positive().safe(), guid: z.string().nullish(), sender: z.string().nullish(), sender_name: z.string().nullish(),
+  id: z.number().int().positive().safe(), guid: z.string().nullish(), sender: z.string().nullish(), sender_name: z.string().nullish(), chat_name: z.string().nullish(),
   text: z.string().nullish(), created_at: z.string().nullish(), is_from_me: z.boolean().nullish(),
   edited_at: z.string().nullish(), unsent_at: z.string().nullish(), reply_to_guid: z.string().nullish(),
   attachments: z.array(attachment).max(100).nullish(), reactions: z.array(z.object({ sender: z.string().nullish(), emoji: z.string().nullish(), type: z.string().nullish(), is_from_me: z.boolean().nullish() })).nullish(),
@@ -39,10 +39,10 @@ function senderLabel(handle: string | null | undefined, name: string | null | un
   return /^urn:biz:/i.test(raw) ? (businessName || '').trim() || 'Business chat' : raw;
 }
 
-export function mapImsgHistory(value: unknown, options: { businessName?: string } = {}) {
+export function mapImsgHistory(value: unknown) {
   const result = z.object({ messages: z.array(historyMessage).max(500) }).parse(value);
   return result.messages.map(m => ({
-    sender: m.is_from_me ? 'You' : senderLabel(m.sender, m.sender_name, options.businessName),
+    sender: m.is_from_me ? 'You' : senderLabel(m.sender, m.sender_name, m.chat_name ?? undefined),
     text: m.unsent_at ? 'Message unsent' : m.text || '',
     edited: !!m.edited_at && !m.unsent_at, replyContext: !!m.reply_to_guid,
     date: timestamp(m.created_at), fromMe: m.is_from_me === true,
@@ -51,7 +51,7 @@ export function mapImsgHistory(value: unknown, options: { businessName?: string 
       index, name: basename((a.transfer_name || 'Attachment').replaceAll('\\', '/')).slice(0, 200) || 'Attachment',
       available: a.missing !== true && !!a.filename && isImsgImage(a.mime_type) && (a.total_bytes == null || a.total_bytes <= IMSG_IMAGE_LIMIT),
     })),
-    reactions: (m.unsent_at ? [] : m.reactions ?? []).map(r => ({ sender: r.is_from_me ? 'You' : senderLabel(r.sender, '', options.businessName), label: r.emoji || r.type || 'Reaction' })),
+    reactions: (m.unsent_at ? [] : m.reactions ?? []).map(r => ({ sender: r.is_from_me ? 'You' : senderLabel(r.sender, '', m.chat_name ?? undefined), label: r.emoji || r.type || 'Reaction' })),
   })).sort((a, b) => a.date - b.date);
 }
 export function findImsgAttachment(value: unknown, messageId: string, index: number) {
