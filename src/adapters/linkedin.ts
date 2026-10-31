@@ -6,6 +6,9 @@
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
+
+/** The mailbox a probe payload reported, or the empty string when it did not report one. */
+const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
 import { readLinkedInImage } from '../linkedin-media.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -111,14 +114,18 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         probe = linkedinProbe(payload);
       } catch { probe = null; }
       const decision = linkedinDelta({ stored, probe, force });
-      // A skip is only safe with rows to show; an empty cache always reads.
-      if (decision.action === 'skip' && cached().length) return { items: cached(), updatedAt: Date.now(), reason: decision.action };
+      if (decision.action === 'skip' && cached().length) {
+        // The probe just proved the rows are current, so it may also hand over the mailbox it
+        // learned: a refresh that skips must not leave the next one asking who it is again.
+        if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));
+        return { items: cached(), updatedAt: Date.now(), reason: decision.action };
+      }
 
       const listed = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
       const items = linkedinItems(listed).map((item): Conversation => ({ ...item, account: ACCOUNT }));
       cache.save(ACCOUNT, items);
       // Only a probe can describe the state this read produced, so the marker is stored from it.
-      if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, linkedinMailboxUrn((payload as { mailboxUrn?: unknown })?.mailboxUrn)));
+      if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));
       return { items, updatedAt: Date.now(), reason: decision.action };
     },
   };
