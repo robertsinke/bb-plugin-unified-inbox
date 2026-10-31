@@ -67,6 +67,43 @@ test('LinkedIn profile photos are kept only from LinkedIn CDN URLs', () => {
   assert.equal(linkedinItems({ conversations: [{ ...conversation, avatarUrl: 'https://evil.example/photo' }] })[0]?.avatarUrl, undefined);
 });
 
+test('a photo message with no text is still a message, and keeps the URL its thumbnail needs', () => {
+  const photo = 'https://media.licdn.com/dms/image/v2/D4E22AQphoto/900/0/1700000000000?e=1';
+  const messages = linkedinMessages({ messages: [
+    { id: 'urn:li:msg_message:(urn:li:msg_conversation:(a,2-b),2-c)', sender: 'Deina', text: '', date: 1, fromMe: false, mediaUrl: photo, activityUrn: '' },
+  ] });
+  assert.deepEqual(messages, [{
+    id: 'urn:li:msg_message:(urn:li:msg_conversation:(a,2-b),2-c)',
+    sender: 'Deina',
+    text: '',
+    date: 1,
+    fromMe: false,
+    media: { messageId: 'urn:li:msg_message:(urn:li:msg_conversation:(a,2-b),2-c)', kind: 'image', cached: false, available: true, url: photo },
+  }]);
+});
+
+test('a photo off the LinkedIn CDN leaves nothing to render, so the message is dropped', () => {
+  assert.deepEqual(linkedinMessages({ messages: [
+    { id: 'urn:li:msg_message:x', sender: 'Deina', text: '', date: 1, mediaUrl: 'https://evil.example/photo.png' },
+    { id: 'urn:li:msg_message:y', sender: 'Deina', text: '', date: 2, mediaUrl: 'https://media.licdn.com/photo.png' },
+  ] }).map(message => message.id), ['urn:li:msg_message:y']);
+});
+
+test('a shared post becomes a link to the post and carries no media', () => {
+  const [post] = linkedinMessages({ messages: [
+    { id: 'urn:li:msg_message:x', sender: 'Deina', text: '', date: 1, mediaUrl: '', activityUrn: 'urn:li:activity:7123456789012345678' },
+  ] });
+  assert.equal(post.link, 'https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/');
+  assert.equal(post.media, undefined);
+  assert.equal(post.text, '');
+});
+
+test('an activity urn that is not an activity is not a link', () => {
+  assert.deepEqual(linkedinMessages({ messages: [
+    { id: 'urn:li:msg_message:x', sender: 'Deina', text: '', date: 1, activityUrn: 'urn:li:fsd_update:(urn:li:activity:1)' },
+  ] }), []);
+});
+
 test('isConversationId accepts only conversation URNs', () => {
   assert.equal(isConversationId('urn:li:msg_conversation:(urn:li:fsd_profile:A,2-B)'), true);
   assert.equal(isConversationId('urn:li:fsd_invitation:1'), false);

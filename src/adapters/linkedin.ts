@@ -1,21 +1,59 @@
 // LinkedIn adapter (Migration state 3). It owns the LinkedIn shapes: the live
 // read behind `linkedin_sync`, the conversation open with its cache fallback,
-// and the refusal of every write — a reply, an invitation answer, and a read
-// mark all change the owner's real account, so none is enabled in this build.
-import { isConversationId, linkedinItems, linkedinMessages } from '../linkedin-inbox.ts';
+// the media answer for a photo or a shared post, and the refusal of every write
+// — a reply, an invitation answer, and a read mark all change the owner's real
+// account, so none is enabled in this build.
+import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
+import { readLinkedInImage } from '../linkedin-media.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
-  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
+  Account, ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: false, markRead: false, archive: false, media: false, attachments: false };
+const CAPABILITIES: Capabilities = { send: false, markRead: false, archive: false, media: true, attachments: false };
 
 const ACCOUNT = 'linkedin';
 
 const READ_ONLY = 'LinkedIn is read-only here: nothing can be sent, accepted, or marked read.';
 
+/**
+ * The `media` answer for LinkedIn: the image itself, or — for a shared post, whose
+ * payload carries no thumbnail — the post's link with no image data.
+ *
+ * `MediaPayload` has no `url` yet; this wider shape is what the gateway's `media`
+ * output needs to carry for the inbox to render that link.
+ */
+export type LinkedInMediaPayload = MediaPayload & { url?: string };
+
+/** Media is addressed by the LinkedIn message urn the thread read recorded. */
+function isMessageId(id: string): boolean {
+  return /^urn:li:msg_message:.+/.test(id) && id.length <= 512;
+}
+
 export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
   const { cache } = deps;
+
+  /**
+   * The cached message a media request names. A LinkedIn message lives only
+   * inside its conversation, so the threads this cache already holds are where
+   * the picture read with the message is found — no second browser read, and
+   * nothing new cached for it.
+   */
+  function cachedMessage(id: string): LinkedInMessage | undefined {
+    if (!isMessageId(id)) return undefined;
+    for (const row of cache.list()) {
+      if (row.account !== ACCOUNT) continue;
+      const thread = cache.readThread(ACCOUNT, row.id);
+      if (!Array.isArray(thread)) continue;
+      const found = thread.find(value => {
+        if (!value || typeof value !== 'object') return false;
+        const message = value as LinkedInMessage;
+        return message.id === id || message.media?.messageId === id;
+      });
+      if (found) return found as LinkedInMessage;
+    }
+    return undefined;
+  }
 
   return {
     capabilities: () => CAPABILITIES,
@@ -41,8 +79,13 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       return { messages: live };
     },
 
-    async media(): Promise<MediaPayload> {
-      throw new Error('LinkedIn messages carry no media this build can serve.');
+    /** A photo is fetched from LinkedIn's CDN; a shared post answers with its link, because it has no thumbnail. */
+    async media(_account: Account, id: string, _index: number): Promise<LinkedInMediaPayload> {
+      const message = cachedMessage(id);
+      if (!message) throw new Error('Open this LinkedIn conversation again to show its media.');
+      if (message.link && !message.media) return { dataUrl: '', mime: '', url: message.link };
+      if (!message.media) throw new Error('This LinkedIn message carries no media.');
+      return readLinkedInImage(message.media.url);
     },
 
     async action(_kind: ActionKind, _id: string, _opts?: ActionOptions): Promise<ActionResult> {
