@@ -25,6 +25,7 @@ import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, w
 import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from './src/whatsapp-media';
 import { ImsgClient } from './src/imsg-client';
 import { findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from './src/imsg-mapping';
+import { sendImsgText } from './src/imsg-send';
 import { readImsgImage } from './src/imsg-media';
 import { existsSync } from 'node:fs';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
@@ -540,7 +541,13 @@ export default function plugin(bb: BbPluginApi) {
       } finally { await rm(dir, {recursive:true,force:true}); }
     },
     async action({account,id,action,text,proposalId}) {
-      if (account === 'imessage') throw new Error('Messages actions are not enabled.');
+      if (account === 'imessage') {
+        // Sending is enabled for Messages at the owner's explicit request; nothing else here mutates the source.
+        if (action === 'read') { cache.dropUnread(account, id); return { status: 'Marked read.' }; }
+        if (action === 'unread') { cache.keepUnread(account, id); return { status: 'Marked unread.' }; }
+        if (action === 'reply' && text?.trim()) return { status: await sendImsgText(imsg, id, text) };
+        throw new Error('This action is not supported for Messages.');
+      }
       if (account === 'linkedin') throw new Error('LinkedIn is read-only here: nothing can be sent, accepted, or marked read.');
       if (account === 'whatsapp') {
         if (action === 'read') { cache.dropUnread(account, id); await wa('mark-read',{chatJid:id}); return {status:'Marked read in WhatsAgent (no WhatsApp read receipt).'}; }
