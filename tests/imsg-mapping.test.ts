@@ -23,6 +23,21 @@ test('maps history in chronological order without exposing attachment paths', ()
   assert.equal(JSON.stringify(items).includes('/private/'), false);
 });
 
+test('a business chat handle shows the conversation name instead of the opaque urn', () => {
+  const history = { messages: [
+    { id: 1, sender: 'urn:biz:11111111-2222-4333-8444-555555555555', text: 'Your code is 1234', reactions: [{ sender: 'urn:biz:6e67a89b', emoji: '👍' }] },
+    { id: 2, sender: 'urn:biz:11111111-2222-4333-8444-555555555555', sender_name: 'Poke Support', text: 'Hello' },
+    { id: 3, sender: '+31600000222', text: 'SMS from a number' },
+  ] };
+  const [named, human, phone] = mapImsgHistory(history, { businessName: 'Poke' });
+  assert.equal(named.sender, 'Poke');
+  assert.deepEqual(named.reactions, [{ sender: 'Poke', label: '👍' }]);
+  assert.equal(human.sender, 'Poke Support');
+  assert.equal(phone.sender, '+31600000222');
+  assert.equal(mapImsgHistory(history)[0].sender, 'Business chat');
+  assert.equal(JSON.stringify(mapImsgHistory(history)).includes('urn:biz:'), false);
+});
+
 test('attachment selectors resolve only against the freshly fetched history', () => {
   const history = { messages: [{ id: 8, attachments: [{ filename: '/private/image', transfer_name: '/private/photo.png', mime_type: 'image/png', missing: false }] }] };
   const mapped = mapImsgHistory(history);

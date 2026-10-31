@@ -248,6 +248,13 @@ export async function evaluateInLinkedInProfile(expression: string): Promise<unk
   });
 }
 
+/** Loads the LinkedIn page ahead of the first read; a failure leaves the next read to report it. */
+export async function prewarmLinkedInBrowser(): Promise<void> {
+  try {
+    await gate(async () => { await warmPage(); keepWarm(); });
+  } catch { /* the first real read surfaces the reason */ }
+}
+
 /** Stops the warm browser, if any; safe to call repeatedly. */
 export async function stopLinkedInBrowser(): Promise<void> {
   if (idleTimer) clearTimeout(idleTimer);

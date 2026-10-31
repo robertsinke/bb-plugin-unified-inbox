@@ -78,13 +78,25 @@ const BODY = `
 
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
     const entities = (inbox.included || []).filter(e => /msg_conversation/.test(String(e.entityUrn || '')));
+    // The payload inlines each conversation's latest messages, so a body can stand in for the empty descriptionText.
+    const previews = new Map();
+    for (const item of inbox.included || []) {
+      if (!/linkedin\.messenger\.Message$/.test(String(item.$type || ''))) continue;
+      const key = String(item['*conversation'] || '');
+      const body = String(item.body?.text || item.renderContentFallbackText || '').trim();
+      if (!key || !body) continue;
+      const at = Number(item.deliveredAt || 0);
+      const seen = previews.get(key);
+      if (!seen || at >= seen.at) previews.set(key, { at, body });
+    }
     const counterparts = [...new Set(entities.flatMap(e => e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; }))];
     await Promise.all(counterparts.map(nameOf));
     const conversations = entities.map(e => {
       const others = (e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
       const people = others.map(ref => names.get(identityKey(ref))).filter(Boolean).join(', ');
       const avatarUrl = others.length === 1 ? avatars.get(identityKey(others[0])) : '';
-      return { id: String(e.entityUrn), title: String(e.title || '') || people, preview: String(e.descriptionText || ''), date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
+      const preview = String(e.descriptionText || '') || previews.get(String(e.entityUrn))?.body || '';
+      return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
     });
 
     const invites = await get('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20');
