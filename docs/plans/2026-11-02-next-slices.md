@@ -83,6 +83,25 @@ needed the source. LinkedIn therefore gets a working draft box with the send
 control absent and an explicit line saying so. Gmail keeps its own document
 draft form.
 
+**Slice E and F are done and wired.** `f7de939`-style units landed as
+`ff2efd4` (media) and `09bea35` (delta probe); the wiring is `5ccd973`.
+
+- Media: the thread read keeps a message's `renderContent`, so a photo travels
+  as a `licdn.com` URL and a shared post as a link to its activity. The `media`
+  RPC now takes an account (WhatsApp remains the default) and answers from the
+  adapter that owns the message; images keep the inbox's 6 MiB bound, refuse
+  redirects, and need no session. A shared post has no thumbnail in the payload,
+  so the inbox shows "Open shared post" rather than an invented image.
+- Delta: `sync` probes for `lastActivityAt`, unread totals, row counts, and
+  invitations, and keeps the cached rows when nothing moved. Measured on the
+  running plugin: first refresh `reason: read` 4.34 s, then `reason: skip` 2.17 s
+  and 2.09 s. The remaining cost is the two page requests behind the probe, so
+  the next lever is a single-request probe, not a smarter decision.
+
+Verified live: 21 LinkedIn rows, both shared posts in the Andrea thread now carry
+their activity link. No inbox message currently carries a photo, so the photo
+path is proven by unit tests against real payload shapes and awaits a live photo.
+
 ## Slice D — LinkedIn writes
 
 Requires a mechanism decision, because guessing a GraphQL mutation against a real
