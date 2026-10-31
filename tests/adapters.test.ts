@@ -13,6 +13,7 @@ import { toProviderError } from '../src/adapters/provider-error.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { RegistryDeps } from '../src/adapters/deps.ts';
 
+const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
 const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
 
 const GMAIL_THREAD = {
@@ -80,9 +81,9 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       runtime: async () => { calls.push('whatsapp:runtime'); throw new Error('WhatsAgent loopback is not running in this test.'); },
     },
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
-    probeLinkedIn: async () => {
-      calls.push('linkedin:probe');
-      return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0 };
+    probeLinkedIn: async mailbox => {
+      calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');
+      return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0, mailboxUrn: LINKEDIN_MAILBOX };
     },
     readLinkedIn: async read => {
       calls.push(`linkedin:${read.mode}`);
@@ -211,7 +212,8 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     // Nothing moved since the marker was stored, so the second refresh keeps the rows it has.
     f.calls.length = 0;
     const again = await adapter.sync!();
-    assert.deepEqual(f.calls, ['linkedin:probe']);
+    // Now that the marker remembers the mailbox, the probe no longer asks who it is.
+    assert.deepEqual(f.calls, [`linkedin:probe@${LINKEDIN_MAILBOX}`]);
     assert.equal(again.reason, 'skip');
     assert.deepEqual(again.items.map(row => row.id), [LINKEDIN_ID]);
 
@@ -247,4 +249,20 @@ test('a refusal comes from capabilities, not from an account check in the transp
     const source = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /===\s*'(?:personal|business|whatsapp|imessage|linkedin)'/);
   } finally { f.done(); }
+});
+
+test('a skipping refresh still hands over the mailbox it learned', async () => {
+  const f = fixture();
+  const adapter = f.registry.linkedin;
+  await adapter.sync!();
+  // The first refresh had to ask who it is; the marker now answers that question.
+  assert.deepEqual(f.calls, ['linkedin:probe', 'linkedin:list']);
+  assert.equal((await import('../src/linkedin-delta.ts')).linkedinMarkerMailbox(f.cache.cursor('linkedin')), LINKEDIN_MAILBOX);
+
+  // Nothing moved, so the second refresh probes with the remembered mailbox and keeps the rows.
+  f.calls.length = 0;
+  const skipped = await adapter.sync!();
+  assert.deepEqual(f.calls, [`linkedin:probe@${LINKEDIN_MAILBOX}`]);
+  assert.equal(skipped.reason, 'skip');
+  assert.equal((await import('../src/linkedin-delta.ts')).linkedinMarkerMailbox(f.cache.cursor('linkedin')), LINKEDIN_MAILBOX);
 });
