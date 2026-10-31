@@ -118,7 +118,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         // The probe just proved the rows are current, so it may also hand over the mailbox it
         // learned: a refresh that skips must not leave the next one asking who it is again.
         if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));
-        return { items: cached(), updatedAt: Date.now(), reason: `${decision.action} ${JSON.stringify((payload as { ms?: unknown })?.ms)}` };
+        return { items: cached(), updatedAt: Date.now(), reason: decision.action };
       }
 
       const listed = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
