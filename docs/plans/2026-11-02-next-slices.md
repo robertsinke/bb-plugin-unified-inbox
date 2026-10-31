@@ -94,9 +94,19 @@ draft form.
   so the inbox shows "Open shared post" rather than an invented image.
 - Delta: `sync` probes for `lastActivityAt`, unread totals, row counts, and
   invitations, and keeps the cached rows when nothing moved. Measured on the
-  running plugin: first refresh `reason: read` 4.34 s, then `reason: skip` 2.17 s
-  and 2.09 s. The remaining cost is the two page requests behind the probe, so
-  the next lever is a single-request probe, not a smarter decision.
+  running plugin: a real read 3.85 s, a skip 1.53-1.62 s (2.1 s before the probe
+  was trimmed).
+- The probe is now one round: the marker remembers the signed-in mailbox, so the
+  identity request is gone, and the invitation view starts before the conversation
+  window and settles alongside it. Timed inside the page it is 1.25 s, all of it
+  LinkedIn's own `messengerConversations` response; that is the floor for a check
+  that still notices a new message. Dropping the invitation request would save
+  little (it overlaps) and would let a new invitation wait for the next full read.
+- The probe had been comparing zeros to zeros: its payload came back inside the
+  page's `{ok, payload}` envelope, so every probe parsed as an empty inbox and
+  every refresh skipped. It now unwraps through the same path as the other reads,
+  which also makes a failed page throw instead of reading as empty. Verified by
+  nudging the stored marker: the next refresh reads in full, then skips again.
 
 Verified live: 21 LinkedIn rows, both shared posts in the Andrea thread now carry
 their activity link. No inbox message currently carries a photo, so the photo
