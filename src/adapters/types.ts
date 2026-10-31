@@ -1,18 +1,30 @@
 // Shared adapter contract for the unified inbox gateway.
-// Spec: specs/001-unified-inbox-gateway/spec.md — Migration state 1: types only.
-// Nothing imports this module yet; adapters (state 2) and the registry
-// (state 3) adopt these shapes without redefining them.
+// Spec: specs/001-unified-inbox-gateway/spec.md — Migration state 3: the
+// adapters in this directory and the registry in ./index.ts implement these
+// shapes, and server.ts routes through the registry instead of branching on
+// the account name.
 //
 // Shapes mirror the RPC contract in server.ts (item/message zod schemas)
-// so state 3 rewires routing without any payload conversion.
+// so the transport rewires routing without any payload conversion.
 
-/** Registry keys: one adapter per account. */
-export type Account = 'personal' | 'business' | 'whatsapp' | 'imessage';
+/**
+ * Registry keys: one adapter per account, and the `account` value on every RPC
+ * input. The tuple is the canonical list — `server.ts` builds its zod enum from
+ * it, so a new source is one entry here plus one adapter.
+ */
+export const accounts = ['personal', 'business', 'whatsapp', 'imessage', 'linkedin'] as const;
+
+export type Account = (typeof accounts)[number];
 
 /** Gmail accounts are the only ones with a `send_gmail` draft today. */
 export type GmailAccount = Extract<Account, 'personal' | 'business'>;
 
-/** Conversation summary as cached and listed (rpcContract `list` item). */
+/**
+ * Conversation summary as cached and listed (rpcContract `list` item).
+ * The optional fields mirror the fields the shipped item schema already
+ * carries: Gmail rows add recipients and attachment names, WhatsApp and
+ * LinkedIn rows add an avatar, and group rows add participants.
+ */
 export interface Conversation {
   account: Account;
   id: string;
@@ -21,6 +33,10 @@ export interface Conversation {
   date: number;
   unread: boolean;
   sender?: string;
+  avatarUrl?: string;
+  recipients?: string;
+  attachments?: string[];
+  participants?: string[];
 }
 
 /** Attachment media descriptor on a message (rpcContract `media` output input). */
@@ -65,8 +81,12 @@ export interface Message {
   suggestedCc?: string;
   media?: MessageMedia;
   reactions?: Reaction[];
-  /** Messages attachments (metadata key `imsgAttachments`). */
-  attachments?: ImsgAttachment[];
+  /** Gmail attachment filenames (rpcContract `attachments`). */
+  attachments?: string[];
+  /** Gmail message id, used by the `attachment` RPC. */
+  gmailId?: string;
+  /** Messages attachments (rpcContract `imsgAttachments`). */
+  imsgAttachments?: ImsgAttachment[];
   /** Messages edit indicator. */
   edited?: boolean;
   /** Messages thread indicator (context only; full threading is a non-goal). */
@@ -84,7 +104,7 @@ export interface Message {
  */
 export interface ProviderError {
   account: Account;
-  source: 'gmail' | 'whatsapp' | 'imsg';
+  source: 'gmail' | 'whatsapp' | 'imsg' | 'linkedin';
   /** Redacted, single line, at most 300 characters. */
   message: string;
 }
@@ -183,7 +203,7 @@ export interface ListResult {
   errors: ProviderError[];
 }
 
-/** Mirrors the rpcContract `list_source` limit. */
+/** The conversation limit an RPC call carries (`list_source` input, `list` options). */
 export interface OpenOptions {
   limit?: number;
 }
@@ -191,6 +211,20 @@ export interface OpenOptions {
 export interface OpenResult {
   messages: Message[];
   cursor?: string;
+}
+
+/** Mirrors the rpcContract `linkedin_sync` output. */
+export interface SyncResult {
+  items: Conversation[];
+  updatedAt: number;
+}
+
+/** Mirrors the rpcContract `attachment` output: a bounded, always-named file. */
+export interface AttachmentPayload {
+  dataUrl: string;
+  mime: string;
+  filename: string;
+  size: number;
 }
 
 /**
@@ -202,9 +236,39 @@ export interface OpenResult {
  */
 export interface Adapter {
   capabilities(): Capabilities;
-  list(cursor?: string): Promise<ListResult>;
+  /**
+   * Conversation rows for this source. `cursor` is unused by every provider
+   * today (each re-lists in full); `opts.limit` is the `list_source` limit and
+   * defaults to what the whole-inbox `list` asks for.
+   */
+  list(cursor?: string, opts?: OpenOptions): Promise<ListResult>;
   open(id: string, opts?: OpenOptions): Promise<OpenResult>;
   media(account: Account, id: string, index: number): Promise<MediaPayload>;
   action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult>;
   send?(draft: SendDraft, authorization: SendAuthorization): Promise<SendReceipt>;
+
+  // The entry points below are the shipped RPC coordinates that `list`, `open`,
+  // `media` and `action` cannot express yet. Each is implemented by exactly the
+  // adapters whose source has that shape, and each is a candidate for the
+  // toolbox unification (T9):
+
+  /** LinkedIn's live read, behind `linkedin_sync`; `list` answers from the cache. */
+  sync?(): Promise<SyncResult>;
+  /** Gmail attachment by message id and filename, behind `attachment` (T9 → `media`). */
+  gmailAttachment?(gmailId: string, filename: string): Promise<AttachmentPayload>;
+  /** Messages attachment by (chat, message, index), behind `imsg_media` (T9 → `media`). */
+  imsgMedia?(chatId: string, messageId: string, index: number): Promise<MediaPayload>;
+
+  /**
+   * Cache-only decoration for one row the gateway returns straight from the
+   * cache (`cached`, `list_source`, `list`). No provider I/O: WhatsApp group
+   * rows carry the participants their cached thread remembers.
+   */
+  decorate?(item: Conversation): Conversation;
+  /**
+   * Cache-only repair of a thread read straight from the cache (`cached_open`).
+   * A thread written by an older build carries legacy senders and noise; the
+   * adapter that owns the shape fixes them without reading its source again.
+   */
+  repairThread?(id: string, messages: Message[]): Promise<Message[]>;
 }
