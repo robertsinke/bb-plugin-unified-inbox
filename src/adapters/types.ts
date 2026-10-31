@@ -125,11 +125,11 @@ export interface WhatsAppDraft {
 }
 
 /**
- * Authorization for a send. Today only WhatsApp's proposal confirmation flows
- * through here. The human-approval boundary (see
- * docs/plans/2026-10-29-messages-send-approval-proposal.md and GH #6556)
- * will add a host-issued approval; the field stays reserved and unset until
- * then. No adapter may treat a missing approval as implicit consent.
+ * Authorization for a send. WhatsApp's proposal confirmation flows through the
+ * proposal id. The owner enabled Messages sending directly on 2026-11-02, so
+ * imessage sends carry no approval field; the reserved host-issued approval
+ * (docs/plans/2026-10-29-messages-send-approval-proposal.md, GH #6556) remains
+ * unset and no adapter may treat its absence as consent for anything else.
  */
 export interface SendAuthorization {
   proposalId?: number;
@@ -147,8 +147,8 @@ export interface SendReceipt {
  * Non-send operations (rpcContract `action`). Per-provider support today:
  * - gmail (personal, business): read, unread, archive
  * - whatsapp: read, unread, reply (propose), confirm, reject
- * - imessage: none — all six variants are rejected server-side; sending stays
- *   disabled until the approval boundary lands.
+ * - imessage: read, unread (local state), reply (sends through `imsg send`);
+ *   archive, confirm, and reject are refused.
  */
 export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject';
 
@@ -166,7 +166,7 @@ export interface ActionResult {
 
 /** What an adapter supports; the gateway consults this instead of try/catch. */
 export interface Capabilities {
-  /** gmail and whatsapp implement `send`; imessage does not. The policy layer keeps gmail disabled. */
+  /** gmail, whatsapp, and imessage implement `send`; the policy layer keeps gmail disabled. */
   send: boolean;
   markRead: boolean;
   archive: boolean;

@@ -1,9 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
-// This adapter is deliberately read-only. A future mutation path needs a separately
-// verified, host-enforced user authorization boundary before it can be added.
+// Reads stay the default; `send` is the one mutation this adapter exposes, added at the
+// owner's explicit request. Every other write method is still refused here.
 const READ_METHODS = new Set(['initialize', 'status', 'chats.list', 'messages.history']);
+const MUTATION_METHODS = new Set(['send']);
 const MAX_FRAME = 8 * 1024 * 1024;
 const MAX_PENDING = 64;
 
@@ -75,7 +76,7 @@ export class ImsgClient {
   }
 
   request(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (!READ_METHODS.has(method)) return Promise.reject(new Error('Messages operation is not permitted'));
+    if (!READ_METHODS.has(method) && !MUTATION_METHODS.has(method)) return Promise.reject(new Error('Messages operation is not permitted'));
     if (this.pending.size >= MAX_PENDING) return Promise.reject(new Error('Too many Messages requests'));
     let child: ChildProcessWithoutNullStreams;
     try { child = this.start(); } catch (error) { return Promise.reject(error); }

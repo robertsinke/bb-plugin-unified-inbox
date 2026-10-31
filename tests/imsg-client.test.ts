@@ -27,7 +27,7 @@ test('correlates out-of-order responses and permits only reads', async () => {
   const client = new ImsgClient(f.path);
   try {
     assert.deepEqual(await Promise.all([client.request('status'), client.request('chats.list')]), ['status', 'chats.list']);
-    await assert.rejects(client.request('send', { text: 'no' }), /not permitted/);
+    await assert.rejects(client.request('messages.delete', { id: '1' }), /not permitted/);
   } finally { client.dispose(); await f.cleanup(); }
 });
 
