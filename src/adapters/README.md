@@ -1,0 +1,70 @@
+# Source adapters
+
+`server.ts` is the transport; these adapters are the sources. The boundary is:
+
+## The toolbox owns
+
+- **Transport and validation** — the RPC schemas, the `capabilities` output, and
+  every call into the registry.
+- **Routing** — `createRegistry(deps)` maps one `Account` to one `Adapter`. The
+  canonical account list is the `accounts` tuple in `types.ts`.
+- **Cache and search** — `inbox-cache` stores conversations and threads;
+  `search-index` ranks cached rows. Adapters write the cache; they do not own it.
+- **Unread preservation, error isolation, and the send policy** — a failing
+  source contributes an error without failing the other sources, and
+  `send_gmail` decides whether a declared send may run at all.
+
+## An adapter owns
+
+How **one source** lists conversations, opens a thread, serves media and
+attachments, and performs its actions. That includes source-specific mapping,
+validation, refusal text, cache-only decoration and repair, and the
+**capability declaration** this adapter promises to keep.
+
+## The rule
+
+A new source is a **new adapter plus a capability declaration**, never a new
+`account === …` branch in `server.ts`.
+
+1. Add the account to the `accounts` tuple in `src/adapters/types.ts`.
+2. Implement `Adapter` in `src/adapters/<source>.ts` and declare `Capabilities`.
+3. Register it in `createRegistry` in `src/adapters/index.ts`.
+4. Prove the declaration in `tests/adapters/<source>.test.ts` with stubbed deps.
+
+Behaviour is chosen by asking the registry or reading `capabilities()`, not by
+testing the account name. A capability set to `false` means the adapter refuses
+the operation **before** it touches the source. `canChange()` in
+`capability.ts` is the shared mapping for `read`, `unread`, and `archive`;
+`send`, `media`, and attachment entry points are implemented only where their
+flag is true.
+
+Declaration meanings:
+
+| Flag | True means |
+|---|---|
+| `send` | The source can originate a message: Gmail through `send()`, WhatsApp and Messages through `action('reply')`. |
+| `markRead` | `action('read')` and `action('unread')` are accepted. |
+| `archive` | `action('archive')` is accepted. |
+| `media` | Inline media can be served for an open conversation. |
+| `attachments` | Named files can be served for a message. |
+
+## Known asymmetries
+
+- **Gmail sending is implemented but disabled by policy.** The adapter declares
+  `send: true` and `send()` works against the runner; `send_gmail` in
+  `server.ts` still refuses every call. The capability is honest about the
+  adapter; the policy narrows it at the RPC boundary.
+- **Messages read state is local.** Messages exposes no read state to sync, so
+  `read`/`unread` update `inbox-cache` only and never call `imsg`.
+- **Media and attachment entry points are not unified yet.** WhatsApp uses
+  `media()`, Gmail uses `gmailAttachment()`, and Messages uses `imsgMedia()`.
+  `media: true` for Messages means the source can serve media through its own
+  shipped entry point, not that the generic `media()` accepts it. Unifying these
+  under `media()` is T9 in `specs/001-unified-inbox-gateway/tasks.md`.
+
+## Tests
+
+`tests/adapters/` has one test per account. Every dependency is a stub; no test
+reaches Gmail, WhatsAgent, Messages, or LinkedIn. Each test exercises every
+declared flag in the direction it is declared — a `true` reaches the stubbed
+runner, a `false` refuses and leaves the runner untouched.
