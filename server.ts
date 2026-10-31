@@ -22,9 +22,9 @@ import type { Account, Conversation } from './src/adapters/types';
 
 const account = z.enum(accounts);
 const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
-const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional() });
+const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
-const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), media: z.boolean(), attachments: z.boolean(), search: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
@@ -36,9 +36,9 @@ export const rpcContract = defineRpcContract({
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
-  linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative() }) },
+  linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
   linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
-  media: { input: z.object({ messageId: z.string().min(1).max(512) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional() }) },
+  media: { input: z.object({ messageId: z.string().min(1).max(512), account: account.optional(), index: z.number().int().min(0).max(99).optional() }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional(), url: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), proposalId: z.number().int().positive().optional() }).strict(), output: z.object({ status: z.string(), proposalId: z.number().int().positive().optional(), text: z.string().optional() }) },
@@ -90,6 +90,7 @@ export default function plugin(bb: BbPluginApi) {
     whatsapp: createWhatsAgent(),
     imsg,
     readLinkedIn: readLinkedInInChrome,
+    probeLinkedIn: () => readLinkedInInChrome({ mode: 'probe' }),
     providerError: toProviderError,
   });
 
@@ -144,8 +145,11 @@ export default function plugin(bb: BbPluginApi) {
       const profile = await openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };
     },
-    // `media` carries no account (T9 unifies it); WhatsApp is its only producer today.
-    async media({ messageId }) { return registry.whatsapp.media('whatsapp', messageId, 0); },
+    // One media path for every source: the adapter that owns the message answers, and a
+    // shared post answers with a link because its payload carries no thumbnail.
+    async media({ messageId, account: source = 'whatsapp', index = 0 }) {
+      return registry[source].media(source, messageId, index);
+    },
     async attachment({ account, gmailId, filename }) {
       const read = registry[account].gmailAttachment;
       if (!read) throw new Error('This account has no attachments.');

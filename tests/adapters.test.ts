@@ -80,6 +80,10 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       runtime: async () => { calls.push('whatsapp:runtime'); throw new Error('WhatsAgent loopback is not running in this test.'); },
     },
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
+    probeLinkedIn: async () => {
+      calls.push('linkedin:probe');
+      return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0 };
+    },
     readLinkedIn: async read => {
       calls.push(`linkedin:${read.mode}`);
       if (read.mode === 'thread') return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
@@ -199,8 +203,17 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
 
     const synced = await adapter.sync!();
     assert.deepEqual(synced.items.map(row => [row.account, row.id, row.title]), [['linkedin', LINKEDIN_ID, 'Ada Lovelace']]);
-    assert.deepEqual(f.calls, ['linkedin:list']);
+    // The refresh probes first; the probe is new here, so it also reads in full.
+    assert.deepEqual(f.calls, ['linkedin:probe', 'linkedin:list']);
+    assert.equal(synced.reason, 'read');
     assert.equal((await adapter.list()).items.length, 1);
+
+    // Nothing moved since the marker was stored, so the second refresh keeps the rows it has.
+    f.calls.length = 0;
+    const again = await adapter.sync!();
+    assert.deepEqual(f.calls, ['linkedin:probe']);
+    assert.equal(again.reason, 'skip');
+    assert.deepEqual(again.items.map(row => row.id), [LINKEDIN_ID]);
 
     assert.equal((await adapter.open(LINKEDIN_ID)).messages[0].text, 'Hello from LinkedIn');
     await assert.rejects(adapter.open('not-a-conversation'), /cannot be opened/);

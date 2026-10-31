@@ -124,6 +124,10 @@ export function harness(options: HarnessOptions = {}): Harness {
         return method === 'messages.history' && options.imsgHistory ? options.imsgHistory(params) : imsgResponse(method, params);
       },
     },
+    probeLinkedIn: async () => {
+      calls.push('linkedin:probe');
+      return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0 };
+    },
     readLinkedIn: async read => {
       calls.push(`linkedin:${read.mode}`);
       if (read.mode === 'thread') return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };

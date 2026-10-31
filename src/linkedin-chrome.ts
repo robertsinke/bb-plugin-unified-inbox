@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
+import { linkedinProbeExpression } from './linkedin-probe.ts';
 import { createAsyncGate } from './async-gate.ts';
 
 /** The signed-in profile is reused by every read; the gate keeps two browser starts apart. */
@@ -218,6 +219,8 @@ async function startBrowser(profile: string): Promise<Browser> {
 
 /** Runs one in-page read. Rejects rather than returning a partial result. */
 export async function readLinkedInInChrome(read: LinkedInRead): Promise<unknown> {
+  // The probe is its own expression: a refresh asks only whether anything moved.
+  if (read.mode === 'probe') return evaluateInLinkedInProfile(linkedinProbeExpression());
   if (read.mode === 'thread' && !/^urn:li:msg_conversation:.+/.test(read.id)) throw new Error('That LinkedIn conversation cannot be opened.');
   return linkedinReadResult(await evaluateInLinkedInProfile(linkedinPageExpression(read)));
 }

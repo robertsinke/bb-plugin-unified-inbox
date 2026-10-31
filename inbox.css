@@ -2,3 +2,4 @@
 .ui-linkedin .ui-source-icon{background:#0a66c230;color:#5aa9e6}
 .ui-row-meta{display:inline-flex;align-items:center;gap:7px;flex:none}
 .ui-chip{display:inline-block;padding:1px 6px;border:1px solid #8886;border-radius:999px;font-size:10px;font-weight:650;letter-spacing:.02em;vertical-align:middle;white-space:nowrap;opacity:.8}
+.ui-message-media{display:block;max-width:340px;margin-top:6px;border-radius:8px}

@@ -18,6 +18,8 @@ export interface RegistryDeps {
   imsg: ImsgSender;
   /** One in-page LinkedIn read: the conversation list, or one thread. */
   readLinkedIn: (read: LinkedInRead) => Promise<unknown>;
+  /** The change probe: the timestamps and counters a refresh compares, with no names or bodies. */
+  probeLinkedIn: () => Promise<unknown>;
   /** The provider-error factory: classification and redaction, never raw stderr. */
   providerError: (account: Account, source: ProviderError['source'], cause: unknown) => ProviderError;
 }

@@ -6,7 +6,7 @@
  * LinkedIn web app makes on load — messaging inbox, one conversation's messages, received
  * invitations, and display names.
  */
-export type LinkedInRead = { mode: 'list' } | { mode: 'thread'; id: string };
+export type LinkedInRead = { mode: 'list' } | { mode: 'thread'; id: string } | { mode: 'probe' };
 
 /**
  * A conversation's preview is its newest message body. LinkedIn messages without text carry the
