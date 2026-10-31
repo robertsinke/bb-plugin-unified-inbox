@@ -48,6 +48,8 @@ export interface MessageMedia {
   mime?: string;
   filename?: string;
   size?: number;
+  /** Where the message points, for a shape that has a link but no thumbnail. */
+  url?: string;
 }
 
 /** Messages (imsg) attachment slot: index-addressed, may be unavailable. */
@@ -93,6 +95,8 @@ export interface Message {
   replyContext?: boolean;
   /** Messages stable row id, used by `imsg_media`. */
   imsgId?: string;
+  /** A message that is a link rather than a picture or text (a shared post). */
+  link?: string;
 }
 
 /**
@@ -217,6 +221,8 @@ export interface OpenResult {
 export interface SyncResult {
   items: Conversation[];
   updatedAt: number;
+  /** Why the source read or skipped, when it has a delta check. */
+  reason?: string;
 }
 
 /** Mirrors the rpcContract `attachment` output: a bounded, always-named file. */

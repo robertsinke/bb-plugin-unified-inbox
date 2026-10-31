@@ -4,6 +4,8 @@
 // — a reply, an invitation answer, and a read mark all change the owner's real
 // account, so none is enabled in this build.
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
+import { linkedinDelta, linkedinMarker } from '../linkedin-delta.ts';
+import { linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -94,11 +96,25 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       throw new Error(READ_ONLY);
     },
 
-    async sync(): Promise<SyncResult> {
+    /**
+     * One cheap probe first: the full read costs a payload plus about twenty profile
+     * lookups, so an unchanged inbox keeps its cached rows instead. A probe that cannot
+     * run is not a change — it falls back to reading, never to skipping.
+     */
+    async sync(force?: boolean): Promise<SyncResult> {
+      const cached = (): Conversation[] => cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
+      let probe: LinkedInProbe | null = null;
+      try { probe = linkedinProbe(await deps.probeLinkedIn()); } catch { probe = null; }
+      const decision = linkedinDelta({ stored: cache.cursor(ACCOUNT), probe, force });
+      // A skip is only safe with rows to show; an empty cache always reads.
+      if (decision.action === 'skip' && cached().length) return { items: cached(), updatedAt: Date.now(), reason: decision.action };
+
       const payload = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
       const items = linkedinItems(payload).map((item): Conversation => ({ ...item, account: ACCOUNT }));
       cache.save(ACCOUNT, items);
-      return { items, updatedAt: Date.now() };
+      // Only a probe can describe the state this read produced, so the marker is stored from it.
+      if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe));
+      return { items, updatedAt: Date.now(), reason: decision.action };
     },
   };
 }
