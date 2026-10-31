@@ -61,18 +61,16 @@ const body = (mailboxUrn: string) => `
     // A remembered mailbox saves the identity round trip; invitations start immediately either way,
     // so the probe is one round of two parallel requests, not three in a row.
     // Started early but settled here, so a failure is this read's error and never an unhandled one.
-    const t0 = performance.now(); let tMe = 0, tConv = 0;
     const invites = get('${INVITATIONS_PATH}').then(value => ({ value }), error => ({ error }));
     let mailboxUrn = '${mailboxUrn}';
     if (!mailboxUrn) {
       const me = await get('/voyager/api/me');
       const meRef = String(me.data?.['*miniProfile'] || (me.included || []).find(e => /miniProfile/.test(String(e.$type || '')))?.entityUrn || '');
       if (!/^urn:li:fs_miniProfile:/.test(meRef)) throw new Error('LinkedIn session is not signed in');
-      mailboxUrn = meRef.replace('fs_miniProfile', 'fsd_profile'); tMe = performance.now() - t0;
+      mailboxUrn = meRef.replace('fs_miniProfile', 'fsd_profile');
     }
 
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${CONVERSATIONS_QUERY}&variables=(mailboxUrn:' + enc(mailboxUrn) + ')');
-    tConv = performance.now() - t0;
     const conversations = (inbox.included || [])
       .filter(e => /msg_conversation/.test(String(e.entityUrn || '')))
       .map(e => ({ at: time(e.lastActivityAt), unread: counter(e.unreadCount) }));
@@ -83,7 +81,7 @@ const body = (mailboxUrn: string) => `
       .filter(e => /relationships\\.invitation\\.Invitation$/.test(String(e.$type || '')))
       .map(e => ({ at: time(e.sentTime), unread: e.unseen === true }));
 
-    return { conversations, invitations, mailboxUrn, ms: { total: Math.round(performance.now() - t0), me: Math.round(tMe), conv: Math.round(tConv) } };
+    return { conversations, invitations, mailboxUrn };
 `;
 
 /** Expression for BB's Browser-page API; evaluates in the already-open LinkedIn tab. */
