@@ -1,7 +1,21 @@
 import { sourceAvatarUrl } from './avatar-url.ts';
+import { linkedinCdnUrl } from './linkedin-media.ts';
+import type { MessageMedia } from './adapters/types.ts';
 
 export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string };
-export type LinkedInMessage = { sender: string; text: string; date: number; fromMe: boolean };
+
+/**
+ * A message photo: the marker the inbox renders, plus the CDN URL `media` fetches
+ * with. The URL is a read-side detail — the message RPC drops it — so it never
+ * leaves this machine.
+ */
+export type LinkedInPhoto = MessageMedia & { url: string };
+
+/**
+ * A LinkedIn message. A photo has no text and carries `media`; a shared post has
+ * no text and no thumbnail, so it carries the link to the post instead.
+ */
+export type LinkedInMessage = { id?: string; sender: string; text: string; date: number; fromMe: boolean; media?: LinkedInPhoto; link?: string };
 export type LinkedInPayload = { conversations?: unknown; invitations?: unknown };
 
 const PREVIEW_LIMIT = 300;
@@ -41,16 +55,30 @@ export function linkedinItems(payload: LinkedInPayload): LinkedInRow[] {
   return items.sort((a, b) => b.date - a.date);
 }
 
-/** Conversation messages in reading order. Empty bodies are dropped rather than rendered blank. */
+/** Conversation messages in reading order. An empty body is dropped unless it carries a photo or a shared post. */
 export function linkedinMessages(payload: { messages?: unknown }): LinkedInMessage[] {
   const rows = Array.isArray(payload?.messages) ? payload.messages : [];
   return rows.flatMap(value => {
     if (!value || typeof value !== 'object') return [];
     const raw = value as Record<string, unknown>;
     const body = text(raw.text);
-    if (!body) return [];
+    const id = text(raw.id);
+    const photoUrl = linkedinCdnUrl(raw.mediaUrl);
+    const activity = text(raw.activityUrn);
+    // A shared post points at an activity; its thumbnail is not in the message payload, so the inbox links instead.
+    const link = /^urn:li:activity:\d+$/.test(activity) ? `https://www.linkedin.com/feed/update/${activity}/` : '';
+    const media: LinkedInPhoto | undefined = id && photoUrl ? { messageId: id, kind: 'image', cached: false, available: true, url: photoUrl } : undefined;
+    if (!body && !media && !link) return [];
     const date = Number(raw.date);
-    return [{ sender: text(raw.sender) || 'LinkedIn', text: body, date: Number.isFinite(date) && date > 0 ? date : 0, fromMe: raw.fromMe === true }];
+    return [{
+      ...(id ? { id } : {}),
+      sender: text(raw.sender) || 'LinkedIn',
+      text: body,
+      date: Number.isFinite(date) && date > 0 ? date : 0,
+      fromMe: raw.fromMe === true,
+      ...(media ? { media } : {}),
+      ...(link ? { link } : {}),
+    }];
   }).sort((a, b) => a.date - b.date);
 }
 
