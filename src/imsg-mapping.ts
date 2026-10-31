@@ -27,10 +27,22 @@ export function mapImsgChats(value: unknown) {
     preview: c.service || '', date: timestamp(c.last_message_at), unread: c.unread_count > 0,
   }));
 }
-export function mapImsgHistory(value: unknown) {
+/**
+ * A business chat carries an opaque `urn:biz:` handle instead of a phone number or name, so the
+ * conversation's own title is the only readable thing to show. Nothing else is resolved.
+ */
+function senderLabel(handle: string | null | undefined, name: string | null | undefined, businessName: string | undefined) {
+  const named = (name || '').trim();
+  if (named) return named;
+  const raw = (handle || '').trim();
+  if (!raw) return 'Unknown sender';
+  return /^urn:biz:/i.test(raw) ? (businessName || '').trim() || 'Business chat' : raw;
+}
+
+export function mapImsgHistory(value: unknown, options: { businessName?: string } = {}) {
   const result = z.object({ messages: z.array(historyMessage).max(500) }).parse(value);
   return result.messages.map(m => ({
-    sender: m.is_from_me ? 'You' : m.sender_name || m.sender || 'Unknown sender',
+    sender: m.is_from_me ? 'You' : senderLabel(m.sender, m.sender_name, options.businessName),
     text: m.unsent_at ? 'Message unsent' : m.text || '',
     edited: !!m.edited_at && !m.unsent_at, replyContext: !!m.reply_to_guid,
     date: timestamp(m.created_at), fromMe: m.is_from_me === true,
@@ -39,7 +51,7 @@ export function mapImsgHistory(value: unknown) {
       index, name: basename((a.transfer_name || 'Attachment').replaceAll('\\', '/')).slice(0, 200) || 'Attachment',
       available: a.missing !== true && !!a.filename && isImsgImage(a.mime_type) && (a.total_bytes == null || a.total_bytes <= IMSG_IMAGE_LIMIT),
     })),
-    reactions: (m.unsent_at ? [] : m.reactions ?? []).map(r => ({ sender: r.is_from_me ? 'You' : r.sender || 'Unknown sender', label: r.emoji || r.type || 'Reaction' })),
+    reactions: (m.unsent_at ? [] : m.reactions ?? []).map(r => ({ sender: r.is_from_me ? 'You' : senderLabel(r.sender, '', options.businessName), label: r.emoji || r.type || 'Reaction' })),
   })).sort((a, b) => a.date - b.date);
 }
 export function findImsgAttachment(value: unknown, messageId: string, index: number) {

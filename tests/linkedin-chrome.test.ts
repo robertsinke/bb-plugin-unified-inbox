@@ -10,6 +10,8 @@ import {
   linkedinChromePath,
   linkedinReadResult,
   parseDevtoolsUrl,
+  prewarmLinkedInBrowser,
+  stopLinkedInBrowser,
   type CdpTransport,
 } from '../src/linkedin-chrome.ts';
 
@@ -99,4 +101,16 @@ test('read results map to a payload or to an actionable sign-in message', () => 
   assert.throws(() => linkedinReadResult({ ok: false, error: 'LinkedIn 500 for /voyager/api/me' }), /^Error: LinkedIn 500/);
   assert.throws(() => linkedinReadResult({ ok: false, error: 'boom' }), /unavailable.*linkedin-signin/s);
   assert.throws(() => linkedinReadResult(null), /usable response/);
+});
+
+test('prewarming is best effort and stopping an idle browser is safe', async () => {
+  process.env.UNIFIED_INBOX_CHROME = '/nonexistent/chrome';
+  process.env.UNIFIED_INBOX_LINKEDIN_PROFILE = join(mkdtempSync(join(tmpdir(), 'linkedin-profile-')), 'profile');
+  try {
+    await assert.doesNotReject(prewarmLinkedInBrowser());
+    await assert.doesNotReject(stopLinkedInBrowser());
+  } finally {
+    delete process.env.UNIFIED_INBOX_CHROME;
+    delete process.env.UNIFIED_INBOX_LINKEDIN_PROFILE;
+  }
 });

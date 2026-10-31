@@ -15,7 +15,7 @@ import { mailSenderName, replyRecipients } from './src/recipients';
 import { createAsyncGate } from './src/async-gate';
 import { createInboxCache } from './src/inbox-cache';
 import { isConversationId, linkedinItems, linkedinMessages } from './src/linkedin-inbox';
-import { openLinkedInSignIn, readLinkedInInChrome, stopLinkedInBrowser } from './src/linkedin-chrome';
+import { linkedinProfileDir, openLinkedInSignIn, prewarmLinkedInBrowser, readLinkedInInChrome, stopLinkedInBrowser } from './src/linkedin-chrome';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from './src/gmail-body';
 import { latestReceivedMessage } from './src/gmail-inbox';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor, whatsappListUnchanged } from './src/sync-plan';
@@ -365,6 +365,8 @@ export default function plugin(bb: BbPluginApi) {
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
   bb.onDispose(() => { void stopLinkedInBrowser(); });
+  // Chrome's start is the slow part of a LinkedIn read; load the page once the profile exists.
+  if (existsSync(linkedinProfileDir())) void prewarmLinkedInBrowser();
   async function listImsg(limit = 20) {
     const items = mapImsgChats(await imsg.request('chats.list', { limit }));
     cache.save('imessage', items);
@@ -372,7 +374,8 @@ export default function plugin(bb: BbPluginApi) {
   }
   async function openConversation(account: Account, id: string) {
     if (account === 'imessage') {
-      const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }));
+      const chatTitle = cache.list().find(item => item.account === 'imessage' && item.id === id)?.title;
+      const messages = mapImsgHistory(await imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true }), { businessName: chatTitle });
       cache.saveThread(account, id, messages);
       return { messages };
     }
