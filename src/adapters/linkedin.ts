@@ -6,16 +6,43 @@
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
+import { readLinkedInImage } from '../linkedin-media.ts';
+import {
+  clearRecordedWritesExpression,
+  isMessageSend,
+  LINKEDIN_WRITE_KEEP,
+  LINKEDIN_WRITE_LIMIT,
+  messageSendTemplate,
+  recordedSendText,
+  recordedWritesExpression,
+  replayWriteExpression,
+  writeBytes,
+  writeRecorderExpression,
+  type RecordedWrite,
+} from '../linkedin-write.ts';
+import type { RegistryDeps } from './deps.ts';
+import type {
+  Account, ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, LinkedInRecordOp, LinkedInRecordResult,
+  LinkedInReplayInput, LinkedInReplayResult, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
+} from './types.ts';
 
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
-import { readLinkedInImage } from '../linkedin-media.ts';
-import type { RegistryDeps } from './deps.ts';
-import type {
-  Account, ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
-} from './types.ts';
 
 const CAPABILITIES: Capabilities = { send: false, markRead: false, archive: false, media: true, attachments: false };
+
+/** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
+function recordedWrites(value: unknown): RecordedWrite[] {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.flatMap(row => {
+    if (!row || typeof row !== 'object') return [];
+    const write = row as Partial<RecordedWrite>;
+    if (typeof write.method !== 'string' || typeof write.url !== 'string' || typeof write.body !== 'string') return [];
+    if (!/^[A-Z]{3,7}$/.test(write.method)) return [];
+    if (writeBytes(write.body) > LINKEDIN_WRITE_LIMIT) return [];
+    return [{ method: write.method, url: write.url.slice(0, 2048), body: write.body, capturedAt: Number(write.capturedAt) || 0 }];
+  }).slice(-LINKEDIN_WRITE_KEEP);
+}
 
 const ACCOUNT = 'linkedin';
 
@@ -66,6 +93,41 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
     /** Cached rows only: the live read is `sync`, which the gateway calls on its own. */
     async list(_cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
       return { items: cache.list().filter(item => item.account === ACCOUNT) as Conversation[], errors: [] };
+    },
+
+    /**
+     * The recorder behind slice D: arming it watches the page's own `fetch`, so the only
+     * thing that can produce a recorded write is a real action somebody performed.
+     */
+    async record(op: LinkedInRecordOp): Promise<LinkedInRecordResult> {
+      if (op === 'arm') {
+        const armed = await deps.runLinkedInWrite(writeRecorderExpression()) as { installed?: unknown; recording?: unknown };
+        return { installed: armed?.installed === true, recording: armed?.recording === true };
+      }
+      if (op === 'clear') {
+        await deps.runLinkedInWrite(clearRecordedWritesExpression());
+        return { installed: true, recording: true, writes: [] };
+      }
+      const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
+      return { writes: recordedWrites(dumped?.writes) };
+    },
+
+    /**
+     * Replaying is the only path that can change the account, so it settles three questions
+     * first: was this approved, is the template a message send to this conversation, and does
+     * it still carry exactly one text field. A refusal names what is missing.
+     */
+    async replay(input: LinkedInReplayInput): Promise<LinkedInReplayResult> {
+      if (input.confirm !== true) throw new Error('Replaying a LinkedIn write changes your account. Approve the exact action first.');
+      if (!isMessageSend(input.write, input.conversationId)) {
+        throw new Error('The recorded action is not a message send to this conversation; record the reply through the UI instead.');
+      }
+      const recorded = recordedSendText(input.write, input.conversationId);
+      const text = typeof input.text === 'string' ? input.text : recorded;
+      if (text === null) throw new Error('The recorded send carries no single text field to repeat; supply the text to send.');
+      const template = messageSendTemplate(input.write, input.conversationId, text);
+      const result = await deps.runLinkedInWrite(replayWriteExpression(template)) as { ok?: unknown; status?: unknown; body?: unknown };
+      return { ok: result?.ok === true, status: Number(result?.status) || 0, body: result?.body ?? null };
     },
 
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {

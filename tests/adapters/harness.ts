@@ -9,6 +9,7 @@ import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
 import type { Account, Adapter } from '../../src/adapters/types.ts';
+import { clearRecordedWritesExpression, recordedWritesExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
@@ -123,6 +124,17 @@ export function harness(options: HarnessOptions = {}): Harness {
         calls.push(`imsg:${method}`);
         return method === 'messages.history' && options.imsgHistory ? options.imsgHistory(params) : imsgResponse(method, params);
       },
+    },
+    runLinkedInWrite: async expression => {
+      // Compare against the builders so the stub cannot mistake one expression for another.
+      const kind = expression === writeRecorderExpression() ? 'arm'
+        : expression === recordedWritesExpression() ? 'writes'
+          : expression === clearRecordedWritesExpression() ? 'clear'
+            : 'replay';
+      calls.push(`linkedin:write:${kind}`);
+      if (kind === 'writes' || kind === 'clear') return { writes: [] };
+      if (kind === 'replay') return { ok: true, status: 200, body: null };
+      return { installed: true, recording: true };
     },
     probeLinkedIn: async () => {
       calls.push('linkedin:probe');

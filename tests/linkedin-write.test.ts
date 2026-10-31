@@ -7,7 +7,7 @@ import {
   messageSendTemplate,
   recordedWritesExpression,
   replayWriteExpression,
-  writeRecorderExpression,
+  recordedSendText, writeRecorderExpression,
   type RecordedWrite,
 } from '../src/linkedin-write.ts';
 
@@ -255,4 +255,13 @@ test('nothing keeps a cookie, a csrf token, or a set-cookie value', async () => 
   assert.doesNotMatch(JSON.stringify(recorded), /session-token|csrf-token|set-cookie|JSESSIONID|cookie/i);
   // The recorder reads the request line only; it never touches the cookie store or the headers.
   assert.doesNotMatch(writeRecorderExpression() + recordedWritesExpression(), /document\.cookie|headers|set-cookie|csrf-token/i);
+});
+
+test('the recorded text comes back only from a single text field that names this conversation', () => {
+  const write = (body: unknown) => ({ method: 'POST', url: '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages', body: JSON.stringify(body), capturedAt: 1 });
+  assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc', message: { text: 'See you soon' } } }), 'urn:li:msg_conversation:2-abc'), 'See you soon');
+  // A different conversation, no text field, or two of them: no repeat, so the caller must supply one.
+  assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc', message: { text: 'x' } } }), 'urn:li:msg_conversation:2-zzz'), null);
+  assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc' } }), 'urn:li:msg_conversation:2-abc'), null);
+  assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc', a: { text: 'x' }, b: { text: 'y' } } }), 'urn:li:msg_conversation:2-abc'), null);
 });

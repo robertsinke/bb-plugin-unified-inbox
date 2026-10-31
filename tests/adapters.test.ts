@@ -12,6 +12,7 @@ import { createRegistry, registryCapabilities } from '../src/adapters/index.ts';
 import { toProviderError } from '../src/adapters/provider-error.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { RegistryDeps } from '../src/adapters/deps.ts';
+import { clearRecordedWritesExpression, recordedWritesExpression, writeRecorderExpression } from '../src/linkedin-write.ts';
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
 const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
@@ -81,6 +82,17 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       runtime: async () => { calls.push('whatsapp:runtime'); throw new Error('WhatsAgent loopback is not running in this test.'); },
     },
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
+    runLinkedInWrite: async expression => {
+      // Compare against the builders so the stub cannot mistake one expression for another.
+      const kind = expression === writeRecorderExpression() ? 'arm'
+        : expression === recordedWritesExpression() ? 'writes'
+          : expression === clearRecordedWritesExpression() ? 'clear'
+            : 'replay';
+      calls.push(`linkedin:write:${kind}`);
+      if (kind === 'writes' || kind === 'clear') return { writes: [] };
+      if (kind === 'replay') return { ok: true, status: 200, body: null };
+      return { installed: true, recording: true };
+    },
     probeLinkedIn: async mailbox => {
       calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');
       return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0, mailboxUrn: LINKEDIN_MAILBOX };
@@ -265,4 +277,31 @@ test('a skipping refresh still hands over the mailbox it learned', async () => {
   assert.deepEqual(f.calls, [`linkedin:probe@${LINKEDIN_MAILBOX}`]);
   assert.equal(skipped.reason, 'skip');
   assert.equal((await import('../src/linkedin-delta.ts')).linkedinMarkerMailbox(f.cache.cursor('linkedin')), LINKEDIN_MAILBOX);
+});
+
+test('the recorder arms, dumps, and refuses to replay without approval', async () => {
+  const f = fixture();
+  const adapter = f.registry.linkedin;
+
+  assert.deepEqual(await adapter.record!('arm'), { installed: true, recording: true });
+  assert.deepEqual(await adapter.record!('dump'), { writes: [] });
+
+  // A recorded write of a message send: the only shape replay accepts.
+  const write = {
+    method: 'POST',
+    url: '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages',
+    body: JSON.stringify({ queryId: 'messengerMessages', variables: { conversationUrn: LINKEDIN_ID, message: { text: 'See you soon' } } }),
+    capturedAt: 1_700_000_000_000,
+  };
+
+  await assert.rejects(adapter.replay!({ write, conversationId: LINKEDIN_ID, text: 'Hi' }), /Approve the exact action first/);
+  await assert.rejects(
+    adapter.replay!({ write, conversationId: 'urn:li:msg_conversation:somebody-else', text: 'Hi', confirm: true }),
+    /not a message send to this conversation/,
+  );
+
+  f.calls.length = 0;
+  const sent = await adapter.replay!({ write, conversationId: LINKEDIN_ID, text: 'Hi there', confirm: true });
+  assert.deepEqual(sent, { ok: true, status: 200, body: null });
+  assert.deepEqual(f.calls, ['linkedin:write:replay']);
 });

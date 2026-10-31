@@ -218,6 +218,40 @@ export interface OpenResult {
 }
 
 /** Mirrors the rpcContract `linkedin_sync` output. */
+export type LinkedInRecordOp = 'arm' | 'clear' | 'dump';
+
+/** One observed write, exactly as the page made it. No headers, no cookies, no tokens. */
+export interface RecordedWrite {
+  method: string;
+  url: string;
+  body: string;
+  capturedAt: number;
+}
+
+export interface LinkedInRecordResult {
+  /** Present for `arm`: whether the page installed the wrapper. */
+  installed?: boolean;
+  /** Present for `arm`: whether the recorder is watching. */
+  recording?: boolean;
+  /** Present for `dump`: what the recorder has seen, newest last. */
+  writes?: RecordedWrite[];
+}
+
+export interface LinkedInReplayInput {
+  write: RecordedWrite;
+  conversationId: string;
+  /** Replacement text; omitted replays the recorded text unchanged. */
+  text?: string;
+  /** Explicit approval for this one send. Without it, replay refuses. */
+  confirm?: boolean;
+}
+
+export interface LinkedInReplayResult {
+  ok: boolean;
+  status: number;
+  body: unknown;
+}
+
 export interface SyncResult {
   items: Conversation[];
   updatedAt: number;
@@ -260,6 +294,16 @@ export interface Adapter {
 
   /** LinkedIn's live read, behind `linkedin_sync`; `list` answers from the cache. */
   sync?(): Promise<SyncResult>;
+  /**
+   * Arm, clear, or dump the in-page write recorder (slice D). Arming watches
+   * `window.fetch`; nothing is sent by these calls.
+   */
+  record?(op: LinkedInRecordOp): Promise<LinkedInRecordResult>;
+  /**
+   * Re-issue one recorded write. It refuses anything that is not a message send
+   * to the named conversation, and refuses to run without explicit approval.
+   */
+  replay?(input: LinkedInReplayInput): Promise<LinkedInReplayResult>;
   /** Gmail attachment by message id and filename, behind `attachment` (T9 → `media`). */
   gmailAttachment?(gmailId: string, filename: string): Promise<AttachmentPayload>;
   /** Messages attachment by (chat, message, index), behind `imsg_media` (T9 → `media`). */
