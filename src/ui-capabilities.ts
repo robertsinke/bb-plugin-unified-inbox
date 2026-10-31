@@ -18,11 +18,11 @@ function declared(capabilities: CapabilityMap | null, account: Account): Capabil
 }
 
 /**
- * A box to write a reply into. `send` is the source's own ability to send; Gmail
- * declares it too, for the mail draft form, and its inline chat composer never
- * appears because mail conversations do not render in the chat layout.
+ * Whether the box may send. Drafting does not need this — a draft is kept on this
+ * machine for every source — so a source without `send` still gets the box, and
+ * only the send control disappears.
  */
-export function canCompose(capabilities: CapabilityMap | null, account: Account): boolean {
+export function canSend(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).send;
 }
 
