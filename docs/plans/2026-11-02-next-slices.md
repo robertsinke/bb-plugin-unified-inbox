@@ -37,6 +37,10 @@ Messages, not an omission).
 Acceptance: validation refuses a non-chat id before the backend, an unconfirmed
 send never reports success, and nothing else is enabled.
 
+Verified live: one message sent to the Poke bot chat (id 50), reported `Sent.`,
+and the follow-up read of that conversation shows it as an outgoing row. The
+send to a person remains the owner's decision each time.
+
 ## Slice B — The toolbox and its adapters
 
 1. Registry: `Account → Adapter` (`src/adapters/index.ts`), each adapter exposing
