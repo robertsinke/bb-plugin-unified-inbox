@@ -48,7 +48,7 @@ export const rpcContract = defineRpcContract({
   linkedin_ui: { input: z.object({
     op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press']),
     path: z.string().max(512).optional(),
-    index: z.number().int().min(0).max(199).optional(),
+    index: z.number().int().min(0).max(599).optional(),
     text: z.string().max(20_000).optional(),
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
