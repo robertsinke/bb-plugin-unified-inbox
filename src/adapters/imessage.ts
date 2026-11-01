@@ -8,7 +8,7 @@ import { sendImsgText } from '../imsg-send.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
-  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, Message, OpenOptions, OpenResult,
+  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, Message, OpenOptions, OpenResult, SyncResult,
 } from './types.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true };
@@ -22,13 +22,22 @@ export function createIMessageAdapter(deps: RegistryDeps): Adapter {
     return deps.imsg.request('messages.history', { chat_id: imsgChatId(id), limit: 60, attachments: true });
   }
 
+  /** The live Messages list, saved to the cache as it is read. */
+  async function liveList(limit?: number): Promise<Conversation[]> {
+    const items = mapImsgChats(await deps.imsg.request('chats.list', { limit: limit ?? 20 })) as Conversation[];
+    cache.save(ACCOUNT, items);
+    return items;
+  }
+
   return {
     capabilities: () => CAPABILITIES,
 
     async list(_cursor?: string, opts?: OpenOptions): Promise<ListResult> {
-      const items = mapImsgChats(await deps.imsg.request('chats.list', { limit: opts?.limit ?? 20 })) as Conversation[];
-      cache.save(ACCOUNT, items);
-      return { items, errors: [] };
+      return { items: await liveList(opts?.limit), errors: [] };
+    },
+
+    async sync(opts?: OpenOptions): Promise<SyncResult> {
+      return { items: await liveList(opts?.limit), updatedAt: Date.now() };
     },
 
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {

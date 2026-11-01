@@ -1,5 +1,5 @@
 // LinkedIn adapter (Migration state 3). It owns the LinkedIn shapes: the live
-// read behind `linkedin_sync`, the conversation open with its cache fallback,
+// read behind `sync`, the conversation open with its cache fallback,
 // the media answer for a photo or a shared post, and the reply and the read mark, each replayed
 // from the requests the page itself sent for the same actions. An invitation answer
 // and an archive still need their own recorded actions, so they stay refused.
@@ -211,7 +211,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
      * lookups, so an unchanged inbox keeps its cached rows instead. A probe that cannot
      * run is not a change — it falls back to reading, never to skipping.
      */
-    async sync(force?: boolean): Promise<SyncResult> {
+    async sync(_opts?: OpenOptions): Promise<SyncResult> {
       const cached = (): Conversation[] => cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
       const stored = cache.cursor(ACCOUNT);
       let payload: LinkedInProbePayload | null = null;
@@ -220,7 +220,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         payload = await deps.linkedInPage.probe(linkedinMarkerMailbox(stored));
         probe = linkedinProbe(payload);
       } catch { probe = null; }
-      const decision = linkedinDelta({ stored, probe, force });
+      const decision = linkedinDelta({ stored, probe });
       if (decision.action === 'skip' && cached().length) {
         // The probe just proved the rows are current, so it may also hand over the mailbox it
         // learned: a refresh that skips must not leave the next one asking who it is again.
