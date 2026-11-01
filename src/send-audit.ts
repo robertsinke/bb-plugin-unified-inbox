@@ -20,14 +20,23 @@ export function createSendAudit(db: Database.Database) {
     account TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     decision TEXT NOT NULL,
+    approval_id TEXT,
     reason TEXT
   )`);
-  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, reason) VALUES (@at, @operation, @account, @conversationId, @decision, @reason)');
-  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, reason FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
+  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason)');
+  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
+  const spentRow = db.prepare("SELECT 1 FROM inbox_send_audit WHERE approval_id = ? AND decision = 'allowed' LIMIT 1");
   return {
     /** One row per attempted send. Never a body, never bytes. */
     record(row: AuditRow) {
-      insert.run({ ...row, reason: row.reason ?? null });
+      insert.run({ ...row, approvalId: row.approvalId ?? null, reason: row.reason ?? null });
+    },
+    /**
+     * Whether this approval was already spent, read from the rows themselves rather than
+     * from memory — so a plugin reload cannot revive an approval that already sent something.
+     */
+    hasSpent(approvalId: string): boolean {
+      return spentRow.get(approvalId) !== undefined;
     },
     /** The last `limit` attempts, newest first. */
     list(limit = 20): AuditRow[] {

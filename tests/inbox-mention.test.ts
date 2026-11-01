@@ -37,6 +37,22 @@ test('media-only messages keep a placeholder and gmail stays read-only', () => {
   assert.match(context, /cannot be sent from this plugin/);
 });
 
+test('the footer tells an agent what each source can actually do now', () => {
+  const messages = [{ sender: 'Ada', text: 'hi', date: 1_700_000_000_000 }];
+
+  const imessage = inboxMentionContext({ account: 'imessage', id: 'iMessage;-;+15551234567', title: 'Ada', messages });
+  assert.doesNotMatch(imessage, /not available/i, 'Messages sending shipped');
+  assert.match(imessage, /allow.*send/, 'and it says how: the same explicit send statement');
+
+  const linkedin = inboxMentionContext({ account: 'linkedin', id: 'urn:li:msg_conversation:(a,2-b)', title: 'Andrea', messages });
+  assert.doesNotMatch(linkedin, /read-only/i, 'LinkedIn sends now');
+  assert.match(linkedin, /record/i, 'a reply needs its recorded action first, and the footer says so');
+  assert.doesNotMatch(linkedin, /nothing can be sent/i);
+
+  const gmail = inboxMentionContext({ account: 'personal', id: '18f2c', title: 'Vendor', messages });
+  assert.match(gmail, /cannot be sent/i, 'Gmail stays off, and the footer still says so');
+});
+
 test('long threads stay inside the context budget', () => {
   const messages = Array.from({ length: 12 }, () => ({ sender: 'Alice', text: 'x'.repeat(400), date: 1_700_000_000_000 }));
   const context = inboxMentionContext({ account: 'whatsapp', id: 'abc', title: 'Alice', messages });

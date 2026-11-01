@@ -18,7 +18,11 @@ const T0 = 1_700_000_000_000;
 
 function gate() {
   const rows: AuditRow[] = [];
-  return { rows, send: createSendGate({ now: () => T0, audit: row => { rows.push(row as AuditRow); } }) };
+  const store = {
+    record(row: AuditRow) { rows.push(row); },
+    hasSpent() { return false; },
+  };
+  return { rows, send: createSendGate({ now: () => T0, store }) };
 }
 
 test('an unapproved send is refused, and the adapter is never reached', async () => {

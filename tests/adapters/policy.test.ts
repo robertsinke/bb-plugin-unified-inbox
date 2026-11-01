@@ -12,6 +12,8 @@ type AuditRow = {
   account: Account;
   conversationId: string;
   decision: 'allowed' | 'refused';
+  /** Which approval this attempt spent, so spend survives a reload. Never the text. */
+  approvalId?: string;
   reason?: string;
 };
 
@@ -19,9 +21,25 @@ const T0 = 1_700_000_000_000;
 const WHATSAPP_ID = '4797044099@s.whatsapp.net';
 const OTHER_ID = '4915112345678@s.whatsapp.net';
 
-function gate(now = T0) {
+/** The store the gate writes to and reads spend from — the plugin's table in production. */
+function memoryStore() {
   const rows: AuditRow[] = [];
-  return { rows, send: createSendGate({ now: () => now, audit: row => { rows.push(row as AuditRow); } }) };
+  const spent = new Set<string>();
+  return {
+    rows,
+    record(row: AuditRow) {
+      rows.push(row);
+      if (row.decision === 'allowed' && row.approvalId) spent.add(row.approvalId);
+    },
+    hasSpent(approvalId: string) {
+      return spent.has(approvalId);
+    },
+  };
+}
+
+function gate(now = T0) {
+  const store = memoryStore();
+  return { rows: store.rows, store, send: createSendGate({ now: () => now, store }) };
 }
 
 // The incident this rule exists for: three messages meant as notes went to the
@@ -102,8 +120,8 @@ test('an allowed send delivers once and its row carries no message', async () =>
   assert.equal(row.reason, undefined, 'an allowed send has nothing to explain');
   assert.deepEqual(
     Object.keys(row).sort(),
-    ['account', 'at', 'conversationId', 'decision', 'operation'],
-    'the row is the attempt: no field can carry a body or attachment bytes',
+    ['account', 'approvalId', 'at', 'conversationId', 'decision', 'operation'],
+    'the row is the attempt and the approval it spends: no field can carry a body or attachment bytes',
   );
   assert.ok(!JSON.stringify(rows).includes('party'), 'the audit never carries message text');
 });
@@ -228,4 +246,24 @@ test('a reply without allow: send is refused and audited, and with it delivers o
     globalThis.fetch = originalFetch;
     h.close();
   }
+});
+
+// A reload must not revive a spent approval. The gate reads spend from the store
+// it writes to, so a second gate built over the same store — what a plugin reload
+// is — sees the earlier spend and refuses the reuse.
+test('a spent approval stays spent across a reload', async () => {
+  const store = memoryStore();
+  const first = createSendGate({ now: () => T0, store });
+  const approval = { id: 'reload-1', conversationId: WHATSAPP_ID, issuedAt: T0 };
+  await first({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'hello' }, approval, async () => ({ status: 'Sent' }));
+
+  const second = createSendGate({ now: () => T0, store });
+  let delivered = 0;
+  await assert.rejects(
+    second({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'hello again' }, approval, async () => { delivered += 1; return { status: 'Sent' }; }),
+    /already been used/,
+    'the reloaded gate still knows the approval was spent',
+  );
+  assert.equal(delivered, 0);
+  assert.equal(store.rows.filter(row => row.decision === 'refused').length, 1, 'and records the refusal');
 });
