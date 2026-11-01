@@ -15,6 +15,15 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
+import {
+  LINKEDIN_TEXT_LIMIT,
+  controlRectExpression,
+  focusControlExpression,
+  isSendControl,
+  linkedInPath,
+  pageControlsExpression,
+  type PageControl,
+} from './linkedin-ui.ts';
 import { createAsyncGate } from './async-gate.ts';
 
 /** The signed-in profile is reused by every read; the gate keeps two browser starts apart. */
@@ -22,6 +31,7 @@ const gate = createAsyncGate();
 const START_URL = 'https://www.linkedin.com/feed/';
 const START_TIMEOUT = 20_000;
 const READ_TIMEOUT = 60_000;
+const NAVIGATE_TIMEOUT = 30_000;
 const SIGN_IN_HINT = 'Run `bb unified-inbox linkedin-signin` to sign in to LinkedIn once.';
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
 
@@ -226,29 +236,132 @@ export async function readLinkedInInChrome(read: LinkedInRead): Promise<unknown>
   return linkedinReadResult(await evaluateInLinkedInProfile(linkedinPageExpression(read)));
 }
 
-/** Evaluates one expression in a signed-in LinkedIn page of the plugin's own profile. */
-export async function evaluateInLinkedInProfile(expression: string): Promise<unknown> {
+/**
+ * Runs one sequence against the warm page while holding the gate, so a lookup and the input that
+ * follows it see the same page. A failure drops the browser: a page that failed mid-action is not
+ * trusted for the next one.
+ */
+async function withLinkedInPage<T>(run: (page: Page) => Promise<T>): Promise<T> {
   return gate(async () => {
     const page = await warmPage();
     keepWarm();
     try {
-      const evaluated = await withTimeout(
-        page.client.send<{ result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: unknown } } }>(
-          'Runtime.evaluate',
-          { expression, awaitPromise: true, returnByValue: true },
-          page.sessionId,
-        ),
-        READ_TIMEOUT,
-        'LinkedIn did not answer in time.',
-      );
-      const description = evaluated.exceptionDetails?.exception?.description;
-      if (typeof description === 'string') throw new Error(`LinkedIn read failed in the browser: ${description.split('\n')[0].slice(0, 200)}`);
-      return evaluated.result?.value;
+      return await run(page);
     } catch (error) {
-      // A page that failed mid-read is not trusted for the next one.
       await stopLinkedInBrowser();
       throw error;
     }
+  });
+}
+
+async function evaluate(page: Page, expression: string): Promise<unknown> {
+  const evaluated = await withTimeout(
+    page.client.send<{ result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: unknown } } }>(
+      'Runtime.evaluate',
+      { expression, awaitPromise: true, returnByValue: true },
+      page.sessionId,
+    ),
+    READ_TIMEOUT,
+    'LinkedIn did not answer in time.',
+  );
+  const description = evaluated.exceptionDetails?.exception?.description;
+  if (typeof description === 'string') throw new Error(`LinkedIn failed in the browser: ${description.split('\n')[0].slice(0, 200)}`);
+  return evaluated.result?.value;
+}
+
+/** Evaluates one expression in a signed-in LinkedIn page of the plugin's own profile. */
+export async function evaluateInLinkedInProfile(expression: string): Promise<unknown> {
+  return withLinkedInPage(page => evaluate(page, expression));
+}
+
+/** Moves the plugin's LinkedIn tab to one allowlisted path. A refused path throws before navigating. */
+export async function openInLinkedInProfile(path: string): Promise<void> {
+  const target = linkedInPath(path);
+  if (!target) throw new Error(`Not a LinkedIn path this plugin will open: ${typeof path === 'string' ? path.slice(0, 120) : String(path)}`);
+  await withLinkedInPage(async page => {
+    const loaded = waitForLoad(page.client, page.sessionId);
+    await page.client.send('Page.navigate', { url: `https://www.linkedin.com${target}` }, page.sessionId);
+    await withTimeout(loaded, NAVIGATE_TIMEOUT, 'LinkedIn did not load that page in time.');
+  });
+}
+
+/** What a person could act on in the open page, in document order. */
+export async function inspectLinkedInPage(): Promise<PageControl[]> {
+  const controls = await evaluateInLinkedInProfile(pageControlsExpression());
+  if (!Array.isArray(controls)) throw new Error('LinkedIn did not return a list of usable controls.');
+  return controls as PageControl[];
+}
+
+/**
+ * Clicks the control at `index` with trusted mouse input. A control that sends, accepts, connects,
+ * or publishes is refused — before a single event is dispatched — unless the caller passes
+ * `{ allow: 'send' }`, because that click changes real state on the owner's LinkedIn account.
+ */
+export async function clickInLinkedInPage(
+  index: number,
+  approval?: { allow: 'send' },
+): Promise<{ clicked: boolean; control?: PageControl; reason?: string }> {
+  // Built before the page opens, so a bad index never starts a browser.
+  const expression = controlRectExpression(index);
+  return withLinkedInPage(async page => {
+    const found = await evaluate(page, expression);
+    if (typeof found === 'string') return { clicked: false, reason: found };
+    const control = found as PageControl | null | undefined;
+    if (!control || typeof control !== 'object') return { clicked: false, reason: 'LinkedIn did not answer with that control.' };
+    if (isSendControl(control) && approval?.allow !== 'send') {
+      return { clicked: false, control, reason: `"${control.name}" sends to LinkedIn; pass { allow: 'send' } to approve this one click.` };
+    }
+    const x = Math.round(control.x + control.width / 2);
+    const y = Math.round(control.y + control.height / 2);
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
+      await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
+    }
+    return { clicked: true, control };
+  });
+}
+
+/**
+ * Focuses the control at `index` and inserts `text` as trusted input. `el.value = …` and
+ * `textContent = …` are ignored by Lexical and React, so the text has to arrive as a real editing
+ * command.
+ */
+export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; reason?: string }> {
+  if (typeof text !== 'string') throw new Error('LinkedIn typing needs the text to type.');
+  const expression = focusControlExpression(index);
+  const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
+  return withLinkedInPage(async page => {
+    const focused = (await evaluate(page, expression)) as { focused?: unknown; reason?: unknown } | null;
+    if (!focused || typeof focused !== 'object' || focused.focused !== true) {
+      return { typed: false, reason: typeof focused?.reason === 'string' ? focused.reason : 'LinkedIn did not focus that control.' };
+    }
+    if (typed) await page.client.send('Input.insertText', { text: typed }, page.sessionId);
+    return { typed: true };
+  });
+}
+
+/**
+ * The keys a caller may press. `char` is the step that inserts a character, and only Enter carries
+ * one; Tab, Escape, Backspace and ArrowDown take their default action from the raw key down alone.
+ */
+const PRESSABLE_KEYS: Record<string, { code: string; keyCode: number; text?: string }> = {
+  Enter: { code: 'Enter', keyCode: 13, text: '\r' },
+  Escape: { code: 'Escape', keyCode: 27 },
+  Tab: { code: 'Tab', keyCode: 9 },
+  Backspace: { code: 'Backspace', keyCode: 8 },
+  ArrowDown: { code: 'ArrowDown', keyCode: 40 },
+};
+
+/** Presses one key in the page, from a short allowlist. Anything else throws before touching it. */
+export async function pressKeyInLinkedInPage(key: string): Promise<void> {
+  const mapped = typeof key === 'string' ? PRESSABLE_KEYS[key] : undefined;
+  if (!mapped) throw new Error(`LinkedIn accepts only ${Object.keys(PRESSABLE_KEYS).join(', ')} here; got ${String(key)}.`);
+  await withLinkedInPage(async page => {
+    const base = { key, code: mapped.code, windowsVirtualKeyCode: mapped.keyCode, nativeVirtualKeyCode: mapped.keyCode };
+    await page.client.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base }, page.sessionId);
+    if (mapped.text !== undefined) {
+      await page.client.send('Input.dispatchKeyEvent', { type: 'char', ...base, text: mapped.text, unmodifiedText: mapped.text }, page.sessionId);
+    }
+    await page.client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, page.sessionId);
   });
 }
 
