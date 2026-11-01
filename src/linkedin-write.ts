@@ -197,6 +197,62 @@ function writeMethod(value: unknown): string | null {
  * same way the reads do it — so nothing from the recording's own session is reused. A non-2xx
  * answer is reported, not thrown: the caller decides whether the effect landed.
  */
+/** Decodes a urn that arrived percent-encoded in a query string, leaving one that did not untouched. */
+function decodedUrn(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/** True when two conversation ids name the same conversation, however they were encoded. */
+export function sameConversationUrn(left: unknown, right: unknown): boolean {
+  if (typeof left !== 'string' || typeof right !== 'string') return false;
+  return decodedUrn(left).trim() === decodedUrn(right).trim();
+}
+
+/**
+ * The conversation a recorded mark-read addresses, or null when the write is not that shape.
+ *
+ * Marking read turned out not to be a GraphQL mutation at all: LinkedIn patches one entity —
+ * `{ entities: { <urn>: { patch: { $set: { read: true } } } } }` — at
+ * `/voyager/api/voyagerMessagingDashMessengerConversations?ids=List(<urn>)`. The recogniser accepts
+ * exactly that and nothing looser, so a request that would change anything else is refused rather
+ * than replayed.
+ */
+export function markReadTarget(write: RecordedWrite): string | null {
+  if (!write || typeof write.method !== 'string' || write.method.toUpperCase() !== 'POST') return null;
+  if (typeof write.url !== 'string' || typeof write.body !== 'string') return null;
+  const query = write.url.indexOf('?');
+  if (query < 0) return null;
+  if (write.url.slice(0, query) !== '/voyager/api/voyagerMessagingDashMessengerConversations') return null;
+  const ids = new URLSearchParams(write.url.slice(query + 1)).get('ids') ?? '';
+  const listed = /^List\((.+)\)$/.exec(ids);
+  if (!listed) return null;
+  // The urn is compared, never interpolated — the replay re-sends the recorded url and body — so it
+  // is checked for being a conversation id, not for a shape this code would build.
+  const urn = decodedUrn(listed[1]);
+  if (!isConversationUrn(urn)) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(write.body);
+  } catch {
+    return null;
+  }
+  const entities = (body as { entities?: unknown })?.entities;
+  if (!entities || typeof entities !== 'object' || Array.isArray(entities)) return null;
+  const keys = Object.keys(entities);
+  if (keys.length !== 1 || !sameConversationUrn(keys[0], urn)) return null;
+  const patch = (entities as Record<string, { patch?: unknown }>)[keys[0]]?.patch;
+  if (!patch || typeof patch !== 'object') return null;
+  const set = (patch as { $set?: unknown }).$set;
+  if (!set || typeof set !== 'object') return null;
+  const changed = Object.keys(set);
+  if (changed.length !== 1 || changed[0] !== 'read') return null;
+  return (set as Record<string, unknown>).read === true ? urn : null;
+}
+
 export function replayWriteExpression(write: RecordedWrite): string {
   const method = writeMethod(write?.method);
   if (!method) throw new Error(`A recorded write must be one of ${WRITE_METHODS.join(', ')}; got ${String(write?.method)}.`);
