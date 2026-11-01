@@ -279,6 +279,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   // debounce and draft write. A hidden panel ticks nothing, so a draft still inside
   // its debounce is written when the panel hides or goes away instead.
   useEffect(()=>{
+    session.start();
     const timer=window.setInterval(()=>{if(document.visibilityState==='visible')void session.tick(Date.now());},1000);
     const flushDrafts=()=>session.flush();
     const flushOnHide=()=>{if(document.visibilityState==='hidden')flushDrafts();};
