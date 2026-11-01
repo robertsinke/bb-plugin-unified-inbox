@@ -115,5 +115,40 @@ conversation against that key, read down from either form.
 ## What is still uncaptured
 
 One real write has been recorded and read back (a deliberate 404 probe), which proves the path.
-What is still uncaptured: an invitation accept or ignore. That is the last LinkedIn write without a
-recorded shape, so the invitation chip reports and does not act.
+## Invitation ignore: an RSC action, not voyager
+
+Captured 2026-11-02 by clicking "Ignore an invitation to connect from Grace Hopper" on
+`/mynetwork/`, approved by name through the page driver. The page confirmed: "Invitation ignored —
+I don't know Grace."
+
+```
+POST /flagship-web/rsc-action/actions/server-request
+     ?sduiid=com.linkedin.sdui.requests.mynetwork.addaInvitationAction&parentSpanId=<tracing>
+{ "requestId": "com.linkedin.sdui.requests.mynetwork.addaInvitationAction",
+  "serverRequest": { "requestedArguments": { "payload": {
+      "inviteeActionType": "InviteeActionType_IGNORE",
+      "invitationType": "GenericInvitationType_CONNECTION",
+      "invitationUrn": { "invitationId": "<numeric id>" },
+      "validationToken": "<per-invitation token from the invitations payload>",
+      "origin": "InvitationOrigin_INVITATION_PREVIEW",
+      "restoreOnServerFailure": false,
+      "postActionSentConfigs": [],
+      "profileUrn": { "profileId": "<the inviter's profile>" } } } } }
+```
+
+What the capture taught:
+
+- LinkedIn's writes are not all under `/voyager/api/`; the invitation actions go through the
+  server-driven-UI action endpoint. The recorder's boundary is now the origin, not a path prefix —
+  an earlier accept was lost to exactly that assumption (the counters said 22 path-skips and the
+  click had visibly worked).
+- `validationToken` is per-invitation, so an adapter action cannot synthesize this request from the
+  id alone: the read path must keep what the invitations payload carries, or the action must replay
+  a recorded request — which only reaches the one invitation that was recorded. The honest wiring
+  is the read carrying the token; that design is still open.
+- `parentSpanId` is tracing noise; `onClientRequestFailureAction` is the client's own failure toast.
+- The accept is the same endpoint family with a different `inviteeActionType` — presumed, not
+  recorded. The accept capture still needs its own real click on a pending invitation.
+
+What is still uncaptured: an invitation accept. Once recorded, that is the last LinkedIn write
+without a shape; the invitation chip reports and does not act until its wiring is designed.
