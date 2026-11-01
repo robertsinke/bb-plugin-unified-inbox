@@ -12,6 +12,7 @@ import {
   findControlExpression,
   recipientsExpression,
   describeControlExpression,
+  invitationTargetOf,
   samePersonName,
   sendApprovalDecision,
   threadKeyExpression,
@@ -282,4 +283,26 @@ test('a send is approved only for a target the page confirms', () => {
   const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadKey: key });
   assert.equal(refused.ok, false);
   if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send' \}/);
+});
+
+test('an invitation button is recognised from its own label, typographic apostrophe included', () => {
+  // LinkedIn puts the person inside the label, so the exact-word send pattern cannot see these
+  // buttons; this recogniser is what gates them.
+  assert.deepEqual(invitationTargetOf('Accept Alan Turing’s invitation'), { action: 'accept', person: 'Alan Turing' });
+  assert.deepEqual(invitationTargetOf('Ignore an invitation to connect from Grace Hopper'), { action: 'ignore', person: 'Grace Hopper' });
+  assert.deepEqual(invitationTargetOf('Invite Stian Mundal to connect'), { action: 'invite', person: 'Stian Mundal' });
+  assert.equal(invitationTargetOf('Accept'), null);
+  assert.equal(invitationTargetOf('Send'), null);
+  assert.equal(invitationTargetOf('Compliments Alan’s profile'), null);
+  assert.equal(invitationTargetOf(null), null);
+
+  // And the gate: the approval must name the same person the button does.
+  const approval: SendApproval = { allow: 'send', invitation: 'Alan Turing' };
+  assert.deepEqual(sendApprovalDecision(approval, 'Accept Alan Turing’s invitation', { recipients: [], threadKey: '' }), { ok: true, recipient: 'Alan Turing' });
+  const wrong = sendApprovalDecision({ allow: 'send', invitation: 'Grace Hopper' }, 'Accept Alan Turing’s invitation', { recipients: [], threadKey: '' });
+  assert.equal(wrong.ok, false);
+  if (!wrong.ok) assert.match(wrong.reason, /accepts Alan Turing's invitation; the approval names Grace Hopper/);
+  const unnamed = sendApprovalDecision({ allow: 'send' }, 'Ignore an invitation to connect from Grace Hopper', { recipients: [], threadKey: '' });
+  assert.equal(unnamed.ok, false);
+  if (!unnamed.ok) assert.match(unnamed.reason, /approval names nobody/);
 });

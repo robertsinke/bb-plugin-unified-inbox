@@ -18,6 +18,7 @@ import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
   findControlExpression,
+  invitationTargetOf,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
@@ -395,7 +396,9 @@ export async function clickNamedControl(
   role?: string,
   approval?: SendApproval,
 ): Promise<{ clicked: boolean; name?: string; reason?: string; recipients?: string[] }> {
-  const sending = isSendControl({ index: 0, role: role ?? 'button', name, tag: 'button', x: 0, y: 0, width: 0, height: 0, focused: false });
+  // An invitation button answers or makes a connection, so it is gated even though its label names
+  // a person rather than the action — LinkedIn's send pattern cannot see it.
+  const sending = isSendControl({ index: 0, role: role ?? 'button', name, tag: 'button', x: 0, y: 0, width: 0, height: 0, focused: false }) || invitationTargetOf(name) !== null;
   if (sending) {
     // What the page says about the addressee: chips in a compose box, the open thread's own urn
     // in a reply. The policy decision is one pure function, so it is tested without a browser.
