@@ -59,7 +59,9 @@
 /* The bar lives inside the list it heads, so it shares that list's insets, its width and its
    scrollbar. Laid out as a row: the filter takes the avatar's column, the search takes the copy's,
    and the menu takes the reserved space the rows keep for theirs. */
-.ui-mail-bar{display:flex;align-items:center;gap:9px;box-sizing:border-box;position:sticky;top:0;z-index:5;height:45px;margin:0 4px;padding:0 44px 0 4px;background:var(--background,#fff);border-bottom:1px solid color-mix(in srgb, currentColor 16%, transparent);flex:none;min-width:0}
+/* Full bleed, no rule under it: the bar is a surface, not a boxed strip. Its columns still sit
+   where the rows put theirs, so the search and the menu line up with the labels and dots below. */
+.ui-mail-bar{display:flex;align-items:center;gap:9px;box-sizing:border-box;position:sticky;top:0;z-index:5;height:45px;margin:0;padding:0 48px 0 8px;background:var(--background,#fff);flex:none;min-width:0}
 .ui-mail-bar>button{flex:none;height:32px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px}
 .ui-mail-bar>button[aria-pressed=true]{background:color-mix(in srgb, currentColor 12%, transparent)}
 .ui-mail-bar .ui-icon-button{width:32px;padding:0}
@@ -68,7 +70,7 @@
    to this same column, minus the control and gap it sits behind, so the two are one number apart
    and cannot drift. */
 /* Only the bar's trailing menu leaves the flow, to sit where a row keeps its own. */
-.ui-mail-bar>.ui-menu:last-child{position:absolute;right:4px;top:50%;transform:translateY(-50%)}
+.ui-mail-bar>.ui-menu:last-child{position:absolute;right:8px;top:50%;transform:translateY(-50%)}
 /* The search begins where a row's copy begins: its own padding is only the room the clear
    button needs, because the column is already set by the bar's filter control and gap. */
 .ui-search{flex:1;min-width:0;height:28px;margin:0;padding:0 24px 0 0;border:0;background:transparent;color:inherit;font:inherit;font-size:13px}
@@ -99,7 +101,9 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-row-side{position:absolute;top:4px;right:4px;display:flex;align-items:center;justify-content:flex-end}
 .ui-row-actions{display:flex;align-items:center;gap:2px}
 .ui-list>.ui-empty{margin:0;padding:24px 16px;text-align:center}
-.ui-conversation-header{min-width:0;overflow:hidden}
+/* No overflow:hidden: the header's own menu hangs below its box, and clipping the header would
+   hide the actions it opens. The title truncates on its own. */
+.ui-conversation-header{min-width:0}
 .ui-inbox-detail .ui-conversation-header>.ui-avatar{flex:none}
 .ui-conversation-title{min-width:0;flex:1 1 0%}
 .ui-conversation-title h3{display:block;width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
