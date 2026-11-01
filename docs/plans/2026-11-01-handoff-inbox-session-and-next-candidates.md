@@ -35,9 +35,14 @@ WhatsApp thread ("DFS e.V. Mitglieder", 10 bubbles) pins the scroller exactly
 (`scrollHeight 1951 − scrollTop 1563 − clientHeight 388 = 0`); composer present and empty;
 `back()` returns to the list. `capabilities` and `list` RPCs answer 131 rows / 0 errors.
 
-**Not verified:** the double-mount single-heartbeat claim. The singleton and a `tick`
-idempotence test exist, but nobody has counted `list_source` calls with both the nav panel
-and the tab open.
+**Heartbeat, now measured.** `listDue` is 8 s for WhatsApp and Messages, 45 s for the two
+Gmails, LinkedIn excluded — 17.7 `list_source` calls/min for one heartbeat. Against the plugin's
+own `handlerStats.count`: a quiet minute with no panel of mine added **+54** (the owner's own
+window), and adding exactly one mounted panel added **+18** in 62 s. One round per due time, as
+designed. A second mount could not be forced in this BB build — `⌘J` reuses the same surface, so
+`document.querySelectorAll('.ui-inbox').length` stayed 1. The two-mount case rests on the
+structure instead: `listDue` and `lastTick` are session state, so a second reader sees re-armed
+due times and cannot add a round (pinned by the "two subscribers" test).
 
 ## The architecture review, and what is left of it
 
@@ -76,12 +81,20 @@ transport breaks the registry seam by name: `server.ts` calls
 asymmetry as a known gap. Deepening: one `MediaRequest` (`{account, messageId, index,
 filename?}`), one adapter method, one RPC.
 
-### Candidate 4 (Worth exploring) — declare a capability once
+### Candidate 4 (done) — one list names the capabilities
 
 Adding `threads` and `followsList` touched 19 files: the `Capabilities` interface, four
 adapter literals, the zod map in `server.ts`, `UNKNOWN` in `src/ui-capabilities.ts`, and
-seven test literals. Deepening: `CAPABILITY_KEYS` as the one list; the type, the zod schema,
-`UNKNOWN` and the test fixture derive from it.
+seven test literals. **Done** (`029f8ac`, 238 tests): `src/adapters/capability.ts` exports `CAPABILITY_KEYS`,
+`CapabilityKey`, `NO_CAPABILITIES` (derived, all false) and `capabilitiesSchema`
+(`z.strictObject` built from the same list). `Capabilities` is keyed by `CapabilityKey`,
+`ui-capabilities.ts` uses `NO_CAPABILITIES`, and `server.ts` validates the `capabilities` output
+with `z.record(account, capabilitiesSchema)` — so an invented capability is now refused instead
+of silently stripped. Proven by appending a ninth key and watching tsc fail exactly in the four
+adapter literals and the two test fixtures, and nowhere in the derived places.
+
+Left for later: the per-adapter `assert.deepEqual(capabilities(), {...})` literals are untyped,
+so a ninth key fails them at runtime rather than at build. Cheap to tighten.
 
 ### Candidate 5 (Speculative) — one refresh primitive
 
@@ -135,7 +148,13 @@ on purpose and both are committed off `main`, so `main` stays green.
   fallback derived from it, every adapter declaring every key, and a `capabilitiesSchema`
   built from the same list that refuses a missing or invented capability. No implementer yet.
 
-Only candidate 4 is unclaimed now.
+**Candidate "write seam"** — `bb/seal-the-linkedin-write-seam`, commit `205a77d`,
+`tests/linkedin-write-session.test.ts`. Four tests requiring
+`createLinkedInPageSession(evaluate).replay(write)` — the write half of the same module — so
+`server.ts` stops injecting the raw evaluator as `runLinkedInWrite` and the adapter stops casting
+`unknown` to `{ok?, status?}`. The fault it forbids: a page answering `true`, `null`, `{}` or
+`{ok:'yes'}` currently reads as "not accepted (status 0)", a confident wrong reason for a fault
+that is not a refusal. No implementer yet.
 
 ## Suggested first move
 
