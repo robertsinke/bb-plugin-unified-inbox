@@ -127,14 +127,20 @@ account is unacceptable:
 
 Actions and their risk:
 
-| Action | Effect on the account | Gate |
-|---|---|---|
-| reply | Sends a real LinkedIn message | Explicit owner approval per send, first one verified by hand |
-| accept / ignore invitation | Irreversible relationship state | Owner picks the invitation; never automatic |
-| mark read | Clears an unread badge | Cheap, but still a write: needs its own opt-in |
+| Action | Effect on the account | Gate | Status |
+|---|---|---|---|
+| reply | Sends a real LinkedIn message | The composer is the owner's own action, like Messages; a failed send reports uncertainty and never retries | Done: captured from a real reply, builder byte-for-byte against the capture, composer wired |
+| accept / ignore invitation | Irreversible relationship state | Owner picks the invitation; never automatic | Open: no recorded shape yet |
+| mark read | Clears an unread badge | The one cheap write; reversible | Done: captured, built, verified live both directions |
 
 Acceptance: one real action of each kind, verified against LinkedIn's own UI,
-with the recorded request documented in `docs/research/linkedin/`.
+with the recorded request documented in `docs/research/linkedin/`. Reply and mark
+read are documented there; the send guard for *driver-initiated* clicks additionally
+requires an allowlisted recipient and a conversation the page itself confirms.
+
+What the capture taught that no plan survives: LinkedIn's writes are not GraphQL at
+all but REST (`createMessage`, an entity patch for read state), and a thread URL
+names the short conversation key, not the full urn.
 
 ## Slice E — LinkedIn media
 
