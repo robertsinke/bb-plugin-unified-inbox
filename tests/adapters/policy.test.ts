@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { APPROVAL_WINDOW_MS, SEND_POLICY, createSendGate } from '../../src/adapters/policy.ts';
 import { accounts } from '../../src/adapters/types.ts';
+import { harness, IMSG_ID, LINKEDIN_ID } from './harness.ts';
 import type { Account } from '../../src/adapters/types.ts';
 
 type AuditRow = {
@@ -138,4 +139,54 @@ test('Gmail is refused by a readable policy rule, and every source declares one'
     ],
     'the owner decisions of 2026-11-02 are the rule the gate reads',
   );
+});
+
+// The composition the spec asks for: the gate in front of the real registry. Every
+// source's send is refused before its adapter is touched, and the one enabled path
+// reaches the source exactly once with an allowed row behind it.
+test('a refusal stops before every adapter, and an approved WhatsApp send reaches the composer', async () => {
+  const h = harness();
+  const originalFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    return new Response(JSON.stringify({ id: 41, status: 'pending' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  try {
+    const { rows, send } = gate();
+    const attempts: Array<[Account, string, RegExp]> = [
+      ['personal', 'thread-1', /Gmail sending is not enabled yet/],
+      ['business', 'thread-1', /Gmail sending is not enabled yet/],
+      ['whatsapp', WHATSAPP_ID, /approv/i],
+      ['imessage', IMSG_ID, /approv/i],
+      ['linkedin', LINKEDIN_ID, /approv/i],
+    ];
+    for (const [account, conversationId, pattern] of attempts) {
+      await assert.rejects(
+        send({ account, conversationId, text: 'see you at six' }, undefined, () => h.registry[account].action('reply', conversationId, { text: 'see you at six' })),
+        pattern,
+        `${account} refuses before its adapter`,
+      );
+    }
+    assert.deepEqual(h.calls, [], 'no source was touched by a refused send');
+    assert.equal(fetched.length, 0, 'no provider HTTP call was made by a refused send');
+    assert.deepEqual(rows.map(row => [row.account, row.decision]), attempts.map(([account]) => [account, 'refused']));
+
+    // The enabled path: a fresh approval for this conversation delivers once.
+    const approval = { id: 'wa-1', conversationId: WHATSAPP_ID, issuedAt: T0 };
+    assert.deepEqual(
+      await send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'On my way' }, approval, () => h.registry.whatsapp.action('reply', WHATSAPP_ID, { text: 'On my way' })),
+      { status: 'Sending.' },
+    );
+    assert.deepEqual(
+      fetched.map(url => url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '')),
+      [`/api/chats/${encodeURIComponent(WHATSAPP_ID)}/messages`],
+      'the composer path ran once',
+    );
+    assert.equal(rows.at(-1)!.decision, 'allowed');
+    assert.ok(!JSON.stringify(rows).includes('On my way'), 'the allowed row still carries no text');
+  } finally {
+    globalThis.fetch = originalFetch;
+    h.close();
+  }
 });
