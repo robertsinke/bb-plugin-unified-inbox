@@ -23,7 +23,7 @@ import {
   pageControlsExpression,
   recipientsExpression,
   sendApprovalDecision,
-  threadUrnExpression,
+  threadKeyExpression,
   type PageControl,
   type SendApproval,
 } from './linkedin-ui.ts';
@@ -401,8 +401,8 @@ export async function clickNamedControl(
     // in a reply. The policy decision is one pure function, so it is tested without a browser.
     const chips = await evaluateInLinkedInProfile(recipientsExpression());
     const recipients = Array.isArray(chips) ? chips.map(chip => String(chip)) : [];
-    const threadUrn = recipients.length ? '' : String(await evaluateInLinkedInProfile(threadUrnExpression()) ?? '');
-    const decision = sendApprovalDecision(approval, name, { recipients, threadUrn });
+    const threadKey = recipients.length ? '' : String(await evaluateInLinkedInProfile(threadKeyExpression()) ?? '');
+    const decision = sendApprovalDecision(approval, name, { recipients, threadKey });
     if (!decision.ok) return { clicked: false, recipients, reason: decision.reason };
   }
   return (await withLinkedInPage(page => withControl(page, name, role, async control => {
