@@ -5,18 +5,22 @@ a mutation. It records one real action performed through the visible UI, replays
 request, and lets the effect be observed. Anything the recorded template does not explain is
 refused, and the answer to a refusal is always "record the action again", never "guess".
 
-## The one send that is allowed
+## What a send click must prove
 
-`LINKEDIN_SEND_ALLOWLIST` (`src/linkedin-ui.ts`) holds the only people a driver-initiated send may
-reach; today it is `andrea sophie stave lepsøe` and nothing else. A send click requires
-`{ allow: 'send', recipient: '<name>' }`, the name must match an allowlist entry exactly, and the
-compose box's own recipient chips must name that one person. Anything else is refused before a
-click is dispatched.
+A driver-initiated send click requires `{ allow: 'send' }` plus a target the page itself confirms:
+in a compose box, the approval names the recipient and the chips must be exactly that one person;
+in an open thread, the approval names the conversation and the page's own URL must show it (either
+the full urn or the short key). A page that disagrees refuses the click before anything is
+dispatched.
 
 This exists because of a concrete failure, 2026-11-02: a name search for the owner's own name
 offered a relative with the same name, the first suggestion was clicked, and three "note to self"
 messages went to that relative. Nothing in the code checked who the page said it was addressing;
-only an assumption did. The owner deleted them.
+only an assumption did. The owner deleted them. The first fix ringfenced sends to one allowlisted
+person while the recorder was being proven; once testing ended the owner asked for the fence to go,
+and what remains is the part that is correctness rather than ringfencing — the approval names the
+target, and the page must agree. The composer path was never ringfenced: it is the owner's own
+action, the same trust as Messages.
 
 ## Why the recorder reported "no writes" while it was recording
 

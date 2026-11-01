@@ -226,20 +226,6 @@ export function linkedInPath(value: unknown): string | null {
  * irreversible click explicit.
  */
 /**
- * The only people a driver-initiated send may reach. This is the guard that exists because a name
- * search once offered "Robert Sinke" and the first suggestion was somebody else entirely: a send
- * must name its recipient, and the name has to be on this list. Empty list means no test send.
- */
-export const LINKEDIN_SEND_ALLOWLIST: readonly string[] = ['andrea sophie stave lepsøe'];
-
-/** The allowlist entry for `name`, matched exactly (case and spacing aside), or null. */
-export function allowlistedRecipient(name: unknown): string | null {
-  const wanted = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim().toLowerCase() : '';
-  if (!wanted) return null;
-  return LINKEDIN_SEND_ALLOWLIST.find(entry => entry.toLowerCase() === wanted) ?? null;
-}
-
-/**
  * Who a compose box is addressed to right now, read from the recipient chips LinkedIn renders as
  * `Remove <name>` buttons. The caller compares this with the allowlist before it lets a send click
  * through: the chip is the only statement about the recipient that the page itself makes.
@@ -288,31 +274,39 @@ export type SendApproval = { allow: 'send'; recipient?: string; conversation?: s
 /** The send policy's answer: either the click may go out, or the reason it may not. */
 export type SendDecision = { ok: true; recipient: string } | { ok: false; reason: string };
 
+/** Two names that differ only in case and spacing name the same person. */
+export function samePersonName(left: unknown, right: unknown): boolean {
+  const shape = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+  const a = shape(left);
+  return !!a && a === shape(right);
+}
+
 /**
  * The whole send policy in one decision, so it can be tested without a page.
  *
- * The recipient must be allowlisted, and the page must agree about who is on the receiving end:
- * a compose box says it with recipient chips, an open thread says it with the conversation its own
- * URL names. `observed` carries whichever of those the page offered — the caller reads the chips
- * first and the thread key only when there are no chips to read.
+ * A send click needs `{ allow: 'send' }` plus a target the page itself confirms: a compose box
+ * says it with recipient chips, an open thread says it with the conversation its own URL names.
+ * The approval names who or which, and a page that disagrees refuses the click — a name search
+ * once offered somebody else entirely, and the target must never be an assumption. `observed`
+ * carries whichever of those the page offered — the caller reads the chips first and the thread
+ * key only when there are no chips to read.
  */
 export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadKey: string }): SendDecision {
-  const wanted = allowlistedRecipient(approval?.recipient);
-  if (approval?.allow !== 'send' || !wanted) {
-    return { ok: false, reason: `${JSON.stringify(controlName)} sends to LinkedIn; it needs { allow: 'send', recipient: '<allowlisted person>' }, and only allowlisted people can receive a test send.` };
+  if (approval?.allow !== 'send') {
+    return { ok: false, reason: `${JSON.stringify(controlName)} sends to LinkedIn; it needs { allow: 'send' } plus the target it is approved for: the compose box's recipient, or the conversation an open thread is showing.` };
   }
   if (observed.recipients.length > 0) {
-    if (observed.recipients.length !== 1 || allowlistedRecipient(observed.recipients[0]) !== wanted) {
-      return { ok: false, reason: `This send is addressed to ${observed.recipients.join(', ')}; only ${wanted} is allowlisted for a test send. Nothing was clicked.` };
+    if (observed.recipients.length !== 1 || !samePersonName(observed.recipients[0], approval.recipient)) {
+      return { ok: false, reason: `This send is addressed to ${observed.recipients.join(', ') || 'nobody'}; the approval names ${approval.recipient ?? 'nobody'}. Nothing was clicked.` };
     }
-    return { ok: true, recipient: wanted };
+    return { ok: true, recipient: observed.recipients[0] };
   }
   const shown = conversationKeyOf(observed.threadKey);
   const approved = conversationKeyOf(approval.conversation ?? '');
   if (!approved || shown !== approved) {
     return { ok: false, reason: `The page shows ${shown ? `conversation ${shown}` : 'no open conversation'}; the approval names ${approved ? `conversation ${approved}` : 'no conversation'}. Nothing was clicked.` };
   }
-  return { ok: true, recipient: wanted };
+  return { ok: true, recipient: approved };
 }
 
 // LinkedIn's own labels for the irreversible click: the modal's send button says "Compose message"

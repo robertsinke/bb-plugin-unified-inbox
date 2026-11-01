@@ -10,10 +10,9 @@ import {
   pageTextExpression,
   type PageControl,
   findControlExpression,
-  allowlistedRecipient,
   recipientsExpression,
-  LINKEDIN_SEND_ALLOWLIST,
   describeControlExpression,
+  samePersonName,
   sendApprovalDecision,
   threadKeyExpression,
   conversationKeyOf,
@@ -246,67 +245,41 @@ test('a control is found by name, because an index goes stale between calls', as
   assert.throws(() => findControlExpression('x'.repeat(200)), /needs a control name/);
 });
 
-test('only an allowlisted person can receive a test send, matched exactly', () => {
-  assert.equal(allowlistedRecipient('Andrea Sophie Stave Lepsøe'), 'andrea sophie stave lepsøe');
-  assert.equal(allowlistedRecipient('  andrea   sophie stave lepsøe '), 'andrea sophie stave lepsøe');
-  // The failure this guard exists for: a lookalike name must never be accepted.
-  for (const name of ['Robert Sinke', 'Andrea Sophie', 'Andrea Sophie Stave Lepsøe Jr', '', null, 42]) {
-    assert.equal(allowlistedRecipient(name), null, `${String(name)} must not be allowlisted`);
+test('a send names its target, and the page has to agree — with no list of approved people', () => {
+  // Any person may be named; what is refused is a target the page does not confirm. Case and
+  // spacing are the only tolerance.
+  assert.equal(samePersonName('Andrea Sophie Stave Lepsøe', 'andrea   sophie stave lepsøe'), true);
+  assert.equal(samePersonName('Robert Sinke', 'Robert Sinke'), true);
+  // The failure this guard exists for: a lookalike or empty name must never confirm.
+  for (const [left, right] of [['Robert Sinke', 'Robert Sinke Jr'], ['Andrea', ''], ['', 'x'], [null, 'x'], [42, 'x']] as [unknown, unknown][]) {
+    assert.equal(samePersonName(left, right), false, `${String(left)} vs ${String(right)} must not confirm`);
   }
-  assert.deepEqual(LINKEDIN_SEND_ALLOWLIST, ['andrea sophie stave lepsøe']);
 });
 
-test('the recipient chips are read from the page, because that is what the page says about the addressee', async () => {
-  const page = fakePage([
-    { text: 'Remove Robert Sinke', tag: 'button' },
-    { text: 'Compose message', tag: 'button' },
-  ]);
-  assert.deepEqual(await page.evaluate(recipientsExpression()), ['Robert Sinke']);
-  const empty = fakePage([{ text: 'Compose message', tag: 'button' }]);
-  assert.deepEqual(await empty.evaluate(recipientsExpression()), []);
-});
-
-test('a pattern reaches the page with its backslash intact', () => {
-  // `\s` written inside a template literal arrives as `s`, which once turned /^remove\s+(.+)$/
-  // into /^removes+(.+)$/ and made every recipient chip invisible. The emitted source is asserted
-  // because the behaviour alone looks like "no chips on screen".
-  assert.ok(recipientsExpression().includes('^remove\\s+(.+)$'), 'the chip pattern lost its backslash on the way to the page');
-  assert.ok(!recipientsExpression().includes('^removes+'));
-});
-
-test('the thread key is read from the page URL, because a reply box has no chips', () => {
-  const expression = threadKeyExpression();
-  // The regex escapes must survive the template literal, or the page reads every path as empty.
-  assert.ok(expression.includes('/^\\/messaging\\/thread\\/([^/?#]+)/'), 'the thread pattern lost a backslash');
-  const read = new Function('location', `return (${expression});`);
-  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
-  assert.equal(read({ pathname: `/messaging/thread/${encodeURIComponent(urn)}` }), urn);
-  // The page URL carries the short key, and a full urn reads down to the same key.
-  assert.equal(conversationKeyOf('urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc==)'), '2-abc==');
-  assert.equal(conversationKeyOf('2-abc=='), '2-abc==');
-  assert.equal(conversationKeyOf('urn:li:msg_conversation:broken'), 'urn:li:msg_conversation:broken');
-  assert.equal(conversationKeyOf(null), '');
-  assert.equal(read({ pathname: "/messaging/thread/urn%3Abroken%'))" }), ''); // a bad encoding is nothing, not a guess
-  assert.equal(read({ pathname: '/messaging/' }), '');
-});
-
-test('an in-thread send is allowed only when the approval names the conversation on screen', () => {
-  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
-  // A reply box has no chips, so the thread key decides: the page shows the short key the full
-  // urn contains, and either form of the approval names the same conversation.
+test('a send is approved only for a target the page confirms', () => {
+  // An open thread: the page shows the short key, and the approval may name either form.
   const key = '2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==';
   const full = `urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,${key})`;
-  const approval: SendApproval = { allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe', conversation: full };
-  assert.deepEqual(sendApprovalDecision(approval, 'Send', { recipients: [], threadKey: key }), { ok: true, recipient: 'andrea sophie stave lepsøe' });
+  const approval: SendApproval = { allow: 'send', conversation: full };
+  assert.deepEqual(sendApprovalDecision(approval, 'Send', { recipients: [], threadKey: key }), { ok: true, recipient: key });
   assert.equal(sendApprovalDecision({ ...approval, conversation: key }, 'Send', { recipients: [], threadKey: key }).ok, true);
   assert.equal(sendApprovalDecision({ ...approval, conversation: 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)' }, 'Send', { recipients: [], threadKey: key }).ok, false);
-  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: [], threadKey: key }).ok, false);
+  assert.equal(sendApprovalDecision({ allow: 'send' }, 'Send', { recipients: [], threadKey: key }).ok, false);
   assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: [], threadKey: '' }).ok, false);
-  // The compose box path is unchanged: the chips decide there, and the key is never consulted.
-  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadKey: '' }).ok, true);
-  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: ['Robert Sinke'], threadKey: key }).ok, false);
-  // And the name gate still comes first, whichever box the send sits in.
+
+  // A compose box: the approval names the person and the chips must be exactly that one. The
+  // refusal still fires for the disagreement — a mis-targeted send — not for the person not
+  // being on a list.
+  const named: SendApproval = { allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' };
+  assert.equal(sendApprovalDecision(named, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadKey: '' }).ok, true);
+  assert.equal(sendApprovalDecision({ ...named, recipient: 'Robert Sinke' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadKey: '' }).ok, false);
+  assert.equal(sendApprovalDecision(named, 'Send', { recipients: ['Robert Sinke'], threadKey: '' }).ok, false);
+  const unnamed = sendApprovalDecision({ allow: 'send' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadKey: '' });
+  assert.equal(unnamed.ok, false);
+  if (!unnamed.ok) assert.match(unnamed.reason, /approval names nobody/);
+
+  // And an unapproved click is refused before anything is read, whichever box it sits in.
   const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadKey: key });
   assert.equal(refused.ok, false);
-  if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send', recipient/);
+  if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send' \}/);
 });
