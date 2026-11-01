@@ -7,7 +7,10 @@ import {
   messageSendTemplate,
   recordedWritesExpression,
   replayWriteExpression,
-  recordedSendText, writeRecorderExpression,
+  recordedSendText,
+  markReadTarget,
+  sameConversationUrn,
+  writeRecorderExpression,
   type RecordedWrite,
 } from '../src/linkedin-write.ts';
 
@@ -280,4 +283,30 @@ test('a dump answers under `writes`, because a bare array reads back as nothing 
   const read = new Function('window', `return (${expression});`)(page) as { writes: unknown[] };
   assert.equal(Array.isArray(read), false, 'the dump must answer with an object');
   assert.deepEqual(read.writes, stored);
+});
+
+test('a recorded mark-read is recognised by its exact shape, and by nothing looser', () => {
+  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAbc123,2-YWFhYWFhYWEtYmJiYi00Y2Nj)';
+  const encoded = encodeURIComponent(urn);
+  const write = {
+    method: 'POST',
+    url: `/voyager/api/voyagerMessagingDashMessengerConversations?ids=List(${encoded})`,
+    body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read: true } } } } }),
+    capturedAt: 1,
+  };
+  assert.equal(markReadTarget(write), urn);
+  assert.ok(sameConversationUrn(markReadTarget(write), urn));
+
+  // Every one of these is a different request, and each must be refused rather than replayed.
+  const refused = [
+    { ...write, method: 'GET' },
+    { ...write, url: write.url.replace('voyagerMessagingDashMessengerConversations', 'voyagerMessagingGraphQL') },
+    { ...write, body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read: false } } } } }) },
+    { ...write, body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read: true, archived: true } } } } }) },
+    { ...write, body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read: true } } }, 'urn:li:msg_conversation:(urn:li:fsd_profile:other,2-x)': { patch: { $set: { read: true } } } } }) },
+    { ...write, body: JSON.stringify({ entities: { [urn]: { patch: { $unset: { read: true } } } } }) },
+    { ...write, body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read: true } } } } }) .replace(urn, 'urn:li:msg_conversation:(urn:li:fsd_profile:other,2-x)') },
+    { ...write, body: 'not json' },
+  ];
+  for (const wrong of refused) assert.equal(markReadTarget(wrong), null, `${wrong.method} ${wrong.body.slice(0, 40)} must be refused`);
 });

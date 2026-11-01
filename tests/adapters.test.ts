@@ -305,7 +305,7 @@ test('the recorder arms, dumps, and refuses to replay without approval', async (
   await assert.rejects(adapter.replay!({ write, conversationId: LINKEDIN_ID, text: 'Hi' }), /Approve the exact action first/);
   await assert.rejects(
     adapter.replay!({ write, conversationId: 'urn:li:msg_conversation:somebody-else', text: 'Hi', confirm: true }),
-    /not a message send to this conversation/,
+    /neither a message send nor a mark-read/,
   );
 
   f.calls.length = 0;

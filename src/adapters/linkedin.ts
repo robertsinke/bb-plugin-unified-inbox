@@ -10,6 +10,8 @@ import { readLinkedInImage } from '../linkedin-media.ts';
 import {
   clearRecordedWritesExpression,
   isMessageSend,
+  markReadTarget,
+  sameConversationUrn,
   LINKEDIN_WRITE_KEEP,
   LINKEDIN_WRITE_LIMIT,
   messageSendTemplate,
@@ -120,8 +122,17 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
      */
     async replay(input: LinkedInReplayInput): Promise<LinkedInReplayResult> {
       if (input.confirm !== true) throw new Error('Replaying a LinkedIn write changes your account. Approve the exact action first.');
+      const marking = markReadTarget(input.write);
+      if (marking) {
+        if (!sameConversationUrn(marking, input.conversationId)) {
+          throw new Error('The recorded action marks a different conversation as read; record the action again in this one.');
+        }
+        if (typeof input.text === 'string' && input.text) throw new Error('A mark-read replay carries no text.');
+        const result = await deps.runLinkedInWrite(replayWriteExpression(input.write)) as { ok?: unknown; status?: unknown; body?: unknown };
+        return { ok: result?.ok === true, status: Number(result?.status) || 0, body: result?.body ?? null };
+      }
       if (!isMessageSend(input.write, input.conversationId)) {
-        throw new Error('The recorded action is not a message send to this conversation; record the reply through the UI instead.');
+        throw new Error('The recorded action is neither a message send nor a mark-read for this conversation; record the action through the UI instead.');
       }
       const recorded = recordedSendText(input.write, input.conversationId);
       const text = typeof input.text === 'string' ? input.text : recorded;
