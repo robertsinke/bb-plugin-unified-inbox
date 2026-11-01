@@ -2,7 +2,8 @@
 // it refuses, what it allows, and what it writes down — never the message text.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { APPROVAL_WINDOW_MS, createSendGate } from '../../src/adapters/policy.ts';
+import { APPROVAL_WINDOW_MS, SEND_POLICY, createSendGate } from '../../src/adapters/policy.ts';
+import { accounts } from '../../src/adapters/types.ts';
 import type { Account } from '../../src/adapters/types.ts';
 
 type AuditRow = {
@@ -104,4 +105,37 @@ test('an allowed send delivers once and its row carries no message', async () =>
     'the row is the attempt: no field can carry a body or attachment bytes',
   );
   assert.ok(!JSON.stringify(rows).includes('party'), 'the audit never carries message text');
+});
+
+// Gmail sending was disabled by a named constant inside its handler. The same
+// decision belongs to the gate, as a rule a person can read, and the caller's
+// refusal text must not change while it moves.
+test('Gmail is refused by a readable policy rule, and every source declares one', async () => {
+  const { rows, send } = gate();
+  const reason = 'Gmail sending is not enabled yet. Your draft has not been sent.';
+  for (const account of ['personal', 'business'] as const) {
+    let delivered = 0;
+    await assert.rejects(
+      send(
+        { account, conversationId: 'thread-1', text: 'draft for the team' },
+        { id: `gmail-${account}`, conversationId: 'thread-1', issuedAt: T0 },
+        async () => { delivered += 1; return { status: 'Sent.' }; },
+      ),
+      /Gmail sending is not enabled yet\. Your draft has not been sent\./,
+      'a disabled source refuses even with a valid approval',
+    );
+    assert.equal(delivered, 0);
+    assert.equal(rows.at(-1)!.reason, reason);
+  }
+  assert.deepEqual(
+    accounts.map(account => [account, SEND_POLICY[account].state]),
+    [
+      ['personal', 'disabled'],
+      ['business', 'disabled'],
+      ['whatsapp', 'enabled'],
+      ['imessage', 'enabled'],
+      ['linkedin', 'enabled'],
+    ],
+    'the owner decisions of 2026-11-02 are the rule the gate reads',
+  );
 });
