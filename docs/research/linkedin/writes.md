@@ -151,6 +151,16 @@ What the capture taught:
   a real accept (Malte Unger, owner's pick), and the builder reproduces both captures byte for
   byte with the per-request randomness pinned.
 
+## Opening a thread marks it read
+
+`app.tsx` already did this for every source behind `canMarkRead`: opening a conversation whose row is
+unread calls `action('read')` for it, and only then flips the row and the open conversation locally.
+LinkedIn inherits it from the `markRead` capability, with no account branch anywhere.
+
+Verified live 2026-11-02 on a real unread conversation: `action('read')` → `Updated.`, the inbox row
+flipped to read, LinkedIn's own unread count fell 2 → 1, and the row stayed read across a full
+re-read. The UI path adds nothing on top — it is the same call, gated by the same flag.
+
 ## The invitation chip, wired
 
 The `validationToken` question settled the wiring: it is the `sharedSecret` field of the same
@@ -158,8 +168,10 @@ received-invitations payload the read path already fetches (confirmed by samplin
 field names, nothing else). The read now keeps, per invitation, the sharedSecret, the inviter's
 profile id, and the person's first name for the toast text; the adapter builds the same request the
 page's own button sends, so any invitation the inbox shows can be answered — never a replay of one
-recorded invitation. The `invitations` capability declares it, and the invitation chip carries
-Accept and Ignore buttons.
+recorded invitation. The `invitations` capability declares it, and the invitation chip answers itself: hovering it — or
+focusing it from the keyboard — reveals a split Accept | Ignore pair, in the list row and in the open
+invitation alike. The chip sits beside the row's open button rather than inside it, because buttons
+cannot nest and the answer has to be a real control.
 
 The replay validator followed the recorder: the origin is the boundary, not a path prefix, because
 the invitation actions live outside voyager. Same-hostile checks stay — scheme, protocol-relative,
