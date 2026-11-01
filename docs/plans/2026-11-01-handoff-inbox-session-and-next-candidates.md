@@ -156,13 +156,15 @@ on purpose and both are committed off `main`, so `main` stays green.
   fallback derived from it, every adapter declaring every key, and a `capabilitiesSchema`
   built from the same list that refuses a missing or invented capability. No implementer yet.
 
-**Candidate "write seam"** — `bb/seal-the-linkedin-write-seam`, commit `205a77d`,
-`tests/linkedin-write-session.test.ts`. Four tests requiring
-`createLinkedInPageSession(evaluate).replay(write)` — the write half of the same module — so
-`server.ts` stops injecting the raw evaluator as `runLinkedInWrite` and the adapter stops casting
-`unknown` to `{ok?, status?}`. The fault it forbids: a page answering `true`, `null`, `{}` or
-`{ok:'yes'}` currently reads as "not accepted (status 0)", a confident wrong reason for a fault
-that is not a refusal. No implementer yet.
+**Candidate "write seam"** — **done** (`0e9757a`, 242 tests). `createLinkedInPageSession` gained
+`replay(write)`: it builds the expression with `replayWriteExpression`, evaluates once, and returns
+`{accepted, status}` — an answer it cannot read (`true`, `null`, `{}`, `{ok:'yes'}`, `{ok:true}`,
+`{ok:true, status:'HTTP 200'}`) is refused instead of surfacing as "status 0". The session also took
+over the recorder (`recorded()`, `clearRecorded()`). `RegistryDeps.runLinkedInWrite` and the dead
+`ReplayResult` are gone; the adapter's three call sites replay through the session and keep their
+own wording. One accepted surface change: the `linkedin_replay` RPC output no longer carries the
+page's raw `body` — a write is verified by its effect (re-read the thread), not by trusting a
+response body, and nothing consumed it.
 
 ## Suggested first move
 
