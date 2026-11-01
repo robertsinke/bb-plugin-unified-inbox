@@ -20,6 +20,7 @@ import {
   controlRectExpression,
   controlTextExpression,
   focusControlExpression,
+  typingTargetExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
@@ -338,14 +339,16 @@ async function typeAsKeys(page: Page, text: string): Promise<void> {
  */
 export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; control?: PageControl; reason?: string }> {
   if (typeof text !== 'string') throw new Error('LinkedIn typing needs the text to type.');
-  const expression = controlRectExpression(index);
+  const expression = typingTargetExpression(index);
   const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
   return withLinkedInPage(async page => {
     const found = await evaluate(page, expression);
     if (typeof found === 'string') return { typed: false, reason: found };
-    const control = found as PageControl | null;
-    if (!control || typeof control !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
-    if (isSendControl(control)) return { typed: false, control, reason: `"${control.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
+    const target = found as (PageControl & { editable?: boolean }) | null;
+    if (!target || typeof target !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
+    if (target.editable !== true) return { typed: false, reason: `"${target.name}" has nothing in it a person can type into.` };
+    if (isSendControl(target)) return { typed: false, control: target, reason: `"${target.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
+    const control: PageControl = { ...target, index };
     const landed = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
     // A trusted click puts the caret in the editor. DOM focus alone does not: LinkedIn's composer is
     // a Lexical contenteditable that only opens an editing session on a real pointer event.
