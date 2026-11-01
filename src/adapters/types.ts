@@ -198,6 +198,21 @@ export interface Capabilities {
   invitations: boolean;
   media: boolean;
   attachments: boolean;
+  /**
+   * The conversation is a thread of messages, so it is read top to bottom and answered in a
+   * composer, rather than opened as a document and answered in a mail form.
+   */
+  threads: boolean;
+  /**
+   * Sending is two-phase: the source makes a proposal first and only sends once the proposal is
+   * confirmed. The UI asks this instead of knowing which source behaves that way.
+   */
+  confirmSend: boolean;
+  /**
+   * Re-reading one conversation is cheap enough that the open thread may follow a list refresh.
+   * A source whose read is expensive declares false and keeps what it showed until reopened.
+   */
+  followsList: boolean;
   /** Annotation-only pending OQ-4 (search ownership). */
   search?: boolean;
 }
