@@ -169,6 +169,23 @@ warm, 10–11 s cold). Replace that with one cheap probe:
 Acceptance: an unchanged refresh issues one probe instead of the full read and
 keeps the cached rows; a changed one behaves exactly as today.
 
+### The last behavioural account branches (done)
+
+`app.tsx` no longer decides behaviour by asking which source it is looking at. Three
+declarations replace the last of it, each owned by the source that knows the answer:
+
+| Branch that was there | Declaration | Who declares it |
+|---|---|---|
+| `threaded = chat \|\| account==='linkedin'` | `threads` | Gmail false (a document); the other four true |
+| composer recognises `account==='whatsapp'` and its proposal | `confirmSend` | WhatsApp true (propose, then confirm) |
+| re-open skips `account==='linkedin'` | `followsList` | LinkedIn false (a read costs seconds) |
+
+The proposal also stopped carrying the name of its source: it carries the account it
+belongs to, so cancelling it after switching conversations cannot address the wrong one.
+What remains by name in `app.tsx` is presentation (which surface renders a name, which
+icon a source gets) and one dispatch: `sync` picks `linkedin_sync` over `list_source`
+(`app.tsx:328`), which is a transport difference the registry should absorb next.
+
 ## Slice G — UI tests and bubble standardisation
 
 - Add a jsdom-based render test for the row and the chat bubble: same message,

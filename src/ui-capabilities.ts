@@ -11,7 +11,7 @@ import type { Account, Capabilities } from './adapters/types.ts';
 export type CapabilityMap = Record<Account, Capabilities>;
 
 /** Nothing is known before the declarations arrive, or if asking for them failed: offer no control. */
-const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false };
+const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, confirmSend: false, followsList: false };
 
 function declared(capabilities: CapabilityMap | null, account: Account): Capabilities {
   return capabilities?.[account] ?? UNKNOWN;
@@ -39,4 +39,28 @@ export function canAnswerInvitation(capabilities: CapabilityMap | null, account:
 /** Archive, which only a source with a place to move a conversation out of the inbox can offer. */
 export function canArchive(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).archive;
+}
+
+/**
+ * Whether the conversation is read as a thread and answered in a composer. A source that opens a
+ * document instead keeps its own reading surface, so the composer is not offered for it.
+ */
+export function hasThread(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).threads;
+}
+
+/**
+ * Whether sending takes two steps: propose, then confirm. The composer asks this instead of
+ * knowing which source works that way, and a proposal is never sent for a source that does not.
+ */
+export function sendsWithConfirm(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).confirmSend;
+}
+
+/**
+ * Whether the open conversation may be re-read when a refresh changes its row. A source whose
+ * read is expensive declares false, and what it already showed stays until the thread is reopened.
+ */
+export function followsList(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).followsList;
 }

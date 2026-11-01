@@ -41,7 +41,7 @@ test('LinkedIn: declared capabilities match what action and media accept', async
   const h = harness();
   try {
     const adapter = h.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, confirmSend: false, followsList: false });
 
     // send: true through the reply action — there is still no generic send method, because a
     // LinkedIn reply needs its conversation.

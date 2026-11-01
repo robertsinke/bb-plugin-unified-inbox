@@ -15,7 +15,7 @@ import type {
   MediaPayload, Message, OpenOptions, OpenResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, confirmSend: true, followsList: true };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';

@@ -47,6 +47,15 @@ Declaration meanings:
 | `archive` | `action('archive')` is accepted. |
 | `media` | Inline media can be served for an open conversation. |
 | `attachments` | Named files can be served for a message. |
+| `threads` | The conversation is a thread of messages, so the inbox reads it top to bottom and answers in a composer. False means the source opens a document with its own reading surface and mail form. |
+| `confirmSend` | Sending is two-phase: a proposal is made first and only sent once that proposal is confirmed. WhatsApp declares it; the composer asks rather than knowing. |
+| `followsList` | Re-reading one conversation is cheap enough that the open thread may follow a list refresh. LinkedIn declares false: its read is seconds long, so it keeps what it showed until reopened. |
+
+These three exist because `app.tsx` used to decide them by asking which source it was
+looking at: a `threaded` that named LinkedIn, a composer that recognised WhatsApp's
+proposal, and a re-read that skipped LinkedIn. A declaration is the same decision, made
+by the source that owns it, and a new source now inherits the right behaviour by
+declaring it instead of by being mentioned in the UI.
 
 ## Known asymmetries
 
