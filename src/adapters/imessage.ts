@@ -10,6 +10,7 @@ import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, Message, OpenOptions, OpenResult, SyncResult,
 } from './types.ts';
+import type { MediaRequest } from './media.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true };
 
@@ -46,14 +47,12 @@ export function createIMessageAdapter(deps: RegistryDeps): Adapter {
       return { messages };
     },
 
-    async media(): Promise<MediaPayload> {
-      throw new Error('A Messages attachment opens through its conversation, not by message id.');
-    },
-
-    async imsgMedia(chatId: string, messageId: string, index: number): Promise<MediaPayload> {
-      const chat = imsgChatId(chatId);
-      imsgChatId(messageId);
-      const attachment = findImsgAttachment(await deps.imsg.request('messages.history', { chat_id: chat, limit: 60, attachments: true }), messageId, index);
+    async media(request: MediaRequest): Promise<MediaPayload> {
+      if (request.kind === 'message') throw new Error('A Messages attachment opens through its conversation, not by message id.');
+      if (request.kind !== 'imsg') throw new Error('This account has no attachments.');
+      const chat = imsgChatId(request.chatId);
+      imsgChatId(request.messageId);
+      const attachment = findImsgAttachment(await deps.imsg.request('messages.history', { chat_id: chat, limit: 60, attachments: true }), request.messageId, request.index);
       return readImsgImage(attachment.filename, attachment.mime);
     },
 
