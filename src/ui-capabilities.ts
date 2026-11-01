@@ -5,16 +5,14 @@
 //
 // Pure: no React and no DOM, so the rules are testable in Node while the jsdom
 // render harness arrives in slice G.
+import { NO_CAPABILITIES } from './adapters/capability.ts';
 import type { Account, Capabilities } from './adapters/types.ts';
 
 /** Declarations keyed as the `capabilities` RPC returns them. */
 export type CapabilityMap = Record<Account, Capabilities>;
 
-/** Nothing is known before the declarations arrive, or if asking for them failed: offer no control. */
-const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, followsList: false };
-
 function declared(capabilities: CapabilityMap | null, account: Account): Capabilities {
-  return capabilities?.[account] ?? UNKNOWN;
+  return capabilities?.[account] ?? NO_CAPABILITIES;
 }
 
 /**
