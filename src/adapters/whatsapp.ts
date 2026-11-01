@@ -238,7 +238,10 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
 
     open: (id: string) => openChat(id),
 
-    media: (_account, id: string) => image(id),
+    async media(request) {
+      if (request.kind !== 'message') throw new Error('This account has no attachments.');
+      return image(request.id);
+    },
 
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
       if (CAPABILITIES.send && kind === 'reply') {

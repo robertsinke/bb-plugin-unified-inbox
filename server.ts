@@ -18,6 +18,7 @@ import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
 import { createGwsRunner } from './src/adapters/gws';
 import { accounts, createRegistry, registryCapabilities } from './src/adapters/index';
 import { capabilitiesSchema } from './src/adapters/capability';
+import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './src/adapters/media';
 import { toProviderError } from './src/adapters/provider-error';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import type { Account, Conversation } from './src/adapters/types';
@@ -66,9 +67,14 @@ export const rpcContract = defineRpcContract({
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative() }) },
   linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
-  media: { input: z.object({ messageId: z.string().min(1).max(512), account: account.optional(), index: z.number().int().min(0).max(99).optional() }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional(), url: z.string().optional() }) },
-  attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
-  imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
+  media: {
+    input: z.discriminatedUnion('kind', [
+      messageMediaRequestSchema.extend({ account }),
+      imsgMediaRequestSchema.extend({ account }),
+      attachmentMediaRequestSchema.extend({ account }),
+    ]),
+    output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().max(255).optional(), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT).optional(), url: z.string().optional() }),
+  },
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
   capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
@@ -202,20 +208,11 @@ export default function plugin(bb: BbPluginApi) {
       const profile = await openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };
     },
-    // One media path for every source: the adapter that owns the message answers, and a
-    // shared post answers with a link because its payload carries no thumbnail.
-    async media({ messageId, account: source = 'whatsapp', index = 0 }) {
-      return registry[source].media(source, messageId, index);
-    },
-    async attachment({ account, gmailId, filename }) {
-      const read = registry[account].gmailAttachment;
-      if (!read) throw new Error('This account has no attachments.');
-      return read(gmailId, filename);
-    },
-    async imsg_media({ chatId, messageId, index }) {
-      const read = registry.imessage.imsgMedia;
-      if (!read) throw new Error('Messages attachments are not available in this build.');
-      return read(chatId, messageId, index);
+    // One media path for every source: the request says how the file is addressed, and the
+    // adapter that owns the source answers. A shared post answers with a link because its
+    // payload carries no thumbnail.
+    async media({ account: source, ...request }) {
+      return registry[source].media(request);
     },
     async action({ account, id, action, text }) {
       return registry[account].action(action, id, { text });

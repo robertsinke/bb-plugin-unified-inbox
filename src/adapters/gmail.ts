@@ -12,12 +12,13 @@ import { z } from 'zod';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
-  ActionKind, ActionOptions, ActionResult, Adapter, AttachmentPayload, Capabilities,
+  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities,
   Conversation, GmailAccount, ListResult, MediaPayload, Message, OpenOptions, OpenResult,
   SendAuthorization, SendDraft, SendReceipt, SyncResult,
 } from './types.ts';
+import type { MediaRequest } from './media.ts';
 
-/** Largest attachment the `attachment` RPC will hand a frame. */
+/** Largest attachment a media request will hand a frame. */
 export const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
 
 /** Largest HTML body kept on a message; larger bodies are dropped, not truncated. */
@@ -78,7 +79,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     return gmail(['users', 'threads', 'get', '--params', JSON.stringify({ userId: 'me', id, format: 'full' })]);
   }
 
-  async function attachment(gmailId: string, filename: string): Promise<AttachmentPayload> {
+  async function attachment(gmailId: string, filename: string): Promise<MediaPayload> {
     const message = await gmail(['users', 'messages', 'get', '--params', JSON.stringify({ userId: 'me', id: gmailId, format: 'full' })]);
     const part = findGmailAttachment(message?.payload, filename);
     if (!part) throw new Error('This attachment is no longer in the message.');
@@ -192,7 +193,8 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
 
     open: (id: string, _opts?: OpenOptions) => openThread(id),
 
-    async media(): Promise<MediaPayload> {
+    async media(request: MediaRequest): Promise<MediaPayload> {
+      if (request.kind === 'attachment') return attachment(request.id, request.filename);
       throw new Error('This source has no media to open here.');
     },
 
@@ -216,7 +218,5 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
         throw new Error('Send failed or its outcome is unknown. Check Gmail Sent before trying again.');
       }
     },
-
-    gmailAttachment: attachment,
   };
 }
