@@ -77,3 +77,31 @@ test('the same approval cannot send twice', async () => {
   assert.equal(last.decision, 'refused');
   assert.match(String(last.reason), /already been used/);
 });
+
+// The path that must keep working: a fresh approval for this conversation sends
+// once, and the row it leaves says so with the same fields as a refusal.
+test('an allowed send delivers once and its row carries no message', async () => {
+  const { rows, send } = gate();
+  const approval = { id: 'a4', conversationId: WHATSAPP_ID, issuedAt: T0 };
+  let delivered = 0;
+  const receipt = await send(
+    { account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'the party is at eight, do not tell anyone' },
+    approval,
+    async () => { delivered += 1; return { status: 'Sent.' }; },
+  );
+  assert.deepEqual(receipt, { status: 'Sent.' });
+  assert.equal(delivered, 1, 'an allowed send delivers exactly once');
+  assert.equal(rows.length, 1);
+  const [row] = rows;
+  assert.equal(row.decision, 'allowed');
+  assert.equal(row.at, T0);
+  assert.equal(row.account, 'whatsapp');
+  assert.equal(row.conversationId, WHATSAPP_ID);
+  assert.equal(row.reason, undefined, 'an allowed send has nothing to explain');
+  assert.deepEqual(
+    Object.keys(row).sort(),
+    ['account', 'at', 'conversationId', 'decision', 'operation'],
+    'the row is the attempt: no field can carry a body or attachment bytes',
+  );
+  assert.ok(!JSON.stringify(rows).includes('party'), 'the audit never carries message text');
+});

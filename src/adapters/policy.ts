@@ -66,6 +66,9 @@ export function createSendGate({ now, audit }: SendGateDeps) {
     // Spent before delivery: a delivery that throws must not leave the approval
     // usable for a retry, which is how one approval becomes two messages.
     spent.add(approval.id);
+    // Written before delivery: the gate allowed this attempt, whether or not the
+    // provider then accepts it.
+    audit({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'allowed' });
     return deliver();
   };
 }
