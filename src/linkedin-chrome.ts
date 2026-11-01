@@ -325,7 +325,7 @@ export async function clickInLinkedInPage(
  * `textContent = …` are ignored by Lexical and React, so the text has to arrive as a real editing
  * command.
  */
-export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; reason?: string }> {
+export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; control?: PageControl; reason?: string }> {
   if (typeof text !== 'string') throw new Error('LinkedIn typing needs the text to type.');
   const expression = focusControlExpression(index);
   const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
@@ -335,7 +335,11 @@ export async function typeInLinkedInPage(index: number, text: string): Promise<{
       return { typed: false, reason: typeof focused?.reason === 'string' ? focused.reason : 'LinkedIn did not focus that control.' };
     }
     if (typed) await page.client.send('Input.insertText', { text: typed }, page.sessionId);
-    return { typed: true };
+    // Report where the text landed: an index that pointed at the wrong control is otherwise silent.
+    const controls = await page.client.send<unknown>('Runtime.evaluate', { expression: pageControlsExpression(), awaitPromise: true, returnByValue: true }, page.sessionId)
+      .then(answer => (answer as { result?: { value?: unknown } }).result?.value);
+    const landed = Array.isArray(controls) ? (controls as PageControl[]).find(control => control.focused) : undefined;
+    return { typed: true, ...(landed ? { control: landed } : {}) };
   });
 }
 

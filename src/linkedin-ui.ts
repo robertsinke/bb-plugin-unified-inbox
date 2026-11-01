@@ -31,7 +31,7 @@ export type PageControl = {
 };
 
 /** Bounds shared by the page expressions, the transport, and the tests. */
-export const LINKEDIN_CONTROL_LIMIT = 200;
+export const LINKEDIN_CONTROL_LIMIT = 600;
 export const LINKEDIN_NAME_LIMIT = 120;
 export const LINKEDIN_TEXT_LIMIT = 20_000;
 export const LINKEDIN_PATH_LIMIT = 512;
@@ -91,17 +91,12 @@ const pageBody = () => `
     // querySelectorAll answers in document order and never twice for one element, and nothing here
     // sorts or filters by name: the index is the array position, so the same page yields the same
     // indexes on two consecutive runs.
-    // A modal covers the page, so when one is open it *is* the page: enumerating the surface
-    // behind it would bury the dialog's own controls past the cap and invite a click on the
-    // wrong row.
-    const surface = () => {
-      const dialogs = document.querySelectorAll('[role="dialog"], dialog[open], .artdeco-modal');
-      const open = dialogs.length ? dialogs[dialogs.length - 1] : null;
-      return open || document;
-    };
+    // Document order, nothing sorted: a modal is appended last, so the cap has to be generous
+    // enough to reach it. Guessing at modal markup and scoping to it was worse — the page's own
+    // controls are what a stale selector silently loses.
     const enumerate = () => {
       const controls = [];
-      for (const control of surface().querySelectorAll(SELECTOR)) {
+      for (const control of document.querySelectorAll(SELECTOR)) {
         if (controls.length >= LIMIT) break;
         if (usable(control)) controls.push(control);
       }
