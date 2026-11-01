@@ -170,8 +170,8 @@ function dumpedWrites(value: unknown): RecordedWrite[] {
 }
 
 /**
- * One session over whatever evaluates expression strings in the signed-in LinkedIn page. Each call
- * is one expression and one round trip; the caller never sees the envelope or the script.
+ * One session over whatever evaluates expression strings in the signed-in LinkedIn page. Each method
+ * builds its own expression and parses its own answer; the caller never sees either.
  */
 export function createLinkedInPageSession(evaluate: (expression: string) => Promise<unknown>): LinkedInPageSession {
   return {
