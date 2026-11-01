@@ -55,6 +55,7 @@ export const rpcContract = defineRpcContract({
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
     recipient: z.string().min(1).max(120).optional(),
+    replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
@@ -188,7 +189,7 @@ export default function plugin(bb: BbPluginApi) {
         return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
-      return typeIntoNamedControl(target, step.text, step.role);
+      return typeIntoNamedControl(target, step.text, step.role, step.replace === true);
     },
     async linkedin_record({ op }) { return registry.linkedin.record!(op); },
     async linkedin_writes() { return { writes: (await registry.linkedin.record!('dump')).writes ?? [] }; },
