@@ -81,8 +81,17 @@ export function writeRecorderExpression(): string {
       const body = init && typeof init.body === 'string' ? init.body : '';
       if (!body) return skip('no-body');
       if (new TextEncoder().encode(body).length > LIMIT) return skip('too-big');
-      list.push({ method, url: path, body, capturedAt: Date.now() });
-      while (list.length > KEEP) list.shift();
+      // Counted on both sides of the push: a write that passes every filter and still never lands is
+      // a different bug from one the filters reject, and "no writes" hides which.
+      seen.pushed = (seen.pushed || 0) + 1;
+      seen.last = method + ' ' + path;
+      try {
+        list.push({ method, url: path, body, capturedAt: Date.now() });
+        while (list.length > KEEP) list.shift();
+        seen.stored = list.length;
+      } catch (error) {
+        skip('store-failed');
+      }
     };
     const original = window.fetch;
     window.fetch = function (input, init) {
@@ -118,7 +127,17 @@ export function writeRecorderExpression(): string {
 export function recorderStatsExpression(): string {
   return pageExpression(`
     const seen = window.__unifiedInboxSeen;
-    return seen ? { fetch: seen.fetch || 0, xhr: seen.xhr || 0, considered: seen.considered || 0, skipped: seen.skipped || {} } : null;
+    if (!seen) return null;
+    return {
+      fetch: seen.fetch || 0,
+      xhr: seen.xhr || 0,
+      considered: seen.considered || 0,
+      skipped: seen.skipped || {},
+      pushed: seen.pushed || 0,
+      stored: Array.isArray(window.__unifiedInboxWrites) ? window.__unifiedInboxWrites.length : 0,
+      last: seen.last || '',
+      same: Array.isArray(window.__unifiedInboxWrites),
+    };
   `);
 }
 
