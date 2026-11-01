@@ -15,7 +15,7 @@ import type { RegistryDeps } from '../src/adapters/deps.ts';
 import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../src/linkedin-write.ts';
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
-const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
+const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
 
 const GMAIL_THREAD = {
   id: 't1',
@@ -213,7 +213,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: false, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, media: true, attachments: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;
@@ -245,12 +245,17 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     assert.deepEqual(await adapter.action('unread', LINKEDIN_ID), { status: 'Updated.' });
     assert.deepEqual(f.calls, ['linkedin:write:replay', 'linkedin:write:replay']);
     await assert.rejects(adapter.action('read', 'not-a-conversation'), /cannot be marked/);
-    await assert.rejects(adapter.action('archive', LINKEDIN_ID), /read-only/);
-    await assert.rejects(adapter.action('reply', LINKEDIN_ID, { text: 'hi' }), /read-only/);
+    await assert.rejects(adapter.action('archive', LINKEDIN_ID), /still need their own recorded actions/);
 
-    // A reply, an invitation answer, and an archive still need their own recorded actions.
-    for (const kind of ['archive', 'reply', 'confirm', 'reject'] as const) {
-      await assert.rejects(adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /read-only/);
+    // A reply replays the recorded send shape for this conversation; an invitation answer and an
+    // archive still need their own recorded actions.
+    f.calls.length = 0;
+    assert.deepEqual(await adapter.action('reply', LINKEDIN_ID, { text: 'Hi there' }), { status: 'Sent.' });
+    assert.deepEqual(f.calls, ['linkedin:write:replay']);
+    await assert.rejects(adapter.action('reply', LINKEDIN_ID, { text: '  ' }), /needs the text to send/);
+    await assert.rejects(adapter.action('reply', 'not-a-conversation', { text: 'hi' }), /cannot receive a reply/);
+    for (const kind of ['archive', 'confirm', 'reject'] as const) {
+      await assert.rejects(adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /still need their own recorded actions/);
     }
   } finally { f.done(); }
 });

@@ -487,17 +487,17 @@ function Inbox({ threadId }: { threadId: string | null }) {
   }
   async function sendMessage() {
     if(!selected||selected.account==='whatsapp'||busy||!sendable||!text.trim())return;
-    const chatId = selected.id, draft = text.trim();
+    const chatId = selected.id, draft = text.trim(), account = selected.account;
     setBusy(true); setStatus('');
     try {
-      const result = await rpc.call('action', { account: 'imessage', id: chatId, action: 'reply', text: draft });
+      const result = await rpc.call('action', { account, id: chatId, action: 'reply', text: draft });
       pinnedBottom.current = true;
-      clearComposerDraft('imessage', chatId);
+      clearComposerDraft(account, chatId);
       setText('');
       const sentAt = Date.now();
       setMessages(old => messagesAfterSend(old, draft, sentAt));
       setStatus(result.status);
-      try { const opened = await rpc.call('open', { account: 'imessage', id: chatId }); setMessages(messagesAfterSend(opened.messages, draft, sentAt)); } catch { /* the bubble already on screen stays */ }
+      try { const opened = await rpc.call('open', { account, id: chatId }); setMessages(messagesAfterSend(opened.messages, draft, sentAt)); } catch { /* the bubble already on screen stays */ }
       try { const listed = await rpc.call('list_source', { account: 'imessage' }); setItems(old => [...listed.items, ...old.filter(item => item.account !== 'imessage')].sort((a,b) => b.date-a.date)); } catch { /* the open chat does not depend on the list */ }
     } catch (e) { setText(draft); setStatus(e instanceof Error ? e.message : 'The message was not sent.'); }
     finally { setBusy(false); }

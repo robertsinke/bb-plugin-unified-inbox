@@ -11,7 +11,7 @@ import type { RegistryDeps } from '../../src/adapters/deps.ts';
 import type { Account, Adapter } from '../../src/adapters/types.ts';
 import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
 
-export const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
+export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
 export const IMSG_ID = '50';
 
