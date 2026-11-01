@@ -56,6 +56,7 @@ export const rpcContract = defineRpcContract({
     allow: z.literal('send').optional(),
     recipient: z.string().min(1).max(120).optional(),
     conversation: z.string().min(1).max(512).optional(),
+    invitation: z.string().min(1).max(120).optional(),
     replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
@@ -185,7 +186,7 @@ export default function plugin(bb: BbPluginApi) {
       const target = step.control;
       if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
       if (step.op === 'click') {
-        const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}), ...(step.conversation ? { conversation: step.conversation } : {}) } : undefined;
+        const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}), ...(step.conversation ? { conversation: step.conversation } : {}), ...(step.invitation ? { invitation: step.invitation } : {}) } : undefined;
         const answered = await clickNamedControl(target, step.role, allowed);
         return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }
