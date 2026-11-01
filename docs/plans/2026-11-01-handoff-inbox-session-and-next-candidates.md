@@ -116,6 +116,25 @@ should fold into `tick`.
 - Three child worktrees and branches are still on disk and are safe to remove once you are
   satisfied: `thr_xteuh95ctx`, `thr_eb5xpf6ht4`, `thr_up7pqcxwmh` (all merged).
 
+## Specs already written (branches waiting for an implementer)
+
+Two of the four remaining candidates are now specifications rather than ideas. Both are red
+on purpose and both are committed off `main`, so `main` stays green.
+
+- **Candidate 2** — `bb/deepen-the-linkedin-page-seam`, commit `85cdf1c`,
+  `tests/linkedin-page-session.test.ts`. Six tests naming `createLinkedInPageSession(evaluate)`
+  with `list()` / `thread(id)` / `probe(mailbox)`, typed payloads out of the envelope, one round
+  trip per read, a non-conversation id refused before the page is asked, and a non-envelope
+  reply refused instead of read as an empty inbox. **Being implemented** in child thread
+  `thr_echmjrcrw3`; the parent merges, builds and verifies `linkedin_sync` returns 131 rows.
+- **Candidate 4** — `bb/declare-capabilities-once`, commit `a612b90`,
+  `tests/capability-keys.test.ts`. Three tests requiring `CAPABILITY_KEYS`, a `NO_CAPABILITIES`
+  fallback derived from it, every adapter declaring every key, and a `capabilitiesSchema`
+  built from the same list that refuses a missing or invented capability. No implementer yet.
+
+Do not run both implementers at once: candidate 2 rewires the LinkedIn injection in
+`server.ts` and candidate 4 edits the gateway schema in the same file.
+
 ## Suggested first move
 
 Take candidate 2 with ub-mode discipline: write the failing test first — a fake page whose
