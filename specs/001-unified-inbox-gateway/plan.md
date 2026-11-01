@@ -1,7 +1,7 @@
 ---
 type: spec-plan
 description: "Build phases and risks for the Unified Inbox gateway and adapter refactor"
-status: draft
+status: shipped
 owner: robert
 created: 2026-10-29
 parent_spec: ./spec.md

@@ -1,7 +1,7 @@
 ---
 type: spec
 description: "Restructure Unified Inbox into one gateway with per-provider adapters, so agent-reachable surfaces narrow to one process (containment mechanism deferred to OQ-1)"
-status: draft
+status: shipped
 owner: robert
 target_release:
 created: 2026-10-29
