@@ -340,6 +340,6 @@ test('the recorder arms, dumps, and refuses to replay without approval', async (
 
   f.calls.length = 0;
   const sent = await adapter.replay!({ write, conversationId: LINKEDIN_ID, text: 'Hi there', confirm: true });
-  assert.deepEqual(sent, { ok: true, status: 200, body: null });
+  assert.deepEqual(sent, { ok: true, status: 200 });
   assert.deepEqual(f.calls, ['linkedin:write:replay']);
 });

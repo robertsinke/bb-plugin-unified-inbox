@@ -261,9 +261,9 @@ export interface LinkedInReplayInput {
 }
 
 export interface LinkedInReplayResult {
+  /** Whether the page accepted the write; a refusal carries the status it reported. */
   ok: boolean;
   status: number;
-  body: unknown;
 }
 
 export interface SyncResult {

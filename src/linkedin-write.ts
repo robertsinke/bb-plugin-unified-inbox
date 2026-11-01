@@ -40,8 +40,6 @@ export const LINKEDIN_WRITE_KEEP = 5;
 /** The only methods a replay may carry. A recorded GET is a read and is never replayed as a write. */
 const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
 
-export type ReplayResult = { ok: boolean; status: number; body: unknown };
-
 const pageExpression = (body: string) => `(() => {${body}})()`;
 
 /**

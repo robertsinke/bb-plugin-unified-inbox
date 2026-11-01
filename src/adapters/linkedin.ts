@@ -125,7 +125,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         }
         if (typeof input.text === 'string' && input.text) throw new Error('A mark-read replay carries no text.');
         const outcome = await deps.linkedInPage.replay(input.write);
-        return { ok: outcome.accepted, status: outcome.status, body: null };
+        return { ok: outcome.accepted, status: outcome.status };
       }
       if (!isMessageSend(input.write, input.conversationId)) {
         throw new Error('The recorded action is neither a message send nor a mark-read for this conversation; record the action through the UI instead.');
@@ -135,7 +135,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       if (text === null) throw new Error('The recorded send carries no single text field to repeat; supply the text to send.');
       const template = messageSendTemplate(input.write, input.conversationId, text);
       const outcome = await deps.linkedInPage.replay(template);
-      return { ok: outcome.accepted, status: outcome.status, body: null };
+      return { ok: outcome.accepted, status: outcome.status };
     },
 
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {
