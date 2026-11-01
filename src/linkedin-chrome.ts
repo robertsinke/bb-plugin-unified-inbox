@@ -17,13 +17,15 @@ import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
-  allowlistedRecipient,
   findControlExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
   recipientsExpression,
+  sendApprovalDecision,
+  threadUrnExpression,
   type PageControl,
+  type SendApproval,
 } from './linkedin-ui.ts';
 import { writeRecorderExpression } from './linkedin-write.ts';
 import { createAsyncGate } from './async-gate.ts';
@@ -391,23 +393,17 @@ async function typeAsKeys(page: Page, text: string): Promise<void> {
 export async function clickNamedControl(
   name: string,
   role?: string,
-  approval?: { allow: 'send'; recipient?: string },
+  approval?: SendApproval,
 ): Promise<{ clicked: boolean; name?: string; reason?: string; recipients?: string[] }> {
   const sending = isSendControl({ index: 0, role: role ?? 'button', name, tag: 'button', x: 0, y: 0, width: 0, height: 0, focused: false });
   if (sending) {
-    const wanted = allowlistedRecipient(approval?.recipient);
-    if (approval?.allow !== 'send' || !wanted) {
-      return { clicked: false, reason: `${JSON.stringify(name)} sends to LinkedIn; it needs { allow: 'send', recipient: '<allowlisted person>' }, and only allowlisted people can receive a test send.` };
-    }
+    // What the page says about the addressee: chips in a compose box, the open thread's own urn
+    // in a reply. The policy decision is one pure function, so it is tested without a browser.
     const chips = await evaluateInLinkedInProfile(recipientsExpression());
     const recipients = Array.isArray(chips) ? chips.map(chip => String(chip)) : [];
-    if (recipients.length !== 1 || allowlistedRecipient(recipients[0]) !== wanted) {
-      return {
-        clicked: false,
-        recipients,
-        reason: `This send is addressed to ${recipients.length ? recipients.join(', ') : 'nobody'}; only ${wanted} is allowlisted for a test send. Nothing was clicked.`,
-      };
-    }
+    const threadUrn = recipients.length ? '' : String(await evaluateInLinkedInProfile(threadUrnExpression()) ?? '');
+    const decision = sendApprovalDecision(approval, name, { recipients, threadUrn });
+    if (!decision.ok) return { clicked: false, recipients, reason: decision.reason };
   }
   return (await withLinkedInPage(page => withControl(page, name, role, async control => {
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {

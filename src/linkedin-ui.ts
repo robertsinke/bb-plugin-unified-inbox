@@ -1,3 +1,4 @@
+import { sameConversationUrn } from './linkedin-write.ts';
 /**
  * The LinkedIn page as a person drives it: what is on it, where it is, and which control a call
  * names.
@@ -253,6 +254,50 @@ export function recipientsExpression(): string {
   }
   return chips;
 })()`;
+}
+
+/**
+ * The conversation an open messaging page is showing, from the page's own URL — the one statement
+ * about the target that an in-thread reply has. A reply box carries no recipient chips, so the urn
+ * in `/messaging/thread/<urn>` is what a send approval must name.
+ */
+export function threadUrnExpression(): string {
+  return `(() => {
+  const thread = /^\\/messaging\\/thread\\/([^/?#]+)/.exec(location.pathname);
+  if (!thread) return '';
+  try { return decodeURIComponent(thread[1]); } catch (error) { return ''; }
+})()`;
+}
+
+/** What a caller approved about a send: who may receive it, and — for a reply in an open thread — the conversation itself. */
+export type SendApproval = { allow: 'send'; recipient?: string; conversation?: string };
+
+/** The send policy's answer: either the click may go out, or the reason it may not. */
+export type SendDecision = { ok: true; recipient: string } | { ok: false; reason: string };
+
+/**
+ * The whole send policy in one decision, so it can be tested without a page.
+ *
+ * The recipient must be allowlisted, and the page must agree about who is on the receiving end:
+ * a compose box says it with recipient chips, an open thread says it with the conversation its own
+ * URL names. `observed` carries whichever of those the page offered — the caller reads the chips
+ * first and the thread urn only when there are no chips to read.
+ */
+export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadUrn: string }): SendDecision {
+  const wanted = allowlistedRecipient(approval?.recipient);
+  if (approval?.allow !== 'send' || !wanted) {
+    return { ok: false, reason: `${JSON.stringify(controlName)} sends to LinkedIn; it needs { allow: 'send', recipient: '<allowlisted person>' }, and only allowlisted people can receive a test send.` };
+  }
+  if (observed.recipients.length > 0) {
+    if (observed.recipients.length !== 1 || allowlistedRecipient(observed.recipients[0]) !== wanted) {
+      return { ok: false, reason: `This send is addressed to ${observed.recipients.join(', ')}; only ${wanted} is allowlisted for a test send. Nothing was clicked.` };
+    }
+    return { ok: true, recipient: wanted };
+  }
+  if (!approval.conversation || !sameConversationUrn(observed.threadUrn, approval.conversation)) {
+    return { ok: false, reason: `The page shows ${observed.threadUrn ? `conversation ${observed.threadUrn}` : 'no open conversation'}; the approval names ${approval.conversation ? `conversation ${approval.conversation}` : 'no conversation'}. Nothing was clicked.` };
+  }
+  return { ok: true, recipient: wanted };
 }
 
 // LinkedIn's own labels for the irreversible click: the modal's send button says "Compose message"

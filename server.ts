@@ -11,7 +11,7 @@ import {
   openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
-import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
+import { allowlistedRecipient, describeControlExpression, pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
 import { createGwsRunner } from './src/adapters/gws';
@@ -55,6 +55,7 @@ export const rpcContract = defineRpcContract({
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
     recipient: z.string().min(1).max(120).optional(),
+    conversation: z.string().min(1).max(512).optional(),
     replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
@@ -184,7 +185,16 @@ export default function plugin(bb: BbPluginApi) {
       const target = step.control;
       if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
       if (step.op === 'click') {
-        const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}) } : undefined;
+        // When the approval names a conversation, the cached row for that urn has to belong to
+        // the allowlisted person it names: the page-side guard checks what the page shows, and
+        // this checks the urn was picked for the person the approval says it was.
+        if (step.allow === 'send' && step.conversation) {
+          const row = (await registry.linkedin.list()).items.find(item => item.id === step.conversation);
+          if (allowlistedRecipient(row?.title) !== allowlistedRecipient(step.recipient)) {
+            throw new Error(`That conversation does not belong to ${step.recipient ?? 'the allowlisted person'}; nothing was clicked.`);
+          }
+        }
+        const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}), ...(step.conversation ? { conversation: step.conversation } : {}) } : undefined;
         const answered = await clickNamedControl(target, step.role, allowed);
         return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }

@@ -14,6 +14,9 @@ import {
   recipientsExpression,
   LINKEDIN_SEND_ALLOWLIST,
   describeControlExpression,
+  sendApprovalDecision,
+  threadUrnExpression,
+  type SendApproval,
 } from '../src/linkedin-ui.ts';
 import { writeRecorderExpression } from '../src/linkedin-write.ts';
 
@@ -268,4 +271,32 @@ test('a pattern reaches the page with its backslash intact', () => {
   // because the behaviour alone looks like "no chips on screen".
   assert.ok(recipientsExpression().includes('^remove\\s+(.+)$'), 'the chip pattern lost its backslash on the way to the page');
   assert.ok(!recipientsExpression().includes('^removes+'));
+});
+
+test('the thread urn is read from the page URL, because a reply box has no chips', () => {
+  const expression = threadUrnExpression();
+  // The regex escapes must survive the template literal, or the page reads every path as empty.
+  assert.ok(expression.includes('/^\\/messaging\\/thread\\/([^/?#]+)/'), 'the thread pattern lost a backslash');
+  const read = new Function('location', `return (${expression});`);
+  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
+  assert.equal(read({ pathname: `/messaging/thread/${encodeURIComponent(urn)}` }), urn);
+  assert.equal(read({ pathname: "/messaging/thread/urn%3Abroken%'))" }), ''); // a bad encoding is nothing, not a guess
+  assert.equal(read({ pathname: '/messaging/' }), '');
+});
+
+test('an in-thread send is allowed only when the approval names the conversation on screen', () => {
+  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
+  const approval: SendApproval = { allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe', conversation: urn };
+  // A reply box has no chips, so the thread urn decides — matching urn passes, anything else refuses.
+  assert.deepEqual(sendApprovalDecision(approval, 'Send', { recipients: [], threadUrn: urn }), { ok: true, recipient: 'andrea sophie stave lepsøe' });
+  assert.equal(sendApprovalDecision({ ...approval, conversation: 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)' }, 'Send', { recipients: [], threadUrn: urn }).ok, false);
+  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: [], threadUrn: urn }).ok, false);
+  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: [], threadUrn: '' }).ok, false);
+  // The compose box path is unchanged: the chips decide there, and the urn is never consulted.
+  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadUrn: '' }).ok, true);
+  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: ['Robert Sinke'], threadUrn: urn }).ok, false);
+  // And the name gate still comes first, whichever box the send sits in.
+  const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadUrn: urn });
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send', recipient/);
 });
