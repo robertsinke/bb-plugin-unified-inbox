@@ -45,7 +45,7 @@ Five deepening candidates were produced from the last 40 commits' hot spots. The
 a throwaway HTML in `/var/folders/mj/zv4n8_m97s36zfffxyj1vnjw0000gn/T/architecture-review-20261101-164721.html`
 (regenerate rather than rely on it). Candidate 1 is **done**: the panel is a session.
 
-### Candidate 2 (Strong, not started) — deepen the LinkedIn page seam
+### Candidate 2 (done) — the LinkedIn page seam is a typed session
 
 The seam between `src/adapters/linkedin.ts` and the page is **a `string` in and `unknown`
 out**: 13 exported `*Expression()` builders across `linkedin-chrome.ts` (551 lines),
@@ -55,10 +55,17 @@ source text. Three production faults landed on exactly this seam: the `{ok, payl
 envelope read as an empty inbox, a bare-array recorder read-back, and a backslash eaten by
 a template literal.
 
-Deepening: one `page session` module — `read(mode)`, `thread(id)`, `probe(mailbox)`,
-`record(op)`, `replay(write)` — owning expression construction, envelope unwrapping, and
-the read-out shape. Tests then assert behaviour instead of source strings, and a fake page
-substitutes for Chrome.
+**Done** (`30fa9fe`, 235 tests): `src/linkedin-page-session.ts` —
+`createLinkedInPageSession(evaluate)` with `list()`, `thread(id)`, `probe(mailbox)`. It owns
+`linkedinPageExpression`, `linkedinProbeExpression` and `linkedinReadResult` (moved out of
+`linkedin-chrome.ts`, whose only job is now the browser). `RegistryDeps.linkedInPage` replaced
+`readLinkedIn` + `probeLinkedIn`, so the adapter's three casts are gone. One tightening to
+know: list and probe now refuse a payload missing either row array — safe because
+`linkedinPageExpression` returns `{conversations, invitations}` and the probe returns those
+plus `mailboxUrn`.
+
+Left for later: `runLinkedInWrite` still returns `unknown` and every caller casts
+`{ok, status, body}` — the same seam on the write side.
 
 ### Candidate 3 (Worth exploring) — one media primitive
 
@@ -121,19 +128,14 @@ should fold into `tick`.
 Two of the four remaining candidates are now specifications rather than ideas. Both are red
 on purpose and both are committed off `main`, so `main` stays green.
 
-- **Candidate 2** — `bb/deepen-the-linkedin-page-seam`, commit `85cdf1c`,
-  `tests/linkedin-page-session.test.ts`. Six tests naming `createLinkedInPageSession(evaluate)`
-  with `list()` / `thread(id)` / `probe(mailbox)`, typed payloads out of the envelope, one round
-  trip per read, a non-conversation id refused before the page is asked, and a non-envelope
-  reply refused instead of read as an empty inbox. **Being implemented** in child thread
-  `thr_echmjrcrw3`; the parent merges, builds and verifies `linkedin_sync` returns 131 rows.
+- **Candidate 2** — **merged** (`30fa9fe`), see above. Live proof: `list` 131 rows / 0 errors,
+  `linkedin_sync` 21 rows / 0 errors in 3.96 s through the new seam.
 - **Candidate 4** — `bb/declare-capabilities-once`, commit `a612b90`,
   `tests/capability-keys.test.ts`. Three tests requiring `CAPABILITY_KEYS`, a `NO_CAPABILITIES`
   fallback derived from it, every adapter declaring every key, and a `capabilitiesSchema`
   built from the same list that refuses a missing or invented capability. No implementer yet.
 
-Do not run both implementers at once: candidate 2 rewires the LinkedIn injection in
-`server.ts` and candidate 4 edits the gateway schema in the same file.
+Only candidate 4 is unclaimed now.
 
 ## Suggested first move
 
