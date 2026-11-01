@@ -288,7 +288,9 @@ test('the recorder arms, dumps, and refuses to replay without approval', async (
   const adapter = f.registry.linkedin;
 
   assert.deepEqual(await adapter.record!('arm'), { installed: true, recording: true });
-  assert.deepEqual(await adapter.record!('dump'), { writes: [] });
+  // A dump also reports whether the wrappers were called at all: "nothing recorded" and "never watched"
+  // are different answers.
+  assert.deepEqual(await adapter.record!('dump'), { writes: [], seen: null });
 
   // A recorded write of a message send: the only shape replay accepts.
   const write = {
