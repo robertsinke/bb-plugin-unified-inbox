@@ -72,6 +72,14 @@ plus `mailboxUrn`.
 Left for later: `runLinkedInWrite` still returns `unknown` and every caller casts
 `{ok, status, body}` — the same seam on the write side.
 
+**Write half done** (`f750b84`): that cast is gone. `LinkedInPageSession.replay(write)` builds
+the expression with `replayWriteExpression`, evaluates once, and returns `{accepted, status}` or
+refuses an answer that is not `{ok: boolean, status: number}` — so a page answering `true`,
+`null`, `{}` or `{ok: 'yes'}` no longer reads as "did not accept (status 0)". The recorder's
+dump and clear moved into the session too, `RegistryDeps.runLinkedInWrite` is gone, and
+`linkedin_replay` answers `{ok, status}` (`d40f468`) because the seam no longer carries the
+page's raw answer.
+
 ### Candidate 3 (Worth exploring) — one media primitive
 
 Three RPC coordinates express one idea — `media`, `attachment`, `imsg_media` — and the

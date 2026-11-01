@@ -1,3 +1,5 @@
+import type { LinkedInRecorderStats } from '../linkedin-page-session.ts';
+
 // Shared adapter contract for the unified inbox gateway.
 // Spec: specs/001-unified-inbox-gateway/spec.md — Migration state 3: the
 // adapters in this directory and the registry in ./index.ts implement these
@@ -234,7 +236,7 @@ export interface LinkedInRecordResult {
   /** Present for `dump`: what the recorder has seen, newest last. */
   writes?: RecordedWrite[];
   /** Present for `dump`: whether the wrappers were called at all, and why they rejected anything. */
-  seen?: { fetch: number; xhr: number; considered: number; skipped: Record<string, number>; pushed?: number; stored?: number; last?: string; same?: boolean } | null;
+  seen?: LinkedInRecorderStats | null;
 }
 
 export interface LinkedInReplayInput {
@@ -247,9 +249,9 @@ export interface LinkedInReplayInput {
 }
 
 export interface LinkedInReplayResult {
+  /** Whether the page accepted the write; a refusal carries the status it reported. */
   ok: boolean;
   status: number;
-  body: unknown;
 }
 
 export interface SyncResult {

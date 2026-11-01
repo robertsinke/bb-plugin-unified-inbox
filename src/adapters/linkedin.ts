@@ -10,22 +10,14 @@ import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linked
 import type { LinkedInProbePayload } from '../linkedin-page-session.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import {
-  clearRecordedWritesExpression,
   isMessageSend,
   linkedinInvitationWrite,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
   sameConversationUrn,
-  LINKEDIN_WRITE_KEEP,
-  LINKEDIN_WRITE_LIMIT,
   messageSendTemplate,
   recordedSendText,
-  recordedWritesExpression,
-  recorderStatsExpression,
-  replayWriteExpression,
-  writeBytes,
-  type RecordedWrite,
 } from '../linkedin-write.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -37,19 +29,6 @@ import type {
 const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxUrn(payload?.mailboxUrn);
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false };
-
-/** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
-function recordedWrites(value: unknown): RecordedWrite[] {
-  const rows = Array.isArray(value) ? value : [];
-  return rows.flatMap(row => {
-    if (!row || typeof row !== 'object') return [];
-    const write = row as Partial<RecordedWrite>;
-    if (typeof write.method !== 'string' || typeof write.url !== 'string' || typeof write.body !== 'string') return [];
-    if (!/^[A-Z]{3,7}$/.test(write.method)) return [];
-    if (writeBytes(write.body) > LINKEDIN_WRITE_LIMIT) return [];
-    return [{ method: write.method, url: write.url.slice(0, 2048), body: write.body, capturedAt: Number(write.capturedAt) || 0 }];
-  }).slice(-LINKEDIN_WRITE_KEEP);
-}
 
 const ACCOUNT = 'linkedin';
 
@@ -124,12 +103,12 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         return { installed: armed?.installed === true, recording: armed?.recording === true };
       }
       if (op === 'clear') {
-        await deps.runLinkedInWrite(clearRecordedWritesExpression());
+        await deps.linkedInPage.clearRecorded();
         return { installed: true, recording: true, writes: [] };
       }
-      const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
-      const seen = await deps.runLinkedInWrite(recorderStatsExpression()) as LinkedInRecordResult['seen'];
-      return { writes: recordedWrites(dumped?.writes), seen: seen ?? null };
+      // A dump also says whether the wrappers were called at all: "nothing recorded" and "never
+      // watched" are different answers, and the page session parses both.
+      return deps.linkedInPage.recorded();
     },
 
     /**
@@ -145,8 +124,8 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
           throw new Error('The recorded action marks a different conversation as read; record the action again in this one.');
         }
         if (typeof input.text === 'string' && input.text) throw new Error('A mark-read replay carries no text.');
-        const result = await deps.runLinkedInWrite(replayWriteExpression(input.write)) as { ok?: unknown; status?: unknown; body?: unknown };
-        return { ok: result?.ok === true, status: Number(result?.status) || 0, body: result?.body ?? null };
+        const outcome = await deps.linkedInPage.replay(input.write);
+        return { ok: outcome.accepted, status: outcome.status };
       }
       if (!isMessageSend(input.write, input.conversationId)) {
         throw new Error('The recorded action is neither a message send nor a mark-read for this conversation; record the action through the UI instead.');
@@ -155,8 +134,8 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       const text = typeof input.text === 'string' ? input.text : recorded;
       if (text === null) throw new Error('The recorded send carries no single text field to repeat; supply the text to send.');
       const template = messageSendTemplate(input.write, input.conversationId, text);
-      const result = await deps.runLinkedInWrite(replayWriteExpression(template)) as { ok?: unknown; status?: unknown; body?: unknown };
-      return { ok: result?.ok === true, status: Number(result?.status) || 0, body: result?.body ?? null };
+      const outcome = await deps.linkedInPage.replay(template);
+      return { ok: outcome.accepted, status: outcome.status };
     },
 
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {
@@ -202,24 +181,24 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
           action: kind === 'confirm' ? 'accept' : 'ignore',
         });
         if (!write) throw new Error('That LinkedIn invitation cannot be answered.');
-        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
-        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the answer (status ${Number(result?.status) || 0}); the invitation was not ${kind === 'confirm' ? 'accepted' : 'ignored'}.`);
+        const outcome = await deps.linkedInPage.replay(write);
+        if (!outcome.accepted) throw new Error(`LinkedIn did not accept the answer (status ${outcome.status}); the invitation was not ${kind === 'confirm' ? 'accepted' : 'ignored'}.`);
         return { status: kind === 'confirm' ? 'Accepted.' : 'Ignored.' };
       }
       if (CAPABILITIES.send && kind === 'reply') {
         const text = typeof opts?.text === 'string' ? opts.text.trim() : '';
         const write = text ? linkedinSendWrite(id, text) : null;
         if (!write) throw new Error(id.startsWith('urn:li:msg_conversation:') ? 'A reply needs the text to send.' : 'That LinkedIn conversation cannot receive a reply.');
-        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
+        const outcome = await deps.linkedInPage.replay(write);
         // A failed answer leaves the send uncertain, exactly as for Messages: it is reported, never retried.
-        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the message (status ${Number(result?.status) || 0}); it may still have been sent — check the thread before trying again.`);
+        if (!outcome.accepted) throw new Error(`LinkedIn did not accept the message (status ${outcome.status}); it may still have been sent — check the thread before trying again.`);
         return { status: 'Sent.' };
       }
       if (canChange(CAPABILITIES, kind) && (kind === 'read' || kind === 'unread')) {
         const write = markReadWrite(id, kind === 'read');
         if (!write) throw new Error('That LinkedIn conversation cannot be marked.');
-        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
-        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the read mark (status ${Number(result?.status) || 0}).`);
+        const outcome = await deps.linkedInPage.replay(write);
+        if (!outcome.accepted) throw new Error(`LinkedIn did not accept the read mark (status ${outcome.status}).`);
         if (kind === 'read') cache.dropUnread(ACCOUNT, id);
         else cache.keepUnread(ACCOUNT, id);
         return { status: 'Updated.' };
