@@ -250,3 +250,73 @@ test('constructing a session calls nothing; start() runs the first load once', a
   await settle();
   assert.equal(rpc.calls.filter((call: { name: string }) => call.name === 'cached').length, 1, 'a second start is a no-op');
 });
+
+test('the last open wins: a slow first thread never replaces the second', async () => {
+  const first = row({ id: 'chat-1', unread: false });
+  const second = row({ id: 'chat-2', unread: false });
+  let releaseFirst: () => void = () => {};
+  const firstThread: Message = { sender: 'Ada', text: 'first thread', date: 1 };
+  const secondThread: Message = { sender: 'Ada', text: 'second thread', date: 2 };
+  const rpc = fakeRpc({
+    cached: () => ({ items: [first, second] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [first, second] : [] }),
+    cached_open: () => ({ messages: [] }),
+    open: input => input.id === 'chat-1'
+      ? new Promise(resolve => { releaseFirst = () => resolve({ messages: [firstThread] }); })
+      : { messages: [secondThread] },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  // Both opens start; the first is still in flight when the second lands.
+  const slow = session.open(first);
+  await settle();
+  await session.open(second);
+  assert.deepEqual(session.snapshot().messages, [secondThread], 'the second thread is on screen');
+  assert.equal(session.snapshot().selected?.id, 'chat-2');
+
+  // The first thread now answers, late. It must not touch the panel.
+  releaseFirst();
+  await slow;
+  await settle();
+  assert.deepEqual(session.snapshot().messages, [secondThread], 'the late answer is dropped, not shown');
+  assert.equal(session.snapshot().selected?.id, 'chat-2', 'the selection is unchanged');
+  assert.equal(session.snapshot().opening, false);
+});
+
+test('a refused mark puts the row back exactly as it stood', async () => {
+  const target = row({ unread: false });
+  const neighbour = row({ id: 'chat-2', unread: true });
+  const cachedThread: Message = { sender: 'Ada', text: 'cached', date: 1 };
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target, neighbour] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target, neighbour] : [] }),
+    cached_open: () => ({ messages: [cachedThread] }),
+    open: () => ({ messages: [cachedThread] }),
+    action: () => { throw new Error('WhatsApp refused the update.'); },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.open(target);
+
+  // Optimistic: the row and the open thread change before the source answers.
+  const pending = session.mark(target, 'archive');
+  assert.equal(
+    session.snapshot().items.some(item => item.id === 'chat-1'),
+    false,
+    'archiving hides the row at once',
+  );
+  assert.equal(session.snapshot().selected, null, 'and closes the thread it had open');
+
+  await pending;
+  const after = session.snapshot();
+  assert.deepEqual(
+    after.items.map(item => [item.id, item.unread]),
+    [['chat-1', false], ['chat-2', true]],
+    'every row is back, in order, as it stood',
+  );
+  assert.equal(after.selected?.id, 'chat-1', 'the open thread is restored');
+  assert.equal(after.status, 'WhatsApp refused the update.', 'and the reason is on screen');
+});
