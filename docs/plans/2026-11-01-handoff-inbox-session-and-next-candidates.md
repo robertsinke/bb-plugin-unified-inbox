@@ -134,6 +134,28 @@ carries its reason (Messages keeps its own guidance). Proven live: one RPC answe
 accounts (LinkedIn 21 rows, `reason: 'read'`, through the probe; the live lists unchanged);
 `list` cache still 131 rows.
 
+## Send gate (INBOX-7, `e54d12e`, 260 tests)
+
+`src/adapters/policy.ts` holds the one gate: `createSendGate({ now, audit })` returns
+`send(request, approval, deliver)` and **owns the delivery call**, so a refusal means the adapter was
+never reached. Rules in order: the source's `SEND_POLICY` (Gmail disabled with its old wording,
+chat sources enabled), a missing approval, an approval naming another conversation, one older than
+`APPROVAL_WINDOW_MS` (5 min, one constant), an approval already spent. Every attempt — allowed or
+refused — is written to `inbox_send_audit` in the plugin database with account, conversation id,
+decision and reason, and **never** message text or bytes; read it with
+`bb unified-inbox send-audit [limit]`. A chat send needs the caller to state `allow: 'send'`; the
+owner's composer click (`inbox-session.submit`) is that statement, and `approvalFor` mints nothing
+without it.
+
+Live proof: a `reply` without `allow: 'send'` was refused ("A send needs an approval for the
+conversation it goes to; nothing was sent."), the row survived a plugin reload, and no body text
+appears in the audit. Gmail's refusal text is unchanged. What the gate is **not**: containment or
+identity verification — a host-issued approval token replaces `approvalFor` without touching the
+gate (OQ-1).
+
+Known papercut: `send_gmail`'s input schema still requires `cc` (empty string accepted), so a
+minimal caller sees `invalid_input` instead of the policy refusal.
+
 ## Test work
 
 Both were written and proven by breaking the guard and watching them fail (`tests/inbox-session.test.ts`):
