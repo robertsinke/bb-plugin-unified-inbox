@@ -15,7 +15,7 @@ import {
 import { createLinkedInPageSession } from './src/linkedin-page-session';
 import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
-import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
+import { item, message, rpcContract } from './src/rpc-contract';
 import { createGwsRunner } from './src/adapters/gws';
 import { accounts, createRegistry, registryCapabilities } from './src/adapters/index';
 import { capabilitiesSchema } from './src/adapters/capability';
@@ -31,59 +31,6 @@ import type { Account, Conversation } from './src/adapters/types';
 // refusal and the audit record are owned in one place. How a source lists, opens,
 // serves media and acts lives in src/adapters/ — never here.
 
-const account = z.enum(accounts);
-const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
-const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), url: z.string().optional() });
-const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
-const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
-const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
-const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
-const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
-export const rpcContract = defineRpcContract({
-  list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
-  cached: { input: z.null(), output: z.object({ items: z.array(item) }) },
-  search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
-  search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
-  cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
-  clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
-  // One refresh primitive for every source: the adapter for the account decides
-  // whether the answer comes from its cache, a probe, or a live read.
-  sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
-  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
-  // The page driver behind slice D's recording procedure: one call, one step, one control by index.
-  // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
-  linkedin_ui: { input: z.object({
-    op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press', 'describe']),
-    path: z.string().max(512).optional(),
-    role: z.string().max(32).optional(),
-    index: z.number().int().min(0).max(599).optional(),
-    text: z.string().max(20_000).optional(),
-    control: z.string().min(1).max(120).optional(),
-    key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
-    allow: z.literal('send').optional(),
-    recipient: z.string().min(1).max(120).optional(),
-    conversation: z.string().min(1).max(512).optional(),
-    invitation: z.string().min(1).max(120).optional(),
-    replace: z.boolean().optional(),
-  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
-  linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
-  linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
-  linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative() }) },
-  linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
-  media: {
-    input: z.discriminatedUnion('kind', [
-      messageMediaRequestSchema.extend({ account }),
-      imsgMediaRequestSchema.extend({ account }),
-      attachmentMediaRequestSchema.extend({ account }),
-    ]),
-    output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().max(255).optional(), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT).optional(), url: z.string().optional() }),
-  },
-  // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
-  // refuses and records the attempt: a send is never approved by merely happening.
-  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
-  send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header.optional(), subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
-  capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
-});
 
 /** The name a person knows a source by, used only when a failure has nothing specific to say. */
 const SOURCE_LABEL: Record<Account, string> = {
@@ -233,13 +180,17 @@ export default function plugin(bb: BbPluginApi) {
         () => registry[source].action(action, id, { text }),
       );
     },
+    async send_audit({ limit }) {
+      return { rows: sendAudit.list(limit ?? 5) };
+    },
     async send_gmail(input) {
       const deliver = registry[input.account].send;
       if (!deliver) throw new Error('This source cannot send from the inbox.');
-      // Disabled by SEND_POLICY in the gate, which refuses before it looks at an approval.
+      // Disabled by SEND_POLICY in the gate today; the approval is wired anyway, so enabling
+      // Gmail is a policy flip rather than a new approval path.
       return sendGate(
         { account: input.account, conversationId: input.threadId ?? input.to, text: input.text },
-        undefined,
+        approvalFor(input.allow, input.threadId ?? input.to, Date.now()),
         () => deliver({ kind: 'gmail', ...input }, {}),
       );
     },

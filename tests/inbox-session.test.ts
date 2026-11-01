@@ -194,7 +194,11 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   const before = rpc.calls.length;
   await session.submit();
 
-  assert.deepEqual(rpc.calls.slice(before).map(call => call.name), ['action', 'open', 'sync'], 'one reply, then the reconciliation');
+  assert.deepEqual(
+    rpc.calls.slice(before).map(call => call.name),
+    ['action', 'open', 'sync', 'send_audit'],
+    'one reply, the reconciliation, then the decision log the panel shows',
+  );
   assert.deepEqual(
     rpc.calls[before].input,
     { account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'On my way', allow: 'send' },
@@ -323,4 +327,37 @@ test('a refused mark puts the row back exactly as it stood', async () => {
   );
   assert.equal(after.selected?.id, 'chat-1', 'the open thread is restored');
   assert.equal(after.status, 'WhatsApp refused the update.', 'and the reason is on screen');
+});
+
+test('a refused send is visible in the panel, not only in the CLI', async () => {
+  const target = row({ unread: false });
+  const recorded = [
+    { at: 1_700_000_000_000, account: 'whatsapp', conversationId: 'chat-1', decision: 'refused', reason: 'A send needs an approval for the conversation it goes to; nothing was sent.' },
+  ];
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
+    cached_open: () => ({ messages: [{ sender: 'Ada', text: 'hi', date: 1 }] }),
+    open: () => ({ messages: [{ sender: 'Ada', text: 'hi', date: 1 }] }),
+    send_audit: () => ({ rows: recorded }),
+    action: () => { throw new Error('A send needs an approval for the conversation it goes to; nothing was sent.'); },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.setDraft('see you at six');
+  await session.submit();
+
+  assert.equal(
+    rpc.calls.filter(call => call.name === 'send_audit').length > 0,
+    true,
+    'a send attempt re-reads the decision log',
+  );
+  const audit = session.snapshot().audit;
+  assert.deepEqual(
+    audit.map(entry => [entry.decision, entry.account]),
+    [['refused', 'whatsapp']],
+    'and the refused attempt is in the snapshot the panel renders',
+  );
 });

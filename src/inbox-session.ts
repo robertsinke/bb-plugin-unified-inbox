@@ -50,6 +50,17 @@ export interface InboxSnapshot {
   refreshingInbox: boolean;
   mail: MailDraft | null;
   mailStatus: string;
+  /** What the send gate decided, newest first — the same rows the CLI prints. */
+  audit: SendAuditEntry[];
+}
+
+/** One send decision, as the gate recorded it: no message text, ever. */
+export interface SendAuditEntry {
+  at: number;
+  account: Account;
+  conversationId: string;
+  decision: 'allowed' | 'refused';
+  reason?: string;
 }
 
 export interface InboxSessionDeps {
@@ -138,6 +149,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     refreshedAt: {},
     refreshingInbox: false,
     mail: null,
+    audit: [],
     mailStatus: '',
   };
 
@@ -250,8 +262,18 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         setItems(cached.items);
         notify();
       } catch { /* the next sync still fills the list */ }
+      void loadAudit();
       void refresh();
     })();
+  }
+
+  /** The last few send decisions, so a refusal is visible where it happened. */
+  async function loadAudit(): Promise<void> {
+    try {
+      const { rows } = await deps.rpc.call('send_audit', { limit: 5 });
+      state.audit = rows;
+      notify();
+    } catch { /* the CLI still has the full log */ }
   }
 
   async function refresh(sources: Account[] = DEFAULT_SOURCES): Promise<void> {
@@ -434,6 +456,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       state.status = error instanceof Error ? error.message : 'The message was not sent.';
       notify();
     } finally {
+      void loadAudit();
       state.busy = false;
       notify();
     }
@@ -485,6 +508,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       state.mailStatus = error instanceof Error ? error.message : 'Send outcome unknown. Check Gmail Sent before retrying.';
       notify();
     } finally {
+      void loadAudit();
       state.busy = false;
       notify();
     }
