@@ -15,6 +15,7 @@ import {
   messageSendTemplate,
   recordedSendText,
   recordedWritesExpression,
+  recorderStatsExpression,
   replayWriteExpression,
   writeBytes,
   type RecordedWrite,
@@ -108,7 +109,8 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         return { installed: true, recording: true, writes: [] };
       }
       const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
-      return { writes: recordedWrites(dumped?.writes) };
+      const seen = await deps.runLinkedInWrite(recorderStatsExpression()) as LinkedInRecordResult['seen'];
+      return { writes: recordedWrites(dumped?.writes), seen: seen ?? null };
     },
 
     /**

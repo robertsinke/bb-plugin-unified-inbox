@@ -67,22 +67,26 @@ export function writeRecorderExpression(): string {
       if (origin && text.startsWith(origin + '/voyager/api/')) return text.slice(origin.length);
       return text.startsWith('/voyager/api/') ? text : '';
     };
+    const seen = window.__unifiedInboxSeen || (window.__unifiedInboxSeen = { fetch: 0, xhr: 0, considered: 0, skipped: {} });
+    const skip = reason => { seen.skipped[reason] = (seen.skipped[reason] || 0) + 1; };
     const capture = (input, init) => {
+      seen.considered += 1;
       const requested = init && typeof init.method === 'string' ? init.method : input && typeof input === 'object' && typeof input.method === 'string' ? input.method : 'GET';
       const method = String(requested).toUpperCase();
-      if (method === 'GET' || method === 'HEAD') return;
+      if (method === 'GET' || method === 'HEAD') return skip('read');
       const path = pathOf(typeof input === 'string' ? input : input && typeof input === 'object' ? input.url : '');
-      if (!path) return;
+      if (!path) return skip('path');
       // Only a body the page handed us as a string can be recorded byte for byte; a stream or blob
       // is left alone rather than described by guesswork.
       const body = init && typeof init.body === 'string' ? init.body : '';
-      if (!body || new TextEncoder().encode(body).length > LIMIT) return;
+      if (!body) return skip('no-body');
+      if (new TextEncoder().encode(body).length > LIMIT) return skip('too-big');
       list.push({ method, url: path, body, capturedAt: Date.now() });
       while (list.length > KEEP) list.shift();
     };
     const original = window.fetch;
     window.fetch = function (input, init) {
-      try { capture(input, init); } catch (error) { /* the page's own call is not the recorder's to break */ }
+      try { seen.fetch += 1; capture(input, init); } catch (error) { /* the page's own call is not the recorder's to break */ }
       return original.apply(this, arguments);
     };
     // XHR carries no init object, so the method and url are remembered at open() and the body at send().
@@ -95,7 +99,7 @@ export function writeRecorderExpression(): string {
         return open.apply(this, arguments);
       };
       XHR.send = function (body) {
-        try {
+        try { seen.xhr += 1;
           const opened = this.__unifiedInboxOpen;
           if (opened) capture(opened.url, { method: opened.method, body });
         } catch (error) { /* same rule: never break the page's call */ }
@@ -104,6 +108,17 @@ export function writeRecorderExpression(): string {
     }
     Object.defineProperty(window, INSTALLED, { value: true });
     return { installed: true, recording: true };
+  `);
+}
+
+/**
+ * What the wrappers have seen, apart from the writes they accepted: a page whose app captured its own
+ * transport shows zero here, while a filter that is too strict shows calls with a skip reason.
+ */
+export function recorderStatsExpression(): string {
+  return pageExpression(`
+    const seen = window.__unifiedInboxSeen;
+    return seen ? { fetch: seen.fetch || 0, xhr: seen.xhr || 0, considered: seen.considered || 0, skipped: seen.skipped || {} } : null;
   `);
 }
 
