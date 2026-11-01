@@ -57,7 +57,7 @@ export const rpcContract = defineRpcContract({
     recipient: z.string().min(1).max(120).optional(),
     replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
-  linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump', 'probe']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional(), probe: z.unknown().optional() }) },
+  linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
   linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
