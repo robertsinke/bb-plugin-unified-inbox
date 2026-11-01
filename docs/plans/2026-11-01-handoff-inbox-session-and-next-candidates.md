@@ -106,6 +106,14 @@ so a ninth key fails them at runtime rather than at build. Cheap to tighten.
 
 ### Candidate 5 (done) — one refresh primitive
 
+**Badge folded too** (`b5a2b90`, live-proven). `useInboxBadge` no longer runs its own 20 s
+interval with four sync calls and a cached recount — it starts and ticks the shared session like
+the panel does, and the count is the session's own list. `tick` is a no-op at an instant it has
+already served, so badge plus mounted panel is one round per due time (before: ~29.7 sync/min
+together; now the one cadence, ~17.7/min). Live: nav badge "Inbox, 10 unread messages" matching
+the session's 131 rows / 10 unread; panel mounts once, 131 rows; WhatsApp thread 10 bubbles,
+scroll pin exact; back to list intact.
+
 **Done** (`fbf7bee`, 245 tests). One `sync` RPC (`{ account, limit? }` → `{ items, updatedAt, reason? }`)
 fans out through `registry[account].sync()`; `list_source` and `linkedin_sync` are gone.
 `sync` is required on `Adapter` — the four live sources wrap their list, LinkedIn keeps its delta
@@ -124,8 +132,7 @@ accounts (LinkedIn 21 rows, `reason: 'read'`, through the probe; the live lists 
 3. **Single heartbeat across two mounts.** Count `list_source` with the nav panel and the
    tab both open; assert one round per due time.
 
-Also queued: the badge hook's 20 s `setInterval` is the last timer outside the panel and
-should fold into `tick`.
+Also queued: the badge hook's 20 s `setInterval` — folded onto the session's tick (`b5a2b90`).
 
 ## Working facts worth not rediscovering
 
