@@ -118,6 +118,17 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
         calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');
         return { mailboxUrn: LINKEDIN_MAILBOX, conversations: [{ at: 1_700_000_000_000, unread: 1 }], invitations: [] };
       },
+      replay: async () => {
+        calls.push('linkedin:write:replay');
+        return { accepted: true, status: 200 };
+      },
+      recorded: async () => {
+        calls.push('linkedin:write:dump');
+        return { writes: [], seen: { fetch: 0, xhr: 0, considered: 0, skipped: {} } };
+      },
+      clearRecorded: async () => {
+        calls.push('linkedin:write:clear');
+      },
     },
     providerError: toProviderError,
   };
