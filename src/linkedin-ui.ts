@@ -268,8 +268,27 @@ export function threadKeyExpression(): string {
 })()`;
 }
 
-/** What a caller approved about a send: who may receive it, and — for a reply in an open thread — the conversation itself. */
-export type SendApproval = { allow: 'send'; recipient?: string; conversation?: string };
+/** What a caller approved about a page action: who it acts on — a compose recipient, an open
+ * thread, or an invitation — and the explicit `allow: 'send'` that every irreversible click needs. */
+export type SendApproval = { allow: 'send'; recipient?: string; conversation?: string; invitation?: string };
+
+/**
+ * The invitation action a control's own label names, or null for anything else. LinkedIn puts the
+ * person inside the label — "Accept <name>'s invitation", "Ignore an invitation to connect from
+ * <name>", "Invite <name> to connect" — with a typographic apostrophe, which is why the exact-word
+ * send pattern cannot see these buttons.
+ */
+export function invitationTargetOf(controlName: unknown): { action: 'accept' | 'ignore' | 'invite'; person: string } | null {
+  if (typeof controlName !== 'string') return null;
+  const name = controlName.trim();
+  const accept = /^Accept (.+)['’]s invitation$/i.exec(name);
+  if (accept) return { action: 'accept', person: accept[1].trim() };
+  const ignore = /^Ignore an invitation to connect from (.+)$/i.exec(name);
+  if (ignore) return { action: 'ignore', person: ignore[1].trim() };
+  const invite = /^Invite (.+) to connect$/i.exec(name);
+  if (invite) return { action: 'invite', person: invite[1].trim() };
+  return null;
+}
 
 /** The send policy's answer: either the click may go out, or the reason it may not. */
 export type SendDecision = { ok: true; recipient: string } | { ok: false; reason: string };
@@ -284,8 +303,9 @@ export function samePersonName(left: unknown, right: unknown): boolean {
 /**
  * The whole send policy in one decision, so it can be tested without a page.
  *
- * A send click needs `{ allow: 'send' }` plus a target the page itself confirms: a compose box
- * says it with recipient chips, an open thread says it with the conversation its own URL names.
+ * An irreversible click needs `{ allow: 'send' }` plus a target the page itself confirms: a compose
+ * box says it with recipient chips, an open thread says it with the conversation its own URL
+ * names, and an invitation button says it with the person in its own label.
  * The approval names who or which, and a page that disagrees refuses the click — a name search
  * once offered somebody else entirely, and the target must never be an assumption. `observed`
  * carries whichever of those the page offered — the caller reads the chips first and the thread
@@ -293,7 +313,14 @@ export function samePersonName(left: unknown, right: unknown): boolean {
  */
 export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadKey: string }): SendDecision {
   if (approval?.allow !== 'send') {
-    return { ok: false, reason: `${JSON.stringify(controlName)} sends to LinkedIn; it needs { allow: 'send' } plus the target it is approved for: the compose box's recipient, or the conversation an open thread is showing.` };
+    return { ok: false, reason: `${JSON.stringify(controlName)} changes LinkedIn; it needs { allow: 'send' } plus the target it is approved for: the compose box's recipient, the conversation an open thread is showing, or the invitation being answered.` };
+  }
+  const invitation = invitationTargetOf(controlName);
+  if (invitation) {
+    if (!samePersonName(approval?.invitation, invitation.person)) {
+      return { ok: false, reason: `That click ${invitation.action === 'accept' ? 'accepts' : invitation.action === 'ignore' ? 'ignores' : 'invites'} ${invitation.person}'s invitation; the approval names ${typeof approval?.invitation === 'string' && approval.invitation ? approval.invitation : 'nobody'}. Nothing was clicked.` };
+    }
+    return { ok: true, recipient: invitation.person };
   }
   if (observed.recipients.length > 0) {
     if (observed.recipients.length !== 1 || !samePersonName(observed.recipients[0], approval.recipient)) {

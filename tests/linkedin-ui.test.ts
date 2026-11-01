@@ -12,6 +12,7 @@ import {
   findControlExpression,
   recipientsExpression,
   describeControlExpression,
+  invitationTargetOf,
   samePersonName,
   sendApprovalDecision,
   threadKeyExpression,
@@ -282,4 +283,26 @@ test('a send is approved only for a target the page confirms', () => {
   const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadKey: key });
   assert.equal(refused.ok, false);
   if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send' \}/);
+});
+
+test('an invitation button is recognised from its own label, typographic apostrophe included', () => {
+  // LinkedIn puts the person inside the label, so the exact-word send pattern cannot see these
+  // buttons; this recogniser is what gates them.
+  assert.deepEqual(invitationTargetOf('Accept Fabricio Arce Derpic’s invitation'), { action: 'accept', person: 'Fabricio Arce Derpic' });
+  assert.deepEqual(invitationTargetOf('Ignore an invitation to connect from Kristian Aartun'), { action: 'ignore', person: 'Kristian Aartun' });
+  assert.deepEqual(invitationTargetOf('Invite Stian Mundal to connect'), { action: 'invite', person: 'Stian Mundal' });
+  assert.equal(invitationTargetOf('Accept'), null);
+  assert.equal(invitationTargetOf('Send'), null);
+  assert.equal(invitationTargetOf('Compliments Fabricio’s profile'), null);
+  assert.equal(invitationTargetOf(null), null);
+
+  // And the gate: the approval must name the same person the button does.
+  const approval: SendApproval = { allow: 'send', invitation: 'Fabricio Arce Derpic' };
+  assert.deepEqual(sendApprovalDecision(approval, 'Accept Fabricio Arce Derpic’s invitation', { recipients: [], threadKey: '' }), { ok: true, recipient: 'Fabricio Arce Derpic' });
+  const wrong = sendApprovalDecision({ allow: 'send', invitation: 'Kristian Aartun' }, 'Accept Fabricio Arce Derpic’s invitation', { recipients: [], threadKey: '' });
+  assert.equal(wrong.ok, false);
+  if (!wrong.ok) assert.match(wrong.reason, /accepts Fabricio Arce Derpic's invitation; the approval names Kristian Aartun/);
+  const unnamed = sendApprovalDecision({ allow: 'send' }, 'Ignore an invitation to connect from Kristian Aartun', { recipients: [], threadKey: '' });
+  assert.equal(unnamed.ok, false);
+  if (!unnamed.ok) assert.match(unnamed.reason, /approval names nobody/);
 });
