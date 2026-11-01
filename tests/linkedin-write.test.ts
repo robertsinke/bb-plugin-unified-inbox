@@ -8,6 +8,7 @@ import {
   recordedWritesExpression,
   replayWriteExpression,
   recordedSendText,
+  recorderStatsExpression,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
@@ -90,7 +91,9 @@ test('a recorder bookkeeping fault still returns the real response', async () =>
   assert.deepEqual(await dumpOf(page), []);
 });
 
-test('only same-origin writes to /voyager/api/ are recorded', async () => {
+test('any same-origin mutating request is recorded, whatever path it carries', async () => {
+  // LinkedIn does not keep every write under /voyager/api/ - an invitation accept was lost to
+  // exactly that assumption - so origin is the recorder's boundary, not a path prefix.
   const page = fakePage();
   await page.evaluate(writeRecorderExpression());
   await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: '{"a":1}' });
@@ -99,15 +102,19 @@ test('only same-origin writes to /voyager/api/ are recorded', async () => {
   await page.window.fetch('/voyager/api/graphql', { method: 'HEAD' });
   await page.window.fetch('https://elsewhere.test/voyager/api/graphql', { method: 'POST', body: '{"c":3}' });
   await page.window.fetch('//elsewhere.test/voyager/api/graphql', { method: 'POST', body: '{"d":4}' });
-  await page.window.fetch('/feed/update', { method: 'POST', body: '{"e":5}' });
+  await page.window.fetch('/relationships/invitation', { method: 'POST', body: '{"e":5}' });
 
   const recorded = await dumpOf(page);
   // Newest first, and the recorder strips its own origin so a template names no host.
   assert.deepEqual(recorded.map((write: RecordedWrite) => write.url), [
+    '/relationships/invitation',
     '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=x',
     '/voyager/api/graphql',
   ]);
   assert.ok((recorded as RecordedWrite[]).every(write => write.method === 'POST'));
+  // And the sampler keeps the tail of what came through, so a lost request can name itself.
+  const stats = (await page.evaluate(recorderStatsExpression()) as { paths?: string[] });
+  assert.ok(stats.paths!.includes('POST /relationships/invitation'));
 });
 
 test('the recorder keeps five writes, newest last, and drops an oversized body', async () => {
