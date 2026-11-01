@@ -153,8 +153,16 @@ appears in the audit. Gmail's refusal text is unchanged. What the gate is **not*
 identity verification — a host-issued approval token replaces `approvalFor` without touching the
 gate (OQ-1).
 
-Known papercut: `send_gmail`'s input schema still requires `cc` (empty string accepted), so a
-minimal caller sees `invalid_input` instead of the policy refusal.
+Spend lives in the rows, not in memory: each audit row names the `approvalId` it spent and the gate
+asks the store, so a reload cannot revive an approval that already sent something (proved by
+reopening the database in `tests/send-audit.test.ts`). The table gains `approval_id` **in place**
+when an older build created it without — `CREATE TABLE IF NOT EXISTS` would have left it behind and
+the first insert would throw, which is exactly what the live reload caught (`21f6180`).
+
+Mention footers match the sources again: Messages sends with the same `allow: 'send'` statement
+WhatsApp uses, and a LinkedIn reply replays the page's recorded send (send once from the page first
+if nothing is recorded). Gmail stays read-only. `send_gmail`'s `cc` is optional now, so a minimal
+caller reaches the policy refusal instead of an `invalid_input` ahead of it.
 
 ## Test work
 
