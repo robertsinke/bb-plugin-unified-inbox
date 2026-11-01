@@ -41,6 +41,9 @@ export interface SendGateDeps {
 }
 
 export function createSendGate({ now, audit }: SendGateDeps) {
+  /** Approvals already spent. One approval sends one message. */
+  const spent = new Set<string>();
+
   /** The refusal record and the refusal itself, so a refusal can never skip its row. */
   function refuse(request: SendRequest, reason: string): never {
     audit({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason });
@@ -57,6 +60,12 @@ export function createSendGate({ now, audit }: SendGateDeps) {
     if (age > APPROVAL_WINDOW_MS) {
       refuse(request, `The approval expired: it is ${Math.round(age / 60_000)} minutes old, and a send approval lasts ${APPROVAL_WINDOW_MS / 60_000} minutes. Approve the send again; nothing was sent.`);
     }
+    if (spent.has(approval.id)) {
+      refuse(request, 'The approval has already been used; one approval sends one message. Approve this send again; nothing was sent.');
+    }
+    // Spent before delivery: a delivery that throws must not leave the approval
+    // usable for a retry, which is how one approval becomes two messages.
+    spent.add(approval.id);
     return deliver();
   };
 }
