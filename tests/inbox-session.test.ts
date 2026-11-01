@@ -31,8 +31,7 @@ function defaults(name: string): unknown {
   if (name === 'cached') return { items: [] };
   if (name === 'cached_open') return { messages: [] };
   if (name === 'open') return { messages: [] };
-  if (name === 'list_source') return { items: [] };
-  if (name === 'linkedin_sync') return { items: [], updatedAt: 0 };
+  if (name === 'sync') return { items: [], updatedAt: 0 };
   if (name === 'search') return { ids: [] };
   if (name === 'action') return { status: 'Done' };
   if (name === 'send_gmail') return { status: 'Sent' };
@@ -76,7 +75,7 @@ test('open shows the cached thread, then the source thread, then marks it read',
   const target = row({ unread: true });
   const rpc = fakeRpc({
     cached: () => ({ items: [target] }),
-    list_source: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
     cached_open: () => ({ messages: [cachedMessage] }),
     open: () => ({ messages: [liveMessage] }),
   });
@@ -102,7 +101,7 @@ test('a source that does not follow the list moves the row without re-reading th
   const rpc = fakeRpc({
     capabilities: () => declarations({ followsList: false }),
     cached: () => ({ items: [target] }),
-    list_source: input => ({ items: input.account === 'whatsapp' ? listed : [] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? listed : [] }),
     cached_open: () => ({ messages: [cachedMessage] }),
     open: () => ({ messages: [liveMessage] }),
   });
@@ -130,7 +129,7 @@ test('one tick fires each due list call once, even with two subscribers', async 
   const at = 1_000 + 45_000;
   session.tick(at);
   const refreshed = rpc.calls
-    .filter(call => call.name === 'list_source')
+    .filter(call => call.name === 'sync')
     .map(call => (call.input as { account: Account }).account)
     .sort();
   assert.deepEqual(refreshed, ['business', 'imessage', 'personal', 'whatsapp']);
@@ -138,7 +137,7 @@ test('one tick fires each due list call once, even with two subscribers', async 
 
   const notifications = seen.length;
   session.tick(at);
-  assert.equal(rpc.calls.filter(call => call.name === 'list_source').length, 4, 'a second tick at the same instant fires nothing');
+  assert.equal(rpc.calls.filter(call => call.name === 'sync').length, 4, 'a second tick at the same instant fires nothing');
   assert.equal(seen.length, notifications, 'and notifies nobody');
 });
 
@@ -178,7 +177,7 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
     cached_open: () => ({ messages: [cachedMessage] }),
     open: () => ({ messages: [cachedMessage] }),
     action: () => ({ status: 'Sent' }),
-    list_source: input => ({
+    sync: input => ({
       items: input.account === 'whatsapp' ? [{ ...target, preview: 'On my way' }] : [],
     }),
   });
@@ -195,7 +194,7 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   const before = rpc.calls.length;
   await session.submit();
 
-  assert.deepEqual(rpc.calls.slice(before).map(call => call.name), ['action', 'open', 'list_source'], 'one reply, then the reconciliation');
+  assert.deepEqual(rpc.calls.slice(before).map(call => call.name), ['action', 'open', 'sync'], 'one reply, then the reconciliation');
   assert.deepEqual(rpc.calls[before].input, { account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'On my way' });
   assert.equal(session.snapshot().text, '', 'the composer is empty');
   assert.equal(readInboxDraft(storage, key), undefined, 'and the draft is gone from storage');

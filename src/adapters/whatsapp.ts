@@ -12,7 +12,7 @@ import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult,
-  MediaPayload, Message, OpenOptions, OpenResult,
+  MediaPayload, Message, OpenOptions, OpenResult, SyncResult,
 } from './types.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true };
@@ -211,20 +211,29 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'WhatsApp did not accept the message. It has not been sent.');
   }
 
+  /** The live WhatsApp list: the read, the cache migration it triggers, and the rows worth saving. */
+  async function liveList(): Promise<Conversation[]> {
+    const listed = await listChats();
+    await migrateCache();
+    const previous = cache.list().filter(item => item.account === ACCOUNT);
+    const previews = new Map(previous.map(item => [item.id, item.preview]));
+    const items = listed.map(item => {
+      const kept = cache.keptUnread(ACCOUNT, item.id);
+      return { ...item, preview: item.preview || previews.get(item.id) || '', ...(kept ? { unread: true } : {}) };
+    });
+    if (!whatsappListUnchanged(previous, items)) cache.save(ACCOUNT, items);
+    return items;
+  }
+
   return {
     capabilities: () => CAPABILITIES,
 
     async list(_cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
-      const listed = await listChats();
-      await migrateCache();
-      const previous = cache.list().filter(item => item.account === ACCOUNT);
-      const previews = new Map(previous.map(item => [item.id, item.preview]));
-      const items = listed.map(item => {
-        const kept = cache.keptUnread(ACCOUNT, item.id);
-        return { ...item, preview: item.preview || previews.get(item.id) || '', ...(kept ? { unread: true } : {}) };
-      });
-      if (!whatsappListUnchanged(previous, items)) cache.save(ACCOUNT, items);
-      return { items, errors: [] };
+      return { items: await liveList(), errors: [] };
+    },
+
+    async sync(_opts?: OpenOptions): Promise<SyncResult> {
+      return { items: await liveList(), updatedAt: Date.now() };
     },
 
     open: (id: string) => openChat(id),

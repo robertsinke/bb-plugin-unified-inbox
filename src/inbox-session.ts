@@ -13,7 +13,7 @@ import { messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { Account, Conversation, GmailAccount, Message } from './adapters/types.ts';
 
-/** One row of the list, as `cached` and `list_source` return it. */
+/** One row of the list, as `cached` and `sync` return it. */
 export type InboxItem = Conversation;
 
 /** The list is shown whole, unread only, or narrowed to one source. */
@@ -263,15 +263,13 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     try {
       await Promise.all(pending.map(async account => {
         try {
-          const listed = account === 'linkedin'
-            ? await deps.rpc.call('linkedin_sync', null)
-            : await deps.rpc.call('list_source', { account });
+          const listed = await deps.rpc.call('sync', { account });
           mergeSource(account, listed.items);
           state.refreshedAt = { ...state.refreshedAt, [account]: clock() };
           state.errors = state.errors.filter(error => !error.startsWith(SOURCE_LABEL[account]));
           notify();
         } catch (error) {
-          const detail = account === 'linkedin' && error instanceof Error ? ` ${error.message}` : '';
+          const detail = error instanceof Error ? ` ${error.message}` : '';
           const message = account === 'imessage'
             ? MESSAGES_REFRESH_FAILURE
             : `${SOURCE_LABEL[account]} could not refresh.${detail} Previously loaded messages may be stale.`;
@@ -385,7 +383,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       state.status = result.status;
       notify();
       try {
-        const listed = await deps.rpc.call('list_source', { account: item.account });
+        const listed = await deps.rpc.call('sync', { account: item.account });
         mergeSource(item.account, listed.items);
         notify();
       } catch { /* the status already says what happened */ }
@@ -425,7 +423,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         notify();
       } catch { /* the bubble already on screen stays */ }
       try {
-        const listed = await deps.rpc.call('list_source', { account });
+        const listed = await deps.rpc.call('sync', { account });
         mergeSource(account, listed.items);
         notify();
       } catch { /* the open chat does not depend on the list */ }
