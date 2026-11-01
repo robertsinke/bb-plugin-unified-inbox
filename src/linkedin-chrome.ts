@@ -17,10 +17,12 @@ import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
+  allowlistedRecipient,
   findControlExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
+  recipientsExpression,
   type PageControl,
 } from './linkedin-ui.ts';
 import { writeRecorderExpression } from './linkedin-write.ts';
@@ -381,7 +383,32 @@ async function typeAsKeys(page: Page, text: string): Promise<void> {
   }
 }
 
-export async function clickNamedControl(name: string, role?: string, approval?: { allow: 'send' }): Promise<{ clicked: boolean; name?: string; reason?: string }> {
+/**
+ * A send click is only allowed when it names an allowlisted recipient *and* the compose box is
+ * addressed to exactly that one person. Reading the chips is the whole point: a name search offers
+ * whoever matches, and the first suggestion is not necessarily who was asked for.
+ */
+export async function clickNamedControl(
+  name: string,
+  role?: string,
+  approval?: { allow: 'send'; recipient?: string },
+): Promise<{ clicked: boolean; name?: string; reason?: string; recipients?: string[] }> {
+  const sending = isSendControl({ index: 0, role: role ?? 'button', name, tag: 'button', x: 0, y: 0, width: 0, height: 0, focused: false });
+  if (sending) {
+    const wanted = allowlistedRecipient(approval?.recipient);
+    if (approval?.allow !== 'send' || !wanted) {
+      return { clicked: false, reason: `${JSON.stringify(name)} sends to LinkedIn; it needs { allow: 'send', recipient: '<allowlisted person>' }, and only allowlisted people can receive a test send.` };
+    }
+    const chips = await evaluateInLinkedInProfile(recipientsExpression());
+    const recipients = Array.isArray(chips) ? chips.map(chip => String(chip)) : [];
+    if (recipients.length !== 1 || allowlistedRecipient(recipients[0]) !== wanted) {
+      return {
+        clicked: false,
+        recipients,
+        reason: `This send is addressed to ${recipients.length ? recipients.join(', ') : 'nobody'}; only ${wanted} is allowlisted for a test send. Nothing was clicked.`,
+      };
+    }
+  }
   return (await withLinkedInPage(page => withControl(page, name, role, async control => {
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
       await page.client.send('Input.dispatchMouseEvent', { type, x: control.x, y: control.y, button: 'left', clickCount: 1 }, page.sessionId);

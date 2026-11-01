@@ -54,7 +54,8 @@ export const rpcContract = defineRpcContract({
     control: z.string().min(1).max(120).optional(),
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
-  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional() }) },
+    recipient: z.string().min(1).max(120).optional(),
+  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
@@ -182,8 +183,9 @@ export default function plugin(bb: BbPluginApi) {
       const target = step.control;
       if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
       if (step.op === 'click') {
-        const answered = await clickNamedControl(target, step.role, step.allow ? { allow: step.allow } : undefined);
-        return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}) };
+        const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}) } : undefined;
+        const answered = await clickNamedControl(target, step.role, allowed);
+        return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
       return typeIntoNamedControl(target, step.text, step.role);

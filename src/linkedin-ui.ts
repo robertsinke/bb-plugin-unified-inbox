@@ -224,6 +224,37 @@ export function linkedInPath(value: unknown): string | null {
  * invitation accepted or a connection made, a post published. This is the guard that makes the one
  * irreversible click explicit.
  */
+/**
+ * The only people a driver-initiated send may reach. This is the guard that exists because a name
+ * search once offered "Robert Sinke" and the first suggestion was somebody else entirely: a send
+ * must name its recipient, and the name has to be on this list. Empty list means no test send.
+ */
+export const LINKEDIN_SEND_ALLOWLIST: readonly string[] = ['andrea sophie stave lepsøe'];
+
+/** The allowlist entry for `name`, matched exactly (case and spacing aside), or null. */
+export function allowlistedRecipient(name: unknown): string | null {
+  const wanted = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+  if (!wanted) return null;
+  return LINKEDIN_SEND_ALLOWLIST.find(entry => entry.toLowerCase() === wanted) ?? null;
+}
+
+/**
+ * Who a compose box is addressed to right now, read from the recipient chips LinkedIn renders as
+ * `Remove <name>` buttons. The caller compares this with the allowlist before it lets a send click
+ * through: the chip is the only statement about the recipient that the page itself makes.
+ */
+export function recipientsExpression(): string {
+  return `(() => {${pageBody()}
+  const chips = [];
+  for (const control of enumerate()) {
+    const name = nameOf(control);
+    const match = /^remove\\s+(.+)$/i.exec(name);
+    if (match) chips.push(clean(match[1]));
+  }
+  return chips;
+})()`;
+}
+
 // LinkedIn's own labels for the irreversible click: the modal's send button says "Compose message"
 // while the button that *opens* the modal says "Compose a new message", and the anchors keep the
 // two apart. Anything added here has to be a control that publishes or answers, never one that opens.

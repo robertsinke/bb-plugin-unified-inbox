@@ -9,7 +9,7 @@ import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
 import type { Account, Adapter } from '../../src/adapters/types.ts';
-import { clearRecordedWritesExpression, recordedWritesExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
+import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
@@ -134,9 +134,11 @@ export function harness(options: HarnessOptions = {}): Harness {
       const kind = expression === writeRecorderExpression() ? 'arm'
         : expression === recordedWritesExpression() ? 'writes'
           : expression === clearRecordedWritesExpression() ? 'clear'
+          : expression === recorderStatsExpression() ? 'stats'
             : 'replay';
       calls.push(`linkedin:write:${kind}`);
       if (kind === 'writes' || kind === 'clear') return { writes: [] };
+      if (kind === 'stats') return { fetch: 0, xhr: 0, considered: 0, skipped: {} };
       if (kind === 'replay') return { ok: true, status: 200, body: null };
       return { installed: true, recording: true };
     },

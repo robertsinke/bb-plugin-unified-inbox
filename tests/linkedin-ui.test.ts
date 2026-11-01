@@ -10,7 +10,12 @@ import {
   pageTextExpression,
   type PageControl,
   findControlExpression,
+  allowlistedRecipient,
+  recipientsExpression,
+  LINKEDIN_SEND_ALLOWLIST,
+  describeControlExpression,
 } from '../src/linkedin-ui.ts';
+import { writeRecorderExpression } from '../src/linkedin-write.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
 
@@ -235,4 +240,32 @@ test('a control is found by name, because an index goes stale between calls', as
   assert.equal(await matches('nothing like this'), null);
   assert.throws(() => findControlExpression(''), /needs a control name/);
   assert.throws(() => findControlExpression('x'.repeat(200)), /needs a control name/);
+});
+
+test('only an allowlisted person can receive a test send, matched exactly', () => {
+  assert.equal(allowlistedRecipient('Andrea Sophie Stave Lepsøe'), 'andrea sophie stave lepsøe');
+  assert.equal(allowlistedRecipient('  andrea   sophie stave lepsøe '), 'andrea sophie stave lepsøe');
+  // The failure this guard exists for: a lookalike name must never be accepted.
+  for (const name of ['Robert Sinke', 'Andrea Sophie', 'Andrea Sophie Stave Lepsøe Jr', '', null, 42]) {
+    assert.equal(allowlistedRecipient(name), null, `${String(name)} must not be allowlisted`);
+  }
+  assert.deepEqual(LINKEDIN_SEND_ALLOWLIST, ['andrea sophie stave lepsøe']);
+});
+
+test('the recipient chips are read from the page, because that is what the page says about the addressee', async () => {
+  const page = fakePage([
+    { text: 'Remove Robert Sinke', tag: 'button' },
+    { text: 'Compose message', tag: 'button' },
+  ]);
+  assert.deepEqual(await page.evaluate(recipientsExpression()), ['Robert Sinke']);
+  const empty = fakePage([{ text: 'Compose message', tag: 'button' }]);
+  assert.deepEqual(await empty.evaluate(recipientsExpression()), []);
+});
+
+test('a pattern reaches the page with its backslash intact', () => {
+  // `\s` written inside a template literal arrives as `s`, which once turned /^remove\s+(.+)$/
+  // into /^removes+(.+)$/ and made every recipient chip invisible. The emitted source is asserted
+  // because the behaviour alone looks like "no chips on screen".
+  assert.ok(recipientsExpression().includes('^remove\\s+(.+)$'), 'the chip pattern lost its backslash on the way to the page');
+  assert.ok(!recipientsExpression().includes('^removes+'));
 });

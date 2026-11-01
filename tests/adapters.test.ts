@@ -12,7 +12,7 @@ import { createRegistry, registryCapabilities } from '../src/adapters/index.ts';
 import { toProviderError } from '../src/adapters/provider-error.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { RegistryDeps } from '../src/adapters/deps.ts';
-import { clearRecordedWritesExpression, recordedWritesExpression, writeRecorderExpression } from '../src/linkedin-write.ts';
+import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../src/linkedin-write.ts';
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
 const LINKEDIN_ID = 'urn:li:msg_conversation:2-abc';
@@ -91,9 +91,11 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       const kind = expression === writeRecorderExpression() ? 'arm'
         : expression === recordedWritesExpression() ? 'writes'
           : expression === clearRecordedWritesExpression() ? 'clear'
+          : expression === recorderStatsExpression() ? 'stats'
             : 'replay';
       calls.push(`linkedin:write:${kind}`);
       if (kind === 'writes' || kind === 'clear') return { writes: [] };
+      if (kind === 'stats') return { fetch: 0, xhr: 0, considered: 0, skipped: {} };
       if (kind === 'replay') return { ok: true, status: 200, body: null };
       return { installed: true, recording: true };
     },
@@ -290,7 +292,7 @@ test('the recorder arms, dumps, and refuses to replay without approval', async (
   assert.deepEqual(await adapter.record!('arm'), { installed: true, recording: true });
   // A dump also reports whether the wrappers were called at all: "nothing recorded" and "never watched"
   // are different answers.
-  assert.deepEqual(await adapter.record!('dump'), { writes: [], seen: null });
+  assert.deepEqual(await adapter.record!('dump'), { writes: [], seen: { fetch: 0, xhr: 0, considered: 0, skipped: {} } });
 
   // A recorded write of a message send: the only shape replay accepts.
   const write = {
