@@ -1,8 +1,9 @@
 // LinkedIn adapter (Migration state 3). It owns the LinkedIn shapes: the live
 // read behind `linkedin_sync`, the conversation open with its cache fallback,
-// the media answer for a photo or a shared post, and the refusal of every write
-// — a reply, an invitation answer, and a read mark all change the owner's real
-// account, so none is enabled in this build.
+// the media answer for a photo or a shared post, and the read mark replayed from
+// the request the page itself sent. A reply and an invitation answer still need
+// their own recorded actions, so they stay refused.
+import { canChange } from './capability.ts';
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
@@ -10,6 +11,7 @@ import { readLinkedInImage } from '../linkedin-media.ts';
 import {
   clearRecordedWritesExpression,
   isMessageSend,
+  markReadWrite,
   markReadTarget,
   sameConversationUrn,
   LINKEDIN_WRITE_KEEP,
@@ -31,7 +33,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: false, markRead: false, archive: false, media: true, attachments: false };
+const CAPABILITIES: Capabilities = { send: false, markRead: true, archive: false, media: true, attachments: false };
 
 /** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
 function recordedWrites(value: unknown): RecordedWrite[] {
@@ -48,7 +50,7 @@ function recordedWrites(value: unknown): RecordedWrite[] {
 
 const ACCOUNT = 'linkedin';
 
-const READ_ONLY = 'LinkedIn is read-only here: nothing can be sent, accepted, or marked read.';
+const READ_ONLY = 'LinkedIn is read-only here: nothing can be sent, accepted, or archived. Only a read mark can change.';
 
 /**
  * The `media` answer for LinkedIn: the image itself, or — for a shared post, whose
@@ -167,9 +169,19 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       return readLinkedInImage(message.media.url);
     },
 
-    async action(_kind: ActionKind, _id: string, _opts?: ActionOptions): Promise<ActionResult> {
-      // Every capability is false, so every action ends here; enabling one means
-      // declaring it and implementing it against a recorded request.
+    async action(kind: ActionKind, id: string, _opts?: ActionOptions): Promise<ActionResult> {
+      // The one change LinkedIn can make from here: the read mark, replayed from the request the
+      // page itself sent for the same menu item. Everything else — a reply, an invitation answer,
+      // an archive — still needs its own recorded action first.
+      if (canChange(CAPABILITIES, kind) && (kind === 'read' || kind === 'unread')) {
+        const write = markReadWrite(id, kind === 'read');
+        if (!write) throw new Error('That LinkedIn conversation cannot be marked.');
+        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
+        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the read mark (status ${Number(result?.status) || 0}).`);
+        if (kind === 'read') cache.dropUnread(ACCOUNT, id);
+        else cache.keepUnread(ACCOUNT, id);
+        return { status: 'Updated.' };
+      }
       throw new Error(READ_ONLY);
     },
 

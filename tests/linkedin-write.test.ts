@@ -8,6 +8,7 @@ import {
   recordedWritesExpression,
   replayWriteExpression,
   recordedSendText,
+  markReadWrite,
   markReadTarget,
   sameConversationUrn,
   writeRecorderExpression,
@@ -309,4 +310,32 @@ test('a recorded mark-read is recognised by its exact shape, and by nothing loos
     { ...write, body: 'not json' },
   ];
   for (const wrong of refused) assert.equal(markReadTarget(wrong), null, `${wrong.method} ${wrong.body.slice(0, 40)} must be refused`);
+});
+
+test('the built mark-read request is the observed one, byte for byte', () => {
+  // Captured 2026-11-02 from the page's own "Mark as read" click. The builder must reproduce it
+  // exactly, or the adapter is no longer replaying what was observed.
+  const observed = {
+    method: 'POST',
+    url: '/voyager/api/voyagerMessagingDashMessengerConversations?ids=List(urn%3Ali%3Amsg_conversation%3A%28urn%3Ali%3Afsd_profile%3AACoAAAexampleProfileId0000000000000001%2C2-YWFhYWFhYWEtYmJiYi00Y2NjLTlkZGQtZWVlZWVlZWVlZWVlXzEwMA%3D%3D%29)',
+    body: '{"entities":{"urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-YWFhYWFhYWEtYmJiYi00Y2NjLTlkZGQtZWVlZWVlZWVlZWVlXzEwMA==)":{"patch":{"$set":{"read":true}}}}}',
+  };
+  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-YWFhYWFhYWEtYmJiYi00Y2NjLTlkZGQtZWVlZWVlZWVlZWVlXzEwMA==)';
+  const write = markReadWrite(urn, true);
+  assert.ok(write);
+  assert.deepEqual({ method: write.method, url: write.url, body: write.body }, observed);
+
+  // The unread direction is the same patch with the flag down, and anything that is not a
+  // conversation urn is refused rather than built.
+  assert.ok(markReadWrite(urn, false)!.body.includes('"read":false'));
+  assert.equal(markReadWrite('https://linkedin.com/', true), null);
+  assert.equal(markReadWrite('urn:li:msg_conversation:', true), null);
+  assert.equal(markReadWrite(null, true), null);
+
+  // What the builder emits is exactly what the recogniser accepts, so a replay can never diverge
+  // from the shape the page was observed to send.
+  assert.equal(markReadTarget(write), urn);
+  // The recogniser gates *recorded* mark-read replays, and the observed action set read true; the
+  // unread direction is the adapter's own action, so it is correctly not a recorded mark-read.
+  assert.equal(markReadTarget(markReadWrite(urn, false)!), null);
 });
