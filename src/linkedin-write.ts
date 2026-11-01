@@ -46,8 +46,9 @@ const pageExpression = (body: string) => `(() => {${body}})()`;
 
 /**
  * Arms the recorder: wraps `window.fetch` and `XMLHttpRequest.send` once, keeps at most
- * `LINKEDIN_WRITE_KEEP` same-origin writes to `/voyager/api/`, and never changes what the page's own
- * call does — the wrapper calls through first and its bookkeeping is swallowed.
+ * `LINKEDIN_WRITE_KEEP` same-origin mutating requests — whatever path they carry, because
+ * LinkedIn does not keep every write under `/voyager/api/` — and never changes what the page's own
+ * call does: the wrapper calls through first and its bookkeeping is swallowed.
  *
  * Both transports are wrapped because a web app may capture either one at boot, and this must work
  * whether it is installed before the app starts or after.
@@ -61,22 +62,33 @@ export function writeRecorderExpression(): string {
     // The wrapper closes over this array, so clearing it must empty it in place rather than replace it.
     const list = Array.isArray(window.__unifiedInboxWrites) ? window.__unifiedInboxWrites : (window.__unifiedInboxWrites = []);
     // A recorded write keeps a path, not a host: replay runs in this same page, and a template that
-    // carries no origin can never be replayed somewhere else.
+    // carries no origin can never be replayed somewhere else. Any same-origin mutating request is
+    // a candidate — LinkedIn does not keep every write under /voyager/api/ (an invitation accept
+    // was lost to exactly that assumption), so origin is the boundary, not a path prefix.
     const pathOf = url => {
       const text = String(url);
       const origin = String(location.origin);
-      if (origin && text.startsWith(origin + '/voyager/api/')) return text.slice(origin.length);
-      return text.startsWith('/voyager/api/') ? text : '';
+      if (origin && text.startsWith(origin + '/')) return text.slice(origin.length);
+      return text.startsWith('/') && !text.startsWith('//') ? text : '';
     };
-    const seen = window.__unifiedInboxSeen || (window.__unifiedInboxSeen = { fetch: 0, xhr: 0, considered: 0, skipped: {} });
+    const seen = window.__unifiedInboxSeen || (window.__unifiedInboxSeen = { fetch: 0, xhr: 0, considered: 0, skipped: {}, paths: [] });
     const skip = reason => { seen.skipped[reason] = (seen.skipped[reason] || 0) + 1; };
+    // The last few considered calls, method and path only, so a filter that drops the one request
+    // that mattered can say so on the next dump instead of hiding behind a count.
+    const sample = (method, input) => {
+      try {
+        seen.paths.push(method + ' ' + pathOf(typeof input === 'string' ? input : input && typeof input === 'object' ? input.url : ''));
+        while (seen.paths.length > 8) seen.paths.shift();
+      } catch (error) { /* sampling is never worth breaking a call for */ }
+    };
     const capture = (input, init) => {
       seen.considered += 1;
       const requested = init && typeof init.method === 'string' ? init.method : input && typeof input === 'object' && typeof input.method === 'string' ? input.method : 'GET';
       const method = String(requested).toUpperCase();
       if (method === 'GET' || method === 'HEAD') return skip('read');
       const path = pathOf(typeof input === 'string' ? input : input && typeof input === 'object' ? input.url : '');
-      if (!path) return skip('path');
+      sample(method, input);
+      if (!path) return skip('cross-origin');
       // Only a body the page handed us as a string can be recorded byte for byte; a stream or blob
       // is left alone rather than described by guesswork.
       const body = init && typeof init.body === 'string' ? init.body : '';
@@ -134,6 +146,7 @@ export function recorderStatsExpression(): string {
       xhr: seen.xhr || 0,
       considered: seen.considered || 0,
       skipped: seen.skipped || {},
+      paths: seen.paths || [],
       pushed: seen.pushed || 0,
       stored: Array.isArray(window.__unifiedInboxWrites) ? window.__unifiedInboxWrites.length : 0,
       last: seen.last || '',
