@@ -117,13 +117,14 @@ as invalid input, and a cached WhatsApp image came back as 265 KB through the on
 
 ### Candidate 5 (done) — one refresh primitive
 
-**Badge folded too** (`b5a2b90`, live-proven). `useInboxBadge` no longer runs its own 20 s
-interval with four sync calls and a cached recount — it starts and ticks the shared session like
-the panel does, and the count is the session's own list. `tick` is a no-op at an instant it has
-already served, so badge plus mounted panel is one round per due time (before: ~29.7 sync/min
-together; now the one cadence, ~17.7/min). Live: nav badge "Inbox, 10 unread messages" matching
-the session's 131 rows / 10 unread; panel mounts once, 131 rows; WhatsApp thread 10 bubbles,
-scroll pin exact; back to list intact.
+**The rail panel is gone** (`7714803`, live-proven). The owner decided the inbox should be a tab,
+not a second surface on the navigation rail: `navPanel`, its thread split with the picker/bot
+furniture, the split-drag persistence and the badge hook are deleted (`app.tsx` 593 → 441 lines,
+`layout.css` 18.2 kB → 15.4 kB). The session, its heartbeat and the one `sync` primitive are
+untouched — the badge existed only to adorn the removed icon, and with it goes the two-mount
+question. Live: no Inbox rail button; the tab opens from the thread's right panel
+(`Show inbox panel`), mounts once with 131 rows, opens a WhatsApp thread with 59 bubbles, scroll
+pin exact, and returns to the list intact.
 
 **Done** (`fbf7bee`, 245 tests). One `sync` RPC (`{ account, limit? }` → `{ items, updatedAt, reason? }`)
 fans out through `registry[account].sync()`; `list_source` and `linkedin_sync` are gone.
@@ -145,7 +146,6 @@ Both were written and proven by breaking the guard and watching them fail (`test
 Still unmeasured: **one heartbeat across two mounts** (this BB build reuses the same surface, so
 `.ui-inbox` count cannot reach 2; the argument rests on `listDue`/`lastTick` being session state).
 
-Also queued: the badge hook's 20 s `setInterval` — folded onto the session's tick (`b5a2b90`).
 
 ## Working facts worth not rediscovering
 
