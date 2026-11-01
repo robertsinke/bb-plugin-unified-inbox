@@ -1,10 +1,12 @@
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
 import { createSearchIndex, createSearchStore } from './src/search-index';
+import { createSendAudit } from './src/send-audit';
 import { ImsgClient } from './src/imsg-client';
 import {
   armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
@@ -20,13 +22,15 @@ import { accounts, createRegistry, registryCapabilities } from './src/adapters/i
 import { capabilitiesSchema } from './src/adapters/capability';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './src/adapters/media';
 import { toProviderError } from './src/adapters/provider-error';
+import { createSendGate, type SendApproval } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import type { Account, Conversation } from './src/adapters/types';
 
 // The transport: it validates one RPC call, asks the registry which adapter
-// answers for the account, and owns caching, search, unread preservation, error
-// isolation and the send policy. How a source lists, opens, serves media and
-// acts lives in src/adapters/ — never here.
+// answers for the account, and owns caching, search, unread preservation and error
+// isolation. Every send goes through one gate (src/adapters/policy.ts), so the
+// refusal and the audit record are owned in one place. How a source lists, opens,
+// serves media and acts lives in src/adapters/ — never here.
 
 const account = z.enum(accounts);
 const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
@@ -107,10 +111,24 @@ function listError(account: Account, cause: unknown): string {
   return DESCRIBED_FAILURE.test(message) ? message : `${SOURCE_LABEL[account]} unavailable. Check its connection.`;
 }
 
+/**
+ * The approval the transport can honestly state: this conversation, this moment, one call.
+ * The RPC layer validates the send itself (the adapter's own write builder, the composer
+ * path) and carries no approval token, so the gate's rules here are a choke point and a
+ * record, not proof of identity — a host-issued token is containment, which OQ-1 owns. When
+ * one arrives, it replaces this value and the gate is unchanged.
+ */
+function approvalFor(conversationId: string): SendApproval {
+  return { id: randomUUID(), conversationId, issuedAt: Date.now() };
+}
+
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const cache = createInboxCache(db);
   const searchIndex = createSearchIndex(cache, createSearchStore(db));
+  // Every send attempt is written here: one table in the plugin's own database.
+  const sendAudit = createSendAudit(db);
+  const sendGate = createSendGate({ now: () => Date.now(), audit: row => sendAudit.record(row) });
   const imsgPath = [join(homedir(), '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
@@ -214,16 +232,25 @@ export default function plugin(bb: BbPluginApi) {
     async media({ account: source, ...request }) {
       return registry[source].media(request);
     },
-    async action({ account, id, action, text }) {
-      return registry[account].action(action, id, { text });
+    async action({ account: source, id, action, text }) {
+      if (action !== 'reply') return registry[source].action(action, id, { text });
+      // A send is the gate's call: it refuses before the adapter, records either way, and
+      // hands delivery back so the adapter still validates the send it was given.
+      return sendGate(
+        { account: source, conversationId: id, text: text ?? '' },
+        approvalFor(id),
+        () => registry[source].action(action, id, { text }),
+      );
     },
     async send_gmail(input) {
-      // Disabled until the BB owner-confirmation boundary is verified; RPC is agent-callable.
-      const sendingVerified = false;
-      if (!sendingVerified) throw new Error('Gmail sending is not enabled yet. Your draft has not been sent.');
-      const send = registry[input.account].send;
-      if (!send) throw new Error('This source cannot send from the inbox.');
-      return send({ kind: 'gmail', ...input }, {});
+      const deliver = registry[input.account].send;
+      if (!deliver) throw new Error('This source cannot send from the inbox.');
+      // Disabled by SEND_POLICY in the gate, which refuses before it looks at an approval.
+      return sendGate(
+        { account: input.account, conversationId: input.threadId ?? input.to, text: input.text },
+        undefined,
+        () => deliver({ kind: 'gmail', ...input }, {}),
+      );
     },
     async list() {
       const results = await Promise.allSettled(accounts.map(name => registry[name].list()));
@@ -240,12 +267,22 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: 'unified-inbox',
-    summary: 'Unified Inbox helpers, such as the one-time LinkedIn sign-in',
-    commands: [{ name: 'linkedin-signin', summary: 'Open the inbox LinkedIn profile so you can sign in once', usage: 'bb unified-inbox linkedin-signin' }],
+    summary: 'Unified Inbox helpers: the one-time LinkedIn sign-in, and the send gate audit',
+    commands: [
+      { name: 'linkedin-signin', summary: 'Open the inbox LinkedIn profile so you can sign in once', usage: 'bb unified-inbox linkedin-signin' },
+      { name: 'send-audit', summary: 'Show what the send gate allowed or refused, newest first', usage: 'bb unified-inbox send-audit [limit]' },
+    ],
     async run(argv) {
-      if (argv[0] !== 'linkedin-signin') return { exitCode: 1, stderr: 'Usage: bb unified-inbox linkedin-signin' };
-      const profile = await openLinkedInSignIn();
-      return { exitCode: 0, stdout: `Sign in to LinkedIn in the window that just opened, then close it. Profile: ${profile}\n` };
+      if (argv[0] === 'linkedin-signin') {
+        const profile = await openLinkedInSignIn();
+        return { exitCode: 0, stdout: `Sign in to LinkedIn in the window that just opened, then close it. Profile: ${profile}\n` };
+      }
+      if (argv[0] === 'send-audit') {
+        const rows = sendAudit.list(Number(argv[1] ?? 20));
+        if (!rows.length) return { exitCode: 0, stdout: 'No send attempts recorded yet.\n' };
+        return { exitCode: 0, stdout: rows.map(row => `${new Date(row.at).toISOString()} ${row.decision.padEnd(7)} ${row.account} ${row.conversationId}${row.reason ? ` — ${row.reason}` : ''}\n`).join('') };
+      }
+      return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|send-audit>' };
     },
   });
 
