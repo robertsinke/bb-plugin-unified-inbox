@@ -87,12 +87,6 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       calls.push('linkedin:arm');
       return { installed: true, recording: true };
     },
-    // The recorder's dump and clear reach the page session now, so the only expression the
-    // adapter still asks this stub for is a replay.
-    runLinkedInWrite: async () => {
-      calls.push('linkedin:write:replay');
-      return { ok: true, status: 200, body: null };
-    },
     // The adapter receives the page seam; this stub answers the typed reads directly, so the
     // probe payload carries the rows and the mailbox the real probe would report.
     linkedInPage: {

@@ -134,12 +134,6 @@ export function harness(options: HarnessOptions = {}): Harness {
       calls.push('linkedin:arm');
       return { installed: true, recording: true };
     },
-    // The recorder's dump and clear reach the page session now, so the only expression the
-    // adapter still asks this stub for is a replay.
-    runLinkedInWrite: async () => {
-      calls.push('linkedin:write:replay');
-      return { ok: true, status: 200, body: null };
-    },
     // The adapter receives the page seam; this stub answers the typed reads directly.
     linkedInPage: {
       list: async () => {
