@@ -51,12 +51,15 @@ test('Messages: declared capabilities match what action and its attachment entry
       await refused(h.calls, () => adapter.action('archive', id), /not supported for Messages/);
     }
 
-    // media: true and attachments: true — served through the Messages entry point.
+    // media: true and attachments: true — served through the Messages branch of the media request.
     h.calls.length = 0;
-    const image = await adapter.imsgMedia!(IMSG_ID, '1', 0);
+    const image = await adapter.media({ kind: 'imsg', chatId: IMSG_ID, messageId: '1', index: 0 });
     assert.deepEqual(h.calls, ['imsg:messages.history']);
     assert.equal(image.mime, 'image/png');
     assert.equal(image.dataUrl, `data:image/png;base64,${PNG.toString('base64')}`);
+
+    // A media request addressed by message id is refused before any source call.
+    await refused(h.calls, () => adapter.media({ kind: 'message', id: IMSG_ID, index: 0 }), /opens through its conversation/);
 
     // Actions outside the declaration are refused.
     await refused(h.calls, () => adapter.action('confirm', IMSG_ID, { text: 'hi' }), /not supported for Messages/);

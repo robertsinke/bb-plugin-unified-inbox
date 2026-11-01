@@ -21,7 +21,7 @@ import {
 } from '../linkedin-write.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
-  Account, ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, LinkedInRecordOp, LinkedInRecordResult,
+  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, LinkedInRecordOp, LinkedInRecordResult,
   LinkedInReplayInput, LinkedInReplayResult, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
 } from './types.ts';
 
@@ -43,15 +43,6 @@ const invitationParams = (value: unknown): InvitationParams | null => {
 };
 
 const READ_ONLY = 'LinkedIn here can send a reply and mark a conversation read; an invitation answer and an archive still need their own recorded actions.';
-
-/**
- * The `media` answer for LinkedIn: the image itself, or — for a shared post, whose
- * payload carries no thumbnail — the post's link with no image data.
- *
- * `MediaPayload` has no `url` yet; this wider shape is what the gateway's `media`
- * output needs to carry for the inbox to render that link.
- */
-export type LinkedInMediaPayload = MediaPayload & { url?: string };
 
 /** Media is addressed by the LinkedIn message urn the thread read recorded. */
 function isMessageId(id: string): boolean {
@@ -155,8 +146,9 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
     },
 
     /** A photo is fetched from LinkedIn's CDN; a shared post answers with its link, because it has no thumbnail. */
-    async media(_account: Account, id: string, _index: number): Promise<LinkedInMediaPayload> {
-      const message = cachedMessage(id);
+    async media(request): Promise<MediaPayload> {
+      if (request.kind !== 'message') throw new Error('This account has no attachments.');
+      const message = cachedMessage(request.id);
       if (!message) throw new Error('Open this LinkedIn conversation again to show its media.');
       if (message.link && !message.media) return { dataUrl: '', mime: '', url: message.link };
       if (!message.media) throw new Error('This LinkedIn message carries no media.');

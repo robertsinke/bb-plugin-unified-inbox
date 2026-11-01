@@ -49,14 +49,14 @@ test('WhatsApp: declared capabilities match what action and media accept', async
 
     // media: true — the stubbed loopback API serves a bounded data URL.
     h.calls.length = 0;
-    const image = await adapter.media('whatsapp', 'm1', 0);
+    const image = await adapter.media({ kind: 'message', id: 'm1', index: 0 });
     assert.deepEqual(h.calls, ['whatsapp:load-media', 'whatsapp:runtime']);
     assert.equal(image.mime, 'image/png');
     assert.equal(image.dataUrl, `data:image/png;base64,${Buffer.from([1, 2, 3]).toString('base64')}`);
 
-    // attachments: false — there is no attachment entry point to lie about.
-    assert.equal(adapter.gmailAttachment, undefined);
-    assert.equal(adapter.imsgMedia, undefined);
+    // attachments: false — an attachment-shaped request is refused without a source call.
+    await refused(h.calls, () => adapter.media({ kind: 'attachment', id: 'm1', filename: 'photo.png' }), /no attachments/);
+    await refused(h.calls, () => adapter.media({ kind: 'imsg', chatId: WHATSAPP_ID, messageId: '1', index: 0 }), /no attachments/);
   } finally {
     globalThis.fetch = originalFetch;
     h.close();

@@ -34,11 +34,11 @@ test('business Gmail: declared capabilities match what action and send accept', 
     assert.deepEqual(h.calls, ['gmail:business:threads:modify']);
 
     // media: false, refused before source I/O.
-    await refused(h.calls, () => adapter.media('business', 'm1', 0), /no media to open/);
+    await refused(h.calls, () => adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no media to open/);
 
     // attachments: true.
     h.calls.length = 0;
-    const file = await adapter.gmailAttachment!('m-att', 'notes.txt');
+    const file = await adapter.media({ kind: 'attachment', id: 'm-att', filename: 'notes.txt' });
     assert.deepEqual(h.calls, ['gmail:business:messages:get']);
     assert.equal(file.filename, 'notes.txt');
     assert.equal(file.dataUrl, `data:text/plain;base64,${Buffer.from('hello').toString('base64')}`);

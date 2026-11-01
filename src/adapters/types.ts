@@ -10,6 +10,7 @@ import type { LinkedInRecorderStats } from '../linkedin-page-session.ts';
 // so the transport rewires routing without any payload conversion.
 
 import type { CapabilityKey } from './capability.ts';
+import type { MediaRequest } from './media.ts';
 
 /**
  * Registry keys: one adapter per account, and the `account` value on every RPC
@@ -89,7 +90,7 @@ export interface Message {
   reactions?: Reaction[];
   /** Gmail attachment filenames (rpcContract `attachments`). */
   attachments?: string[];
-  /** Gmail message id, used by the `attachment` RPC. */
+  /** Gmail message id, used by a `kind: 'attachment'` media request. */
   gmailId?: string;
   /** Messages attachments (rpcContract `imsgAttachments`). */
   imsgAttachments?: ImsgAttachment[];
@@ -97,7 +98,7 @@ export interface Message {
   edited?: boolean;
   /** Messages thread indicator (context only; full threading is a non-goal). */
   replyContext?: boolean;
-  /** Messages stable row id, used by `imsg_media`. */
+  /** Messages stable row id, used by a `kind: 'imsg'` media request. */
   imsgId?: string;
   /** A message that is a link rather than a picture or text (a shared post). */
   link?: string;
@@ -118,14 +119,18 @@ export interface ProviderError {
 }
 
 /**
- * Media payload as served today: base64 data URLs bounded by IMAGE_LIMIT,
- * VIDEO_LIMIT, IMSG_IMAGE_LIMIT and the 8 MiB RPC frame cap. OQ-5 may switch
- * the transport to a handle; only this type changes then.
+ * One media answer for every source: base64 data URLs bounded by IMAGE_LIMIT,
+ * VIDEO_LIMIT, IMSG_IMAGE_LIMIT and the 8 MiB RPC frame cap. A Gmail attachment
+ * also carries its `size`; a LinkedIn shared post carries its `url` instead of
+ * image data. OQ-5 may switch the transport to a handle; only this type changes
+ * then.
  */
 export interface MediaPayload {
   dataUrl: string;
   mime: string;
   filename?: string;
+  size?: number;
+  url?: string;
 }
 
 /** Draft for a send; only the kinds whose provider implements `send`. */
@@ -262,20 +267,12 @@ export interface SyncResult {
   reason?: string;
 }
 
-/** Mirrors the rpcContract `attachment` output: a bounded, always-named file. */
-export interface AttachmentPayload {
-  dataUrl: string;
-  mime: string;
-  filename: string;
-  size: number;
-}
-
 /**
  * One provider behind the gateway. The registry (src/adapters/index.ts,
  * state 3) maps Account → adapter; the gateway owns caching, search, audit,
- * error isolation, and the send policy layer (spec goals 1–3). `media` takes
- * the account routing key so the gateway can dispatch and the adapter can
- * verify the registry binding (unifying `media` and `imsg_media` is T9).
+ * error isolation, and the send policy layer (spec goals 1–3). The gateway
+ * dispatches `media` through the registry; the request, not the RPC name, says
+ * how the file is addressed.
  */
 export interface Adapter {
   capabilities(): Capabilities;
@@ -291,14 +288,19 @@ export interface Adapter {
    */
   sync(opts?: OpenOptions): Promise<SyncResult>;
   open(id: string, opts?: OpenOptions): Promise<OpenResult>;
-  media(account: Account, id: string, index: number): Promise<MediaPayload>;
+  /**
+   * The one media primitive. A `message` slot serves an inline picture or video,
+   * an `imsg` slot serves a Messages attachment inside its conversation, and an
+   * `attachment` names a bounded Gmail file. The adapter refuses a kind its
+   * source cannot serve.
+   */
+  media(request: MediaRequest): Promise<MediaPayload>;
   action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult>;
   send?(draft: SendDraft, authorization: SendAuthorization): Promise<SendReceipt>;
 
   // The entry points below are the shipped RPC coordinates that `list`, `open`,
   // `media` and `action` cannot express yet. Each is implemented by exactly the
-  // adapters whose source has that shape, and each is a candidate for the
-  // toolbox unification (T9):
+  // adapters whose source has that shape:
 
   /**
    * Arm, clear, or dump the in-page write recorder (slice D). Arming watches
@@ -310,10 +312,6 @@ export interface Adapter {
    * to the named conversation, and refuses to run without explicit approval.
    */
   replay?(input: LinkedInReplayInput): Promise<LinkedInReplayResult>;
-  /** Gmail attachment by message id and filename, behind `attachment` (T9 → `media`). */
-  gmailAttachment?(gmailId: string, filename: string): Promise<AttachmentPayload>;
-  /** Messages attachment by (chat, message, index), behind `imsg_media` (T9 → `media`). */
-  imsgMedia?(chatId: string, messageId: string, index: number): Promise<MediaPayload>;
 
   /**
    * Cache-only decoration for one row the gateway returns straight from the

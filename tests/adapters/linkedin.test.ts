@@ -60,12 +60,12 @@ test('LinkedIn: declared capabilities match what action and media accept', async
 
     // media: true, but only for a message a cached conversation holds; nothing to
     // serve costs no source call either.
-    await refused(h.calls, () => adapter.media('linkedin', PHOTO_URN, 0), /Open this LinkedIn conversation again/);
-    await refused(h.calls, () => adapter.media('linkedin', 'not-a-message-urn', 0), /Open this LinkedIn conversation again/);
+    await refused(h.calls, () => adapter.media({ kind: 'message', id: PHOTO_URN, index: 0 }), /Open this LinkedIn conversation again/);
+    await refused(h.calls, () => adapter.media({ kind: 'message', id: 'not-a-message-urn', index: 0 }), /Open this LinkedIn conversation again/);
 
-    // attachments: false — there is no attachment entry point.
-    assert.equal(adapter.gmailAttachment, undefined);
-    assert.equal(adapter.imsgMedia, undefined);
+    // attachments: false — an attachment-shaped request is refused without a source call.
+    await refused(h.calls, () => adapter.media({ kind: 'attachment', id: PHOTO_URN, filename: 'photo.png' }), /no attachments/);
+    await refused(h.calls, () => adapter.media({ kind: 'imsg', chatId: CONVERSATION, messageId: '1', index: 0 }), /no attachments/);
 
     // The boundary is the conversation id, not the source: a read mark asks the page only for a
     // conversation urn of LinkedIn's own shape, and every other id is refused without reaching it.
@@ -81,7 +81,7 @@ test('LinkedIn: a photo is served from the CDN through the media path', async ()
   const stub = cdn();
   try {
     cachedConversation(h);
-    const payload = await h.registry.linkedin.media('linkedin', PHOTO_URN, 0);
+    const payload = await h.registry.linkedin.media({ kind: 'message', id: PHOTO_URN, index: 0 });
     assert.equal(payload.mime, 'image/png');
     assert.match(payload.dataUrl, /^data:image\/png;base64,/);
     // The browser read is never repeated for a thumbnail.
@@ -95,7 +95,7 @@ test('LinkedIn: a shared post answers with its link and fetches nothing', async 
   const stub = cdn();
   try {
     cachedConversation(h);
-    assert.deepEqual(await h.registry.linkedin.media('linkedin', POST_URN, 0), { dataUrl: '', mime: '', url: POST });
+    assert.deepEqual(await h.registry.linkedin.media({ kind: 'message', id: POST_URN, index: 0 }), { dataUrl: '', mime: '', url: POST });
     assert.deepEqual(stub.urls, []);
   } finally { stub.restore(); h.close(); }
 });
@@ -105,7 +105,7 @@ test('LinkedIn: a message with no picture and no post has no media to serve', as
   const stub = cdn();
   try {
     cachedConversation(h);
-    await assert.rejects(h.registry.linkedin.media('linkedin', TEXT_URN, 0), /carries no media/);
+    await assert.rejects(h.registry.linkedin.media({ kind: 'message', id: TEXT_URN, index: 0 }), /carries no media/);
     assert.deepEqual(stub.urls, []);
   } finally { stub.restore(); h.close(); }
 });
