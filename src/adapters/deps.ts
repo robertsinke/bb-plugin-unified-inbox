@@ -16,14 +16,8 @@ export interface RegistryDeps {
   gmail: GwsRunner;
   whatsapp: WhatsAgentClient;
   imsg: ImsgSender;
-  /** One LinkedIn page session: the conversation list, one thread, and the change probe. */
+  /** One LinkedIn page session: the reads, the change probe, the recorder, and a write replay. */
   linkedInPage: LinkedInPageSession;
-  /**
-   * One write-side page expression, built by `src/linkedin-write.ts`: arming the
-   * recorder, listing what it saw, or replaying a request a real action produced.
-   * Nothing here decides what to send; that is the adapter's job.
-   */
-  runLinkedInWrite: (expression: string) => Promise<unknown>;
   /**
    * Arms the write recorder so it survives a page load. The page reloads, because an app that
    * captured `fetch` at boot can only be watched by a wrapper that was there first.
