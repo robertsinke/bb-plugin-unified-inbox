@@ -9,6 +9,8 @@ import {
   replayWriteExpression,
   recordedSendText,
   recorderStatsExpression,
+  linkedinInvitationWrite,
+  type InvitationAction,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
@@ -141,7 +143,7 @@ test('the recorder keeps five writes, newest last, and drops an oversized body',
   assert.equal((await dumpOf(page)).length, 1);
 });
 
-test('replay refuses anything that is not a same-origin voyager path or a real JSON write', () => {
+test('replay refuses anything that is not a same-origin path or a real JSON write', () => {
   const base = { method: 'POST', url: '/voyager/api/graphql', body: '{}', capturedAt: 1 };
   const hostileUrls = [
     `${ORIGIN}/voyager/api/graphql`, // absolute, even on the right host
@@ -152,11 +154,10 @@ test('replay refuses anything that is not a same-origin voyager path or a real J
     '/voyager/api/%2e%2e/graphql',
     'javascript:alert(1)',
     'data:application/json,{}',
-    '/feed/update',
     '',
   ];
   for (const url of hostileUrls) {
-    assert.throws(() => replayWriteExpression({ ...base, url }), /same-origin \/voyager\/api\/ path/, url);
+    assert.throws(() => replayWriteExpression({ ...base, url }), /same-origin path/, url);
   }
   assert.throws(() => replayWriteExpression({ ...base, method: 'GET' }), /must be one of POST, PUT, PATCH, DELETE/);
   assert.throws(() => replayWriteExpression({ ...base, url: '/voyager/api/graphql', body: 'not json' }), /must be JSON/);
@@ -375,4 +376,35 @@ test('the built send request is the observed one, byte for byte', () => {
   // replay surface and the adapter agree about what a send is.
   assert.equal(isMessageSend(write!, "urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)"), true);
   assert.equal(isMessageSend(write!, 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)'), false);
+});
+test('the built invitation answer is the observed one, byte for byte, in both directions', () => {
+  // Captured 2026-11-02 through the page's own buttons: one real accept (Ada), one real ignore
+  // (Grace). With the recorded per-request randomness pinned, the builder must reproduce each
+  // request exactly, or the adapter is no longer answering the way the page was observed to.
+  const ACCEPT_URL = "/flagship-web/rsc-action/actions/server-request?sduiid=com.linkedin.sdui.requests.mynetwork.addaInvitationAction&parentSpanId=spanaccept1%3D";
+  const ACCEPT_BODY = String.raw`{"requestId":"com.linkedin.sdui.requests.mynetwork.addaInvitationAction","serverRequest":{"requestId":"com.linkedin.sdui.requests.mynetwork.addaInvitationAction","requestedArguments":{"$type":"proto.sdui.actions.requests.RequestedArguments","requestedStateKeys":[],"payload":{"inviteeActionType":"InviteeActionType_ACCEPT","invitationType":"GenericInvitationType_CONNECTION","invitationUrn":{"invitationId":"7000000000000000001"},"validationToken":"tokenaaa1","origin":"InvitationOrigin_INVITATION_PREVIEW","restoreOnServerFailure":false,"postActionSentConfigs":[],"profileUrn":{"profileId":"ACoAAAexampleProfileId0000000000000002"}},"requestMetadata":{"$type":"proto.sdui.common.RequestMetadata"}},"onClientRequestFailureAction":{"actions":[{"$type":"proto.sdui.actions.core.SetState","value":{"state":{"key":{"key":{"value":{"$case":"id","id":"invitation_action_state_7000000000000000001"}}},"value":{"$case":"stringValue","stringValue":"Pending"}}}},{"$type":"proto.sdui.actions.core.ShowToast","value":{"duration":"ToastDuration_UNKNOWN","key":"11111111-1111-4111-8111-111111111111","presetToast":{"category":"ToastPresetCategory_ERROR","text":{"_payload":{"status":"resolved_model","value":"[\"Sorry, invitation from Ada not accepted. Please try again.\"]","reason":{"_moduleLoading":null,"_chunks":{},"_stringDecoder":{},"_closed":true,"_closedReason":{},"_allowPartialStream":false}}}}}}]},"isApfcEnabled":false,"isStreaming":false,"rumPageKey":""},"states":[],"requestedArguments":{"$type":"proto.sdui.actions.requests.RequestedArguments","requestedStateKeys":[],"payload":{"inviteeActionType":"InviteeActionType_ACCEPT","invitationType":"GenericInvitationType_CONNECTION","invitationUrn":{"invitationId":"7000000000000000001"},"validationToken":"tokenaaa1","origin":"InvitationOrigin_INVITATION_PREVIEW","restoreOnServerFailure":false,"postActionSentConfigs":[],"profileUrn":{"profileId":"ACoAAAexampleProfileId0000000000000002"}},"requestMetadata":{"$type":"proto.sdui.common.RequestMetadata"},"states":[],"screenId":"com.linkedin.sdui.flagshipnav.mynetwork.Grow","knownTemplateIds":[]}}`;
+  const IGNORE_URL = "/flagship-web/rsc-action/actions/server-request?sduiid=com.linkedin.sdui.requests.mynetwork.addaInvitationAction&parentSpanId=%2Fspanignore1%3D";
+  const IGNORE_BODY = String.raw`{"requestId":"com.linkedin.sdui.requests.mynetwork.addaInvitationAction","serverRequest":{"requestId":"com.linkedin.sdui.requests.mynetwork.addaInvitationAction","requestedArguments":{"$type":"proto.sdui.actions.requests.RequestedArguments","requestedStateKeys":[],"payload":{"inviteeActionType":"InviteeActionType_IGNORE","invitationType":"GenericInvitationType_CONNECTION","invitationUrn":{"invitationId":"7000000000000000002"},"validationToken":"tokenbbb2","origin":"InvitationOrigin_INVITATION_PREVIEW","restoreOnServerFailure":false,"postActionSentConfigs":[],"profileUrn":{"profileId":"ACoAAAexampleProfileId0000000000000003"}},"requestMetadata":{"$type":"proto.sdui.common.RequestMetadata"}},"onClientRequestFailureAction":{"actions":[{"$type":"proto.sdui.actions.core.SetState","value":{"state":{"key":{"key":{"value":{"$case":"id","id":"invitation_action_state_7000000000000000002"}}},"value":{"$case":"stringValue","stringValue":"Pending"}}}},{"$type":"proto.sdui.actions.core.ShowToast","value":{"duration":"ToastDuration_UNKNOWN","key":"22222222-2222-4222-8222-222222222222","presetToast":{"category":"ToastPresetCategory_ERROR","text":{"_payload":{"status":"resolved_model","value":"[\"Sorry, invitation from Grace not ignored. Please try again.\"]","reason":{"_moduleLoading":null,"_chunks":{},"_stringDecoder":{},"_closed":true,"_closedReason":{},"_allowPartialStream":false}}}}}}]},"isApfcEnabled":false,"isStreaming":false,"rumPageKey":""},"states":[],"requestedArguments":{"$type":"proto.sdui.actions.requests.RequestedArguments","requestedStateKeys":[],"payload":{"inviteeActionType":"InviteeActionType_IGNORE","invitationType":"GenericInvitationType_CONNECTION","invitationUrn":{"invitationId":"7000000000000000002"},"validationToken":"tokenbbb2","origin":"InvitationOrigin_INVITATION_PREVIEW","restoreOnServerFailure":false,"postActionSentConfigs":[],"profileUrn":{"profileId":"ACoAAAexampleProfileId0000000000000003"}},"requestMetadata":{"$type":"proto.sdui.common.RequestMetadata"},"states":[],"screenId":"com.linkedin.sdui.flagshipnav.mynetwork.Grow","knownTemplateIds":[]}}`;
+  const accepted = linkedinInvitationWrite({ invitationId: "7000000000000000001", token: "tokenaaa1", inviterProfileId: "ACoAAAexampleProfileId0000000000000002", firstName: 'Ada', action: 'accept', toastKey: "11111111-1111-4111-8111-111111111111", spanId: "spanaccept1" });
+  const ignored = linkedinInvitationWrite({ invitationId: "7000000000000000002", token: "tokenbbb2", inviterProfileId: "ACoAAAexampleProfileId0000000000000003", firstName: 'Grace', action: 'ignore', toastKey: "22222222-2222-4222-8222-222222222222", spanId: "/spanignore1" });
+  assert.ok(accepted && ignored);
+  assert.equal(accepted.method, 'POST');
+  assert.equal(accepted.url, ACCEPT_URL);
+  assert.equal(accepted.body, ACCEPT_BODY);
+  assert.equal(ignored.url, IGNORE_URL);
+  assert.equal(ignored.body, IGNORE_BODY);
+
+  // A fresh answer gets fresh randomness, and anything malformed is refused rather than built.
+  const fresh = linkedinInvitationWrite({ invitationId: '123', token: 'tok', inviterProfileId: 'ACo1', firstName: 'Ada', action: 'ignore' });
+  assert.ok(fresh && !fresh.url.includes(accepted.url.slice(-30)));
+  const malformed: { invitationId: string; token: string; inviterProfileId: string; firstName: string; action: string }[] = [
+    { invitationId: 'abc', token: 'tok', inviterProfileId: 'ACo1', firstName: 'Ada', action: 'accept' },
+    { invitationId: '123', token: '', inviterProfileId: 'ACo1', firstName: 'Ada', action: 'accept' },
+    { invitationId: '123', token: 'tok', inviterProfileId: '', firstName: 'Ada', action: 'ignore' },
+    { invitationId: '123', token: 'tok', inviterProfileId: 'ACo1', firstName: '', action: 'accept' },
+    { invitationId: '123', token: 'tok', inviterProfileId: 'ACo1', firstName: 'Ada', action: 'maybe' },
+  ];
+  for (const bad of malformed) {
+    assert.equal(linkedinInvitationWrite(bad as unknown as Parameters<typeof linkedinInvitationWrite>[0]), null, JSON.stringify(bad));
+  }
 });

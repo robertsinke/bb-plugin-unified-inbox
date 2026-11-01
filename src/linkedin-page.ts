@@ -154,7 +154,11 @@ const BODY = `
       // customMessage only says whether a note exists; the note itself is the message field.
       const note = String(typeof e.message === 'string' ? e.message : '').trim();
       const avatarUrl = linkedinImage(avatarOf(person)) || avatars.get(identityKey(ref)) || '';
-      return { id: String(e.entityUrn || e.mailboxItemId || ''), title, preview: note, date: Number(e.sentTime || 0), unread: e.unseen === true, sender: title, ...(avatarUrl ? { avatarUrl } : {}) };
+      // The invitation answer needs what the payload itself carries: the sharedSecret the page's
+      // own accept click sends as its validationToken, and the inviter's profile id. Without these
+      // a row could be shown but not answered.
+      const profileOf = /^urn:li:fsd_profile:(.+)$/.exec(ref);
+      return { id: String(e.entityUrn || e.mailboxItemId || ''), title, preview: note, date: Number(e.sentTime || 0), unread: e.unseen === true, sender: title, ...(avatarUrl ? { avatarUrl } : {}), token: String(e.sharedSecret || ''), inviterProfileId: profileOf ? profileOf[1] : '', firstName: String(person.firstName || title.split(' ')[0] || '') };
     });
 
     return { conversations, invitations };

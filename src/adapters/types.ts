@@ -194,6 +194,8 @@ export interface Capabilities {
   send: boolean;
   markRead: boolean;
   archive: boolean;
+  /** Whether pending invitations can be answered (accept / ignore) from here. */
+  invitations: boolean;
   media: boolean;
   attachments: boolean;
   /** Annotation-only pending OQ-4 (search ownership). */
@@ -218,7 +220,7 @@ export interface OpenResult {
 }
 
 /** Mirrors the rpcContract `linkedin_sync` output. */
-export type LinkedInRecordOp = 'arm' | 'clear' | 'dump' | 'probe';
+export type LinkedInRecordOp = 'arm' | 'clear' | 'dump';
 
 /** One observed write, exactly as the page made it. No headers, no cookies, no tokens. */
 export interface RecordedWrite {

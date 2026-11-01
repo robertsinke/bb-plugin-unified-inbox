@@ -11,7 +11,7 @@ import type { Account, Capabilities } from './adapters/types.ts';
 export type CapabilityMap = Record<Account, Capabilities>;
 
 /** Nothing is known before the declarations arrive, or if asking for them failed: offer no control. */
-const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, media: false, attachments: false };
+const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false };
 
 function declared(capabilities: CapabilityMap | null, account: Account): Capabilities {
   return capabilities?.[account] ?? UNKNOWN;
@@ -29,6 +29,11 @@ export function canSend(capabilities: CapabilityMap | null, account: Account): b
 /** The read/unread toggle, and the read the inbox marks when a conversation is opened. */
 export function canMarkRead(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).markRead;
+}
+
+/** Answering a pending invitation: accept or ignore, from the invitation's own row. */
+export function canAnswerInvitation(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).invitations;
 }
 
 /** Archive, which only a source with a place to move a conversation out of the inbox can offer. */

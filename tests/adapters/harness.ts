@@ -12,6 +12,9 @@ import type { Account, Adapter } from '../../src/adapters/types.ts';
 import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
+
+/** A pending invitation the read carries, with the params its answer needs. */
+export const LINKEDIN_INVITE = 'urn:li:fs_relInvitation:12345';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
 export const IMSG_ID = '50';
 
@@ -149,7 +152,10 @@ export function harness(options: HarnessOptions = {}): Harness {
     readLinkedIn: async read => {
       calls.push(`linkedin:${read.mode}`);
       if (read.mode === 'thread') return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
-      return { conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }], invitations: [] };
+      return {
+        conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }],
+        invitations: [{ id: LINKEDIN_INVITE, title: 'Grace Hopper', preview: 'A note with the invitation', date: 1_700_000_000_000, unread: true, sender: 'Grace Hopper', token: 'tok123', inviterProfileId: 'ACoAAAGRACE', firstName: 'Grace' }],
+      };
     },
     providerError: toProviderError,
   };

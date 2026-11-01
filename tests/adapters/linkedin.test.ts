@@ -41,7 +41,7 @@ test('LinkedIn: declared capabilities match what action and media accept', async
   const h = harness();
   try {
     const adapter = h.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false });
 
     // send: true through the reply action — there is still no generic send method, because a
     // LinkedIn reply needs its conversation.
@@ -53,9 +53,10 @@ test('LinkedIn: declared capabilities match what action and media accept', async
     // same menu item. archive: false still refuses, and the refusal names the boundary.
     assert.deepEqual(await adapter.action('read', LINKEDIN_ID), { status: 'Updated.' });
     assert.deepEqual(await adapter.action('unread', LINKEDIN_ID), { status: 'Updated.' });
-    for (const kind of ['archive', 'confirm', 'reject'] as const) {
-      await refused(h.calls, () => adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), REFUSAL);
-    }
+    await refused(h.calls, () => adapter.action('archive', LINKEDIN_ID, { text: 'hi', proposalId: 1 }), REFUSAL);
+    // An invitation answer needs the read's own params; a conversation id is not an invitation.
+    await refused(h.calls, () => adapter.action('confirm', LINKEDIN_ID), /cannot be answered/);
+    await refused(h.calls, () => adapter.action('reject', LINKEDIN_ID), /cannot be answered/);
 
     // media: true, but only for a message a cached conversation holds; nothing to
     // serve costs no source call either.

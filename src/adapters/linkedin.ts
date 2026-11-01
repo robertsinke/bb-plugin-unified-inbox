@@ -4,13 +4,14 @@
 // from the requests the page itself sent for the same actions. An invitation answer
 // and an archive still need their own recorded actions, so they stay refused.
 import { canChange } from './capability.ts';
-import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
+import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import {
   clearRecordedWritesExpression,
   isMessageSend,
+  linkedinInvitationWrite,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
@@ -20,7 +21,6 @@ import {
   messageSendTemplate,
   recordedSendText,
   recordedWritesExpression,
-  invitationKeysExpression,
   recorderStatsExpression,
   replayWriteExpression,
   writeBytes,
@@ -35,7 +35,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, media: true, attachments: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false };
 
 /** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
 function recordedWrites(value: unknown): RecordedWrite[] {
@@ -51,6 +51,16 @@ function recordedWrites(value: unknown): RecordedWrite[] {
 }
 
 const ACCOUNT = 'linkedin';
+
+/** What an invitation answer needs, kept from the last read: the sharedSecret the page sends as its
+ * validationToken, the inviter's profile id, and the person's first name for the toast. */
+type InvitationParams = { token: string; inviterProfileId: string; firstName: string };
+const invitationParams = (value: unknown): InvitationParams | null => {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as { token?: unknown; inviterProfileId?: unknown; firstName?: unknown };
+  if (typeof row.token !== 'string' || !row.token || typeof row.inviterProfileId !== 'string' || !row.inviterProfileId) return null;
+  return { token: row.token, inviterProfileId: row.inviterProfileId, firstName: typeof row.firstName === 'string' ? row.firstName : '' };
+};
 
 const READ_ONLY = 'LinkedIn here can send a reply and mark a conversation read; an invitation answer and an archive still need their own recorded actions.';
 
@@ -69,6 +79,8 @@ function isMessageId(id: string): boolean {
 }
 
 export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
+  /** The last read's invitation action params, keyed by the invitation urn a row carries. */
+  const invitationActions = new Map<string, InvitationParams>();
   const { cache } = deps;
 
   /**
@@ -113,10 +125,6 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       if (op === 'clear') {
         await deps.runLinkedInWrite(clearRecordedWritesExpression());
         return { installed: true, recording: true, writes: [] };
-      }
-      if (op === 'probe') {
-        const answer = await deps.runLinkedInWrite(invitationKeysExpression());
-        return { writes: [], seen: null, ...(answer && typeof answer === 'object' ? { probe: answer } : {}) } as LinkedInRecordResult;
       }
       const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
       const seen = await deps.runLinkedInWrite(recorderStatsExpression()) as LinkedInRecordResult['seen'];
@@ -179,6 +187,24 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       // The one change LinkedIn can make from here: the read mark, replayed from the request the
       // page itself sent for the same menu item. Everything else — a reply, an invitation answer,
       // an archive — still needs its own recorded action first.
+      if (CAPABILITIES.invitations && (kind === 'confirm' || kind === 'reject')) {
+        // An invitation answer is the same request the page's own button sends: built from the
+        // sharedSecret and inviter the read already carried, so any invitation the inbox shows can
+        // be answered — never a replay of one recorded invitation.
+        const params = isInvitationId(id) ? invitationParams(invitationActions.get(id)) : null;
+        if (!params) throw new Error(isInvitationId(id) ? 'Refresh the inbox before answering this invitation.' : 'That LinkedIn invitation cannot be answered.');
+        const write = linkedinInvitationWrite({
+          invitationId: id.replace(/^urn:li:fs_relInvitation:/, ''),
+          token: params.token,
+          inviterProfileId: params.inviterProfileId,
+          firstName: params.firstName || 'the sender',
+          action: kind === 'confirm' ? 'accept' : 'ignore',
+        });
+        if (!write) throw new Error('That LinkedIn invitation cannot be answered.');
+        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
+        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the answer (status ${Number(result?.status) || 0}); the invitation was not ${kind === 'confirm' ? 'accepted' : 'ignored'}.`);
+        return { status: kind === 'confirm' ? 'Accepted.' : 'Ignored.' };
+      }
       if (CAPABILITIES.send && kind === 'reply') {
         const text = typeof opts?.text === 'string' ? opts.text.trim() : '';
         const write = text ? linkedinSendWrite(id, text) : null;
@@ -223,6 +249,14 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       }
 
       const listed = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
+      // The invitation action params are not part of a row, so they are kept beside the cache,
+      // replaced wholesale by every read: a stale token cannot outlive the invitation it answered.
+      invitationActions.clear();
+      for (const row of Array.isArray(listed.invitations) ? listed.invitations : []) {
+        const params = invitationParams(row);
+        const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id : '';
+        if (params && isInvitationId(id)) invitationActions.set(id, params);
+      }
       const items = linkedinItems(listed).map((item): Conversation => ({ ...item, account: ACCOUNT }));
       cache.save(ACCOUNT, items);
       // Only a probe can describe the state this read produced, so the marker is stored from it.

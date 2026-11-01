@@ -18,7 +18,7 @@ test('WhatsApp: declared capabilities match what action and media accept', async
   try {
     const adapter = h.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false });
 
     // send: true — reply proposes, confirm accepts, reject withdraws. No live client.
     h.calls.length = 0;

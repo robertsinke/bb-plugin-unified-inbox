@@ -16,6 +16,7 @@ import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsE
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
 const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
+const LINKEDIN_INVITE = 'urn:li:fs_relInvitation:12345';
 
 const GMAIL_THREAD = {
   id: 't1',
@@ -106,7 +107,10 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
     readLinkedIn: async read => {
       calls.push(`linkedin:${read.mode}`);
       if (read.mode === 'thread') return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
-      return { conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }], invitations: [] };
+      return {
+        conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }],
+        invitations: [{ id: LINKEDIN_INVITE, title: 'Grace Hopper', preview: 'A note with the invitation', date: 1_700_000_000_000, unread: true, sender: 'Grace Hopper', token: 'tok123', inviterProfileId: 'ACoAAAGRACE', firstName: 'Grace' }],
+      };
     },
     providerError: toProviderError,
   };
@@ -127,7 +131,7 @@ test('personal Gmail lists, opens and updates through its adapter', async () => 
   const f = fixture();
   try {
     const adapter = f.registry.personal;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, media: false, attachments: true });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.errors, []);
@@ -177,7 +181,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   try {
     const adapter = f.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['whatsapp', '15551234567@s.whatsapp.net', 'Ada', true]]);
@@ -194,7 +198,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
   try {
     const adapter = f.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, media: true, attachments: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['imessage', '50', 'Ada', true]]);
@@ -213,7 +217,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;
@@ -221,11 +225,11 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     assert.deepEqual(f.calls, []);
 
     const synced = await adapter.sync!();
-    assert.deepEqual(synced.items.map(row => [row.account, row.id, row.title]), [['linkedin', LINKEDIN_ID, 'Ada Lovelace']]);
+    assert.deepEqual(synced.items.map(row => [row.account, row.id, row.title]), [['linkedin', LINKEDIN_ID, 'Ada Lovelace'], ['linkedin', LINKEDIN_INVITE, 'Grace Hopper']]);
     // The refresh probes first; the probe is new here, so it also reads in full.
     assert.deepEqual(f.calls, ['linkedin:probe', 'linkedin:list']);
     assert.equal(synced.reason, 'read');
-    assert.equal((await adapter.list()).items.length, 1);
+    assert.equal((await adapter.list()).items.length, 2);
 
     // Nothing moved since the marker was stored, so the second refresh keeps the rows it has.
     f.calls.length = 0;
@@ -233,7 +237,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     // Now that the marker remembers the mailbox, the probe no longer asks who it is.
     assert.deepEqual(f.calls, [`linkedin:probe@${LINKEDIN_MAILBOX}`]);
     assert.equal(again.reason, 'skip');
-    assert.deepEqual(again.items.map(row => row.id), [LINKEDIN_ID]);
+    assert.deepEqual(again.items.map(row => row.id), [LINKEDIN_INVITE, LINKEDIN_ID]);
 
     assert.equal((await adapter.open(LINKEDIN_ID)).messages[0].text, 'Hello from LinkedIn');
     await assert.rejects(adapter.open('not-a-conversation'), /cannot be opened/);
@@ -254,9 +258,13 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     assert.deepEqual(f.calls, ['linkedin:write:replay']);
     await assert.rejects(adapter.action('reply', LINKEDIN_ID, { text: '  ' }), /needs the text to send/);
     await assert.rejects(adapter.action('reply', 'not-a-conversation', { text: 'hi' }), /cannot receive a reply/);
-    for (const kind of ['archive', 'confirm', 'reject'] as const) {
-      await assert.rejects(adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /still need their own recorded actions/);
-    }
+    await assert.rejects(adapter.action('archive', LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /still need their own recorded actions/);
+    // An invitation answer is the page's own request, built from what the read carried; a
+    // conversation id is not an invitation, and an invitation the read never saw asks for a refresh.
+    assert.deepEqual(await adapter.action('confirm', LINKEDIN_INVITE), { status: 'Accepted.' });
+    assert.deepEqual(await adapter.action('reject', LINKEDIN_INVITE), { status: 'Ignored.' });
+    await assert.rejects(adapter.action('confirm', LINKEDIN_ID), /cannot be answered/);
+    await assert.rejects(adapter.action('reject', 'urn:li:fs_relInvitation:999'), /Refresh the inbox/);
   } finally { f.done(); }
 });
 
