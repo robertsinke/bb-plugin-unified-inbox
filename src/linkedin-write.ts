@@ -476,11 +476,12 @@ export function invitationKeysExpression(): string {
     return fetch('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20', { headers, credentials: 'include' })
       .then(raw => { if (!raw.ok) throw new Error('LinkedIn ' + raw.status); return raw.json(); })
       .then(answer => {
-        const elements = answer && answer.elements ? answer.elements : [];
-        const first = elements[0] || {};
+        const included = answer && answer.included ? answer.included : [];
+        const rows = included.filter(e => /relationships\.invitation\.Invitation$/.test(String(e && e.$type ? e.$type : '')));
+        const first = rows[0] || {};
         const keys = Object.keys(first).sort();
         const tokenish = keys.filter(key => /token|valid/i.test(key));
-        return { count: elements.length, keys, tokenish: tokenish.map(key => [key, typeof first[key] === 'string' ? String(first[key]).length : String(first[key])]) };
+        return { count: rows.length, keys, tokenish: tokenish.map(key => [key, typeof first[key] === 'string' ? String(first[key]).length : String(first[key])]) };
       })
       .catch(error => ({ error: String(error && error.message ? error.message : error) }));
   `);
