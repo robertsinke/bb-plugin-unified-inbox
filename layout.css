@@ -61,7 +61,11 @@
 .ui-mail-bar>button[aria-pressed=true]{background:color-mix(in srgb, currentColor 12%, transparent)}
 .ui-mail-bar .ui-icon-button{width:32px;padding:0}
 .ui-mail-bar .ui-source-icon{width:16px;height:16px}
-.ui-search{flex:1;min-width:0;height:28px;margin:0;padding:0 8px;border:0;background:transparent;color:inherit;font:inherit;font-size:13px}
+/* Where a row's text begins: the avatar plus the gap after it. The search bar aligns its own text
+   to this same column, minus the control and gap it sits behind, so the two are one number apart
+   and cannot drift. */
+.ui-inbox{--row-label-inset:41px}
+.ui-search{flex:1;min-width:0;height:28px;margin:0;padding:0 8px 0 calc(var(--row-label-inset) - 34px);border:0;background:transparent;color:inherit;font:inherit;font-size:13px}
 .ui-search:focus{outline:none}
 .ui-list{flex:1;min-height:0;overflow:auto;padding:2px 0 8px}
 .ui-compose-menu,.ui-footnote,.ui-inbox>.ui-errors,.ui-inbox>.ui-reply{margin-left:12px;margin-right:12px}
@@ -116,8 +120,8 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 /* A menu on the left of a bar opens rightwards, so it never hangs off the window. */
 .ui-menu-start .ui-menu-list{left:0;right:auto}
 /* A refresh says it is in flight by fading, not by turning. */
-.ui-refresh-button.is-refreshing{opacity:.45}
-.ui-refresh-button.is-refreshing:hover{opacity:.7}
+/* A control that stands for the whole inbox carries its standing problem as a dot. */
+.ui-menu-marker{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:#e05a47;box-shadow:0 0 0 2px var(--background,#fff);pointer-events:none}
 /* The search owns its clear button, which exists only while there is something to clear. */
 .ui-search-wrap{position:relative;display:flex;flex:1;min-width:0;align-items:center}
 .ui-search{padding-right:24px}
