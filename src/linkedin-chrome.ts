@@ -327,14 +327,24 @@ export async function clickInLinkedInPage(
  */
 export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; control?: PageControl; reason?: string }> {
   if (typeof text !== 'string') throw new Error('LinkedIn typing needs the text to type.');
-  const expression = focusControlExpression(index);
+  const expression = controlRectExpression(index);
   const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
   return withLinkedInPage(async page => {
-    const focused = (await evaluate(page, expression)) as { focused?: unknown; reason?: unknown } | null;
-    if (!focused || typeof focused !== 'object' || focused.focused !== true) {
-      return { typed: false, reason: typeof focused?.reason === 'string' ? focused.reason : 'LinkedIn did not focus that control.' };
+    const found = await evaluate(page, expression);
+    if (typeof found === 'string') return { typed: false, reason: found };
+    const control = found as PageControl | null;
+    if (!control || typeof control !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
+    if (isSendControl(control)) return { typed: false, control, reason: `"${control.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
+    // A trusted click puts the caret in the editor. DOM focus alone does not: LinkedIn's composer is
+    // a Lexical contenteditable that only opens an editing session on a real pointer event.
+    const x = Math.round(control.x + control.width / 2);
+    const y = Math.round(control.y + control.height / 2);
+    if (typed) {
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+        await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
+      }
+      await page.client.send('Input.insertText', { text: typed }, page.sessionId);
     }
-    if (typed) await page.client.send('Input.insertText', { text: typed }, page.sessionId);
     // Report where the text landed: an index that pointed at the wrong control is otherwise silent.
     const controls = await page.client.send<unknown>('Runtime.evaluate', { expression: pageControlsExpression(), awaitPromise: true, returnByValue: true }, page.sessionId)
       .then(answer => (answer as { result?: { value?: unknown } }).result?.value);
