@@ -130,7 +130,7 @@ Actions and their risk:
 | Action | Effect on the account | Gate | Status |
 |---|---|---|---|
 | reply | Sends a real LinkedIn message | The composer is the owner's own action, like Messages; a failed send reports uncertainty and never retries | Done: captured from a real reply, builder byte-for-byte against the capture, composer wired |
-| accept / ignore invitation | Irreversible relationship state | Owner picks the invitation; never automatic | Open: no recorded shape yet |
+| accept / ignore invitation | Irreversible relationship state | Owner picks the invitation; never automatic | Done: both captured, chip wired, token from the read payload |
 | mark read | Clears an unread badge | The one cheap write; reversible | Done: captured, built, verified live both directions |
 
 Acceptance: one real action of each kind, verified against LinkedIn's own UI,
