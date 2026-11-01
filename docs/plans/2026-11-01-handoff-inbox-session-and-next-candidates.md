@@ -104,11 +104,15 @@ adapter literals and the two test fixtures, and nowhere in the derived places.
 Left for later: the per-adapter `assert.deepEqual(capabilities(), {...})` literals are untyped,
 so a ninth key fails them at runtime rather than at build. Cheap to tighten.
 
-### Candidate 5 (Speculative) — one refresh primitive
+### Candidate 5 (done) — one refresh primitive
 
-`app.tsx` still picks the RPC by source name: `sync` routes LinkedIn to `linkedin_sync` and
-everything else to `list_source`. Deepening: one `sync` RPC that fans out through the
-registry, each adapter answering from cache, from a probe, or live.
+**Done** (`fbf7bee`, 245 tests). One `sync` RPC (`{ account, limit? }` → `{ items, updatedAt, reason? }`)
+fans out through `registry[account].sync()`; `list_source` and `linkedin_sync` are gone.
+`sync` is required on `Adapter` — the four live sources wrap their list, LinkedIn keeps its delta
+probe. The session, both reconcile sites and the badge hook all ask `sync`; every sync failure
+carries its reason (Messages keeps its own guidance). Proven live: one RPC answered all five
+accounts (LinkedIn 21 rows, `reason: 'read'`, through the probe; the live lists unchanged);
+`list` cache still 131 rows.
 
 ## Unfinished test work, in the order I would take it
 
