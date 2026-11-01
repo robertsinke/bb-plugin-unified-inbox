@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from '../src/inbox-drafts.ts';
+import {
+  clearMailDraft,
+  inboxDraftKey,
+  mailDraftKey,
+  readInboxDraft,
+  readMailDraft,
+  writeInboxDraft,
+  writeMailDraft,
+  type InboxDraftStorage,
+  type InboxMailDraft,
+} from '../src/inbox-drafts.ts';
 
 function memoryStorage(): InboxDraftStorage {
   const values = new Map<string, string>();
@@ -27,6 +37,73 @@ test('draft text persists and clearing removes only that conversation', () => {
   assert.equal(writeInboxDraft(storage, first, ''), true);
   assert.equal(readInboxDraft(storage, first), undefined);
   assert.equal(readInboxDraft(storage, second), 'another draft');
+});
+
+test('a mail draft round-trips through storage, with and without reply context', () => {
+  const storage = memoryStorage();
+  const reply: InboxMailDraft = {
+    account: 'personal',
+    to: 'ana@example.com',
+    cc: 'bo@example.com',
+    subject: 'Re: launch',
+    text: 'Short answer: yes.',
+    threadId: 'thread-1',
+    inReplyTo: '<m1@example.com>',
+    references: '<m0@example.com> <m1@example.com>',
+  };
+  const threadKey = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  assert.equal(writeMailDraft(storage, threadKey, reply), true);
+  assert.deepEqual(readMailDraft(storage, threadKey), reply);
+
+  const fresh: InboxMailDraft = { account: 'business', to: '', cc: '', subject: 'Hello', text: 'Body' };
+  const composeKey = mailDraftKey({ account: 'business', newMessageKey: 'compose-1' });
+  assert.equal(writeMailDraft(storage, composeKey, fresh), true);
+  assert.deepEqual(readMailDraft(storage, composeKey), fresh);
+
+  assert.equal(clearMailDraft(storage, threadKey), true);
+  assert.equal(readMailDraft(storage, threadKey), undefined);
+});
+
+test('malformed or foreign stored values read as no mail draft instead of throwing', () => {
+  const storage = memoryStorage();
+  const key = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  const corrupt = ['{not json', 'null', '[]', '"a draft"', '{}', '{"account":"personal","to":"a","cc":"b","subject":"c"}', '{"account":"personal","to":"a","cc":"b","subject":"c","text":"d","threadId":7}'];
+  for (const raw of corrupt) {
+    storage.setItem(key, raw);
+    assert.equal(readMailDraft(storage, key), undefined, raw);
+  }
+});
+
+test('an absent mail draft and a disabled storage both read as no draft', () => {
+  const key = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  assert.equal(readMailDraft(memoryStorage(), key), undefined);
+  const broken: InboxDraftStorage = {
+    getItem() { throw new Error('disabled'); },
+    setItem() { throw new Error('disabled'); },
+    removeItem() { throw new Error('disabled'); },
+  };
+  assert.equal(readMailDraft(broken, key), undefined);
+  assert.equal(writeMailDraft(broken, key, { account: 'personal', to: '', cc: '', subject: 's', text: 't' }), false);
+  assert.equal(clearMailDraft(broken, key), false);
+  assert.equal(writeMailDraft(undefined, key, { account: 'personal', to: '', cc: '', subject: 's', text: 't' }), false);
+});
+
+test('reply text and mail drafts for the same conversation never collide', () => {
+  const storage = memoryStorage();
+  const replyKey = inboxDraftKey({ account: 'personal', id: 'thread-1' });
+  const threadKey = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  const composeKey = mailDraftKey({ account: 'personal', newMessageKey: 'thread-1' });
+  assert.equal(new Set([replyKey, threadKey, composeKey]).size, 3);
+
+  const draft: InboxMailDraft = { account: 'personal', to: 'ana@example.com', cc: '', subject: 'Re: launch', text: 'body', threadId: 'thread-1' };
+  writeInboxDraft(storage, replyKey, 'chat reply text');
+  writeMailDraft(storage, threadKey, draft);
+  assert.equal(readInboxDraft(storage, replyKey), 'chat reply text');
+  assert.deepEqual(readMailDraft(storage, threadKey), draft);
+
+  clearMailDraft(storage, threadKey);
+  assert.equal(readMailDraft(storage, threadKey), undefined);
+  assert.equal(readInboxDraft(storage, replyKey), 'chat reply text');
 });
 
 test('storage failures degrade safely without losing the in-memory caller state', () => {
