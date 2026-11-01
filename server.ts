@@ -117,7 +117,6 @@ export default function plugin(bb: BbPluginApi) {
     whatsapp: createWhatsAgent(),
     imsg,
     linkedInPage: createLinkedInPageSession(expression => evaluateInLinkedInProfile(expression)),
-    runLinkedInWrite: evaluateInLinkedInProfile,
     armLinkedInRecorder: armLinkedInWriteRecorder,
     providerError: toProviderError,
   });
