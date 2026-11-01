@@ -14,6 +14,11 @@ export interface AuditRow {
   account: Account;
   conversationId: string;
   decision: 'allowed' | 'refused';
+  /**
+   * Which approval this attempt spent. It is an id, never the text: it is what lets
+   * spend survive a reload, so a restart cannot revive an approval already used.
+   */
+  approvalId?: string;
   /** Why a refusal happened, in words a person can read. */
   reason?: string;
 }
@@ -53,9 +58,19 @@ export const SEND_POLICY: Record<Account, SendPolicy> = {
   linkedin: { state: 'enabled' },
 };
 
+/**
+ * Where attempts are written and where spend is read back. In the plugin this is the
+ * `inbox_send_audit` table, which is why a reload cannot revive a spent approval.
+ */
+export interface SendAuditStore {
+  record(row: AuditRow): void;
+  /** Whether this approval was already spent by an earlier attempt, this run or before it. */
+  hasSpent(approvalId: string): boolean;
+}
+
 export interface SendGateDeps {
   now: () => number;
-  audit: (row: AuditRow) => void;
+  store: SendAuditStore;
 }
 
 /**
@@ -75,13 +90,10 @@ export function approvalFor(allow: 'send' | undefined, conversationId: string, a
   return allow === 'send' ? { id: randomUUID(), conversationId, issuedAt: at } : undefined;
 }
 
-export function createSendGate({ now, audit }: SendGateDeps) {
-  /** Approvals already spent. One approval sends one message. */
-  const spent = new Set<string>();
-
+export function createSendGate({ now, store }: SendGateDeps) {
   /** The refusal record and the refusal itself, so a refusal can never skip its row. */
-  function refuse(request: SendRequest, reason: string): never {
-    audit({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason });
+  function refuse(request: SendRequest, reason: string, approval?: SendApproval): never {
+    store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason, ...(approval ? { approvalId: approval.id } : {}) });
     throw new Error(reason);
   }
 
@@ -97,15 +109,13 @@ export function createSendGate({ now, audit }: SendGateDeps) {
     if (age > APPROVAL_WINDOW_MS) {
       refuse(request, `The approval expired: it is ${Math.round(age / 60_000)} minutes old, and a send approval lasts ${APPROVAL_WINDOW_MS / 60_000} minutes. Approve the send again; nothing was sent.`);
     }
-    if (spent.has(approval.id)) {
-      refuse(request, 'The approval has already been used; one approval sends one message. Approve this send again; nothing was sent.');
+    if (store.hasSpent(approval.id)) {
+      refuse(request, 'The approval has already been used; one approval sends one message. Approve this send again; nothing was sent.', approval);
     }
-    // Spent before delivery: a delivery that throws must not leave the approval
-    // usable for a retry, which is how one approval becomes two messages.
-    spent.add(approval.id);
-    // Written before delivery: the gate allowed this attempt, whether or not the
-    // provider then accepts it.
-    audit({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'allowed' });
+    // Written before delivery, with the approval it spends: a delivery that throws must
+    // not leave the approval usable for a retry, which is how one approval becomes two
+    // messages. The row is the spend, so a reload cannot undo it.
+    store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'allowed', approvalId: approval.id });
     return deliver();
   };
 }

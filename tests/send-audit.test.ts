@@ -19,7 +19,7 @@ test('the audit survives a reload and never holds message text', async () => {
   try {
     const first = new Database(file);
     const audit = createSendAudit(first);
-    const send = createSendGate({ now: () => T0, audit: row => audit.record(row) });
+    const send = createSendGate({ now: () => T0, store: audit });
     await send(
       { account: 'whatsapp', conversationId: CONVERSATION, text: 'the party is at eight' },
       { id: 'a1', conversationId: CONVERSATION, issuedAt: T0 },
@@ -37,18 +37,33 @@ test('the audit survives a reload and never holds message text', async () => {
 
     // A reload is a new connection to the same database and a new gate.
     const second = new Database(file);
-    const rows = createSendAudit(second).list();
+    const reloadedAudit = createSendAudit(second);
+    const reloadedGate = createSendGate({ now: () => T0, store: reloadedAudit });
+
+    // The approval that already sent something cannot be spent again by the new gate.
+    await assert.rejects(
+      reloadedGate(
+        { account: 'whatsapp', conversationId: CONVERSATION, text: 'the party is at eight' },
+        { id: 'a1', conversationId: CONVERSATION, issuedAt: T0 },
+        async () => ({ status: 'Sent.' }),
+      ),
+      /already been used/,
+      'spend is read from the rows, so a reload cannot revive a spent approval',
+    );
+    const rows = reloadedAudit.list();
     second.close();
 
     assert.deepEqual(
       rows.map(row => [row.decision, row.account, row.conversationId, row.at]),
       [
         ['refused', 'whatsapp', CONVERSATION, T0],
+        ['refused', 'whatsapp', CONVERSATION, T0],
         ['allowed', 'whatsapp', CONVERSATION, T0],
       ],
       'newest first, both decisions kept across a reload',
     );
-    assert.match(String(rows[0].reason), /approv/i, 'a refusal keeps the reason it was refused for');
+    assert.match(String(rows[1].reason), /approv/i, 'a refusal keeps the reason it was refused for');
+    assert.match(String(rows[0].reason), /already been used/, 'and the reloaded refusal says why');
     assert.ok(!JSON.stringify(rows).includes('party'), 'the audit never carries message text');
   } finally {
     rmSync(dir, { recursive: true, force: true });

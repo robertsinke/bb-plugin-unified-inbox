@@ -81,9 +81,15 @@ export function inboxMentionContext(input: {
         `printf '%s' '${JSON.stringify({ account: 'whatsapp', id: input.id, action: 'reply', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
       ]
     : input.account === 'imessage'
-      ? ['Messages sending is not available in this plugin; this conversation is read-only context.']
+      ? [
+          'Reply with an explicit send; it goes out as you, without a second confirmation in the page:',
+          `printf '%s' '${JSON.stringify({ account: 'imessage', id: input.id, action: 'reply', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
+        ]
     : input.account === 'linkedin'
-      ? ['LinkedIn is read-only here; nothing can be sent, accepted, or marked from this plugin.']
+      ? [
+          'A LinkedIn reply replays the send request the page recorded for this conversation. If none is recorded yet, send once from the page so the plugin can replay it, then:',
+          `printf '%s' '${JSON.stringify({ account: 'linkedin', id: input.id, action: 'reply', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
+        ]
       : ['Gmail replies cannot be sent from this plugin yet; this conversation is read-only context.'];
   const lines: string[] = [];
   let budget = MAX_CONTEXT_CHARS - head.join('\n').length - footer.join('\n').length - 8;
