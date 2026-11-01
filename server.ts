@@ -11,7 +11,7 @@ import {
   openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
   stopLinkedInBrowser, typeInLinkedInPage,
 } from './src/linkedin-chrome';
-import { pageTextExpression } from './src/linkedin-ui';
+import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
 import { createGwsRunner } from './src/adapters/gws';
@@ -46,13 +46,13 @@ export const rpcContract = defineRpcContract({
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
   linkedin_ui: { input: z.object({
-    op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press']),
+    op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press', 'describe']),
     path: z.string().max(512).optional(),
     index: z.number().int().min(0).max(599).optional(),
     text: z.string().max(20_000).optional(),
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
-  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional() }) },
+  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
@@ -165,6 +165,10 @@ export default function plugin(bb: BbPluginApi) {
       }
       if (step.op === 'snapshot') return { controls: await inspectLinkedInPage() };
       if (step.op === 'text') return { text: String(await evaluateInLinkedInProfile(pageTextExpression()) ?? '') };
+      if (step.op === 'describe') {
+        if (typeof step.index !== 'number') throw new Error('A description needs a control index.');
+        return { description: await evaluateInLinkedInProfile(describeControlExpression(step.index)) };
+      }
       if (step.op === 'press') {
         if (!step.key) throw new Error('A key press needs a key.');
         await pressKeyInLinkedInPage(step.key);
