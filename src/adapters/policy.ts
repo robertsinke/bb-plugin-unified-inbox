@@ -47,6 +47,9 @@ export function createSendGate({ now, audit }: SendGateDeps) {
   /** Deliver through `deliver` only when this attempt is allowed; the row is written either way. */
   return async function send(request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt> {
     if (!approval) refuse(request, 'A send needs an approval for the conversation it goes to; nothing was sent.');
+    if (approval.conversationId !== request.conversationId) {
+      refuse(request, `The approval does not cover this conversation: it was issued for ${approval.conversationId}, and this send names ${request.conversationId}. Nothing was sent.`);
+    }
     return deliver();
   };
 }
