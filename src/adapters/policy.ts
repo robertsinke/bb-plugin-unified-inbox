@@ -17,6 +17,9 @@ export interface AuditRow {
   reason?: string;
 }
 
+/** How long one approval stays good. One number, here, so no call site can widen it. */
+export const APPROVAL_WINDOW_MS = 5 * 60_000;
+
 /** What the caller says it is allowed to send, and to what. */
 export interface SendApproval {
   /** One use only: a second attempt with the same id is a replay. */
@@ -49,6 +52,10 @@ export function createSendGate({ now, audit }: SendGateDeps) {
     if (!approval) refuse(request, 'A send needs an approval for the conversation it goes to; nothing was sent.');
     if (approval.conversationId !== request.conversationId) {
       refuse(request, `The approval does not cover this conversation: it was issued for ${approval.conversationId}, and this send names ${request.conversationId}. Nothing was sent.`);
+    }
+    const age = now() - approval.issuedAt;
+    if (age > APPROVAL_WINDOW_MS) {
+      refuse(request, `The approval expired: it is ${Math.round(age / 60_000)} minutes old, and a send approval lasts ${APPROVAL_WINDOW_MS / 60_000} minutes. Approve the send again; nothing was sent.`);
     }
     return deliver();
   };
