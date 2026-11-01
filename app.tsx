@@ -38,15 +38,6 @@ function AppIcon({account}:{account:Account}) {
     <svg viewBox="0 0 24 24" width="15" height="15" fill={isMessages?'none':'currentColor'} stroke={isMessages?'currentColor':'none'} strokeWidth={isMessages?2:undefined} strokeLinecap={isMessages?'round':undefined} strokeLinejoin={isMessages?'round':undefined}><path d={path}/></svg>
   </span>;
 }
-function RefreshButton({refreshing,errors,title,onRefresh}:{refreshing:boolean;errors:string[];title:string;onRefresh:()=>void}) {
-  const label=refreshing?'Refreshing inbox':errors.length?`Refresh inbox. Some sources could not refresh: ${errors.join(' ')}`:'Refresh inbox';
-  // A refresh in flight says so with its own quietness, never with movement: the list below is
-  // already updating, and a spinning control beside it reads as work the owner must wait for.
-  return <button type="button" className={`ui-icon-button ui-refresh-button ${errors.length?'has-errors':''} ${refreshing?'is-refreshing':''}`} onClick={onRefresh} aria-label={label} aria-busy={refreshing} title={refreshing?'Refreshing inbox…':errors.length?`Some messages couldn't load: ${errors.join(' ')}`:title}>
-    <Icon name="RotateCcw" aria-hidden="true"/>
-    {errors.length>0&&<span className="ui-refresh-error-dot" aria-hidden="true"/>}
-  </button>;
-}
 function initialsFor(name:string) {
   const words = name.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return '?';
@@ -534,7 +525,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const threaded=chat||selected?.account==='linkedin';
   const sendable=!!selected&&canSend(capabilities,selected.account);
   return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
-    {!selected && <header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
+    {!selected && <header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" busy={refreshingInbox} marker={errors.length?`Some messages couldn't load: ${errors.join(' ')}`:undefined} actions={[
+          { label: 'New', run: () => setCompose(!compose) },
+          { label: 'Refresh', run: refreshManually, title: refreshTitle },
+        ]}/></header>}
     {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>startMail('new','personal')}>Personal Gmail</button><button onClick={()=>startMail('new','business')}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
     {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
 
@@ -582,18 +576,19 @@ function FilterMenu({value,onChange}:{value:InboxFilter; onChange:(next:InboxFil
 /** What the list is narrowed to: everything, the unread, or one source. */
 type InboxFilter = 'all' | 'unread' | Account;
 
-type MenuAction = { label: string; run: () => void };
+type MenuAction = { label: string; run: () => void; title?: string };
 
 /**
  * One control per row instead of one per action: a few dots that open their list under the cursor,
  * or under keyboard focus. The list is the row's whole vocabulary, so a source that cannot do
  * something simply never contributes its entry.
  */
-function ItemMenu({label,busy,actions}:{label:string; busy:boolean; actions:MenuAction[]}) {
+function ItemMenu({label,busy,actions,marker}:{label:string; busy:boolean; actions:MenuAction[]; marker?:string}) {
   return <span className="ui-menu">
-    <button type="button" className="ui-icon-button" disabled={busy} aria-haspopup="menu" aria-label={`More actions for ${label}`} title="More actions"><Icon name="MoreHorizontal" aria-hidden="true"/></button>
+    <button type="button" className="ui-icon-button" disabled={busy} aria-haspopup="menu" aria-label={`More actions for ${label}`} title={marker??'More actions'}><Icon name="MoreHorizontal" aria-hidden="true"/></button>
+    {marker&&<span className="ui-menu-marker" aria-hidden="true"/>}
     <span className="ui-menu-list" role="menu" aria-label={`Actions for ${label}`}>
-      {actions.map(action=><button key={action.label} type="button" role="menuitem" className="ui-menu-item" disabled={busy} onClick={event=>{event.stopPropagation();action.run();}}>{action.label}</button>)}
+      {actions.map(action=><button key={action.label} type="button" role="menuitem" className="ui-menu-item" disabled={busy} title={action.title} onClick={event=>{event.stopPropagation();action.run();}}>{action.label}</button>)}
     </span>
   </span>;
 }
