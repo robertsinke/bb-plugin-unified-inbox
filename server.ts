@@ -168,8 +168,8 @@ export default function plugin(bb: BbPluginApi) {
       if (step.op === 'snapshot') return { controls: await inspectLinkedInPage() };
       if (step.op === 'text') return { text: String(await evaluateInLinkedInProfile(pageTextExpression()) ?? '') };
       if (step.op === 'describe') {
-        if (typeof step.index !== 'number') throw new Error('A description needs a control index.');
-        return { description: await evaluateInLinkedInProfile(describeControlExpression(step.index)) };
+        if (!step.control) throw new Error('A description needs the control to describe.');
+        return { description: await evaluateInLinkedInProfile(describeControlExpression(step.control, step.role)) };
       }
       if (step.op === 'press') {
         if (!step.key) throw new Error('A key press needs a key.');

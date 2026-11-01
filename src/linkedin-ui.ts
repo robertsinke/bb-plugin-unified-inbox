@@ -163,11 +163,15 @@ export function findControlExpression(name: string, role?: string): string {
  * is editable, and whether a shadow root is hiding that. LinkedIn's composer swallowed three
  * insertion methods without a trace, and this is the read that says why.
  */
-export function describeControlExpression(index: number): string {
-  const at = controlIndex(index, 'describeControlExpression');
+export function describeControlExpression(name: string, role?: string): string {
+  if (typeof name !== 'string' || !name.trim() || name.length > LINKEDIN_NAME_LIMIT) throw new Error('A LinkedIn description needs a control name of 1 to 120 characters.');
+  const wantedRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
   return `(() => {${pageBody()}
   const controls = enumerate();
-  const control = controls[${at}];
+  const wanted = ${JSON.stringify(name.trim())}.toLowerCase();
+  const wantedRole = ${JSON.stringify(wantedRole)};
+  const roleOf = control => (attribute(control, 'role') || String(control.tagName || '').toLowerCase()).toLowerCase();
+  const control = controls.find(candidate => (!wantedRole || roleOf(candidate) === wantedRole) && nameOf(candidate).toLowerCase().includes(wanted));
   if (!control) return { found: false, count: controls.length };
   const summary = node => node ? {
     tag: String(node.tagName || '').toLowerCase(),
@@ -179,14 +183,13 @@ export function describeControlExpression(index: number): string {
   } : null;
   const EDITS = '[contenteditable="true"], textarea, input';
   const inside = control.querySelector ? control.querySelector(EDITS) : null;
-  const shadowEdits = control.shadowRoot ? control.shadowRoot.querySelectorAll(EDITS).length : 0;
   return {
     found: true,
     self: summary(control),
     editableInside: summary(inside),
     children: control.children ? Array.from(control.children).slice(0, 4).map(summary) : [],
-    shadowEditables: shadowEdits,
-    textLength: String(control.innerText || control.textContent || '').length,
+    shadowEditables: control.shadowRoot ? control.shadowRoot.querySelectorAll(EDITS).length : 0,
+    text: String(control.innerText || control.textContent || '').slice(0, 200),
   };
 })()`;
 }
