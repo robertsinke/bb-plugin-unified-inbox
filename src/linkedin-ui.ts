@@ -161,6 +161,35 @@ export function focusControlExpression(index: number): string {
 })()`;
 }
 
+/**
+ * Where typing actually goes for the control at `index`: the control itself when it is editable,
+ * otherwise the first editable inside it. LinkedIn's composer is a `role="textbox"` wrapper that
+ * takes focus while the caret lives in a contenteditable child, so clicking the wrapper focuses
+ * nothing anyone can type into.
+ */
+export function typingTargetExpression(index: number): string {
+  const at = controlIndex(index, 'typingTargetExpression');
+  return `(() => {${pageBody()}
+  const controls = enumerate();
+  const control = controls[${at}];
+  if (!control) return 'LinkedIn shows ' + controls.length + ' usable controls; index ${at} is out of range.';
+  const EDITABLE = '[contenteditable="true"], textarea, input:not([type]), input[type="text"], input[type="search"]';
+  const isEditable = node => !!node && ((node.isContentEditable === true) || /^(input|textarea)$/i.test(String(node.tagName || '')));
+  const target = isEditable(control) ? control : (control.querySelector ? control.querySelector(EDITABLE) : null);
+  if (!target || !isEditable(target)) return { editable: false, name: nameOf(control) };
+  const rect = target.getBoundingClientRect();
+  return {
+    editable: true,
+    role: attribute(target, 'role') || String(target.tagName || '').toLowerCase(),
+    name: nameOf(target) || nameOf(control),
+    x: Number(rect.x != null ? rect.x : rect.left) || 0,
+    y: Number(rect.y != null ? rect.y : rect.top) || 0,
+    width: Number(rect.width) || 0,
+    height: Number(rect.height) || 0,
+  };
+})()`;
+}
+
 /** What the control at `index` currently holds, so a caller can see whether typing landed. */
 export function controlTextExpression(index: number): string {
   const at = controlIndex(index, 'controlTextExpression');

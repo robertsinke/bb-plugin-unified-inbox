@@ -12,6 +12,7 @@ import {
   pageTextExpression,
   type PageControl,
   controlTextExpression,
+  typingTargetExpression,
 } from '../src/linkedin-ui.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
@@ -254,4 +255,19 @@ test('a field can be read back, so a caller sees whether typing landed', async (
   element.innerText = 'Note to self';
   assert.equal(await page.evaluate(controlTextExpression(0)), 'Note to self');
   assert.equal(await page.evaluate(controlTextExpression(9)), '');
+});
+
+test('typing targets the editable inside a wrapper, because a role=textbox div takes focus and nothing else', async () => {
+  const inner = { tagName: 'DIV', isContentEditable: true, innerText: '', getAttribute: () => null, getBoundingClientRect: () => ({ x: 5, y: 6, width: 200, height: 40 }), querySelector: () => null, style: {} };
+  const page = fakePage([{ tag: 'div', role: 'textbox', text: 'Write a message…' }]);
+  const wrapper = page.elements[0];
+  wrapper.isContentEditable = false;
+  wrapper.querySelector = (selector: string) => (/contenteditable/.test(selector) ? inner : null);
+  const target = await page.evaluate(typingTargetExpression(0));
+  assert.equal(target.editable, true);
+  assert.deepEqual([target.x, target.y, target.width, target.height], [5, 6, 200, 40]);
+
+  // A wrapper with nothing editable inside says so instead of pretending to type.
+  wrapper.querySelector = () => null;
+  assert.deepEqual(await page.evaluate(typingTargetExpression(0)), { editable: false, name: 'Write a message…' });
 });
