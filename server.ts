@@ -42,7 +42,9 @@ export const rpcContract = defineRpcContract({
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
-  list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
+  // One refresh primitive for every source: the adapter for the account decides
+  // whether the answer comes from its cache, a probe, or a live read.
+  sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
@@ -63,7 +65,6 @@ export const rpcContract = defineRpcContract({
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative() }) },
-  linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
   linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
   media: { input: z.object({ messageId: z.string().min(1).max(512), account: account.optional(), index: z.number().int().min(0).max(99).optional() }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional(), url: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
@@ -151,10 +152,10 @@ export default function plugin(bb: BbPluginApi) {
       return { messages: repair ? await repair(id, parsed.data) : parsed.data };
     },
     clear_cache() { cache.clear(); return { cleared: true }; },
-    async list_source({ account, limit }) {
-      const { items } = await registry[account].list(undefined, { limit });
+    async sync({ account, limit }) {
+      const result = await registry[account].sync({ limit });
       searchIndex.warm();
-      return { items: decorated(items) };
+      return { ...result, items: decorated(result.items) };
     },
     async open({ account, id }) {
       const result = await registry[account].open(id);
@@ -197,13 +198,6 @@ export default function plugin(bb: BbPluginApi) {
     // The one RPC that can change the account: the adapter refuses unless the action is a
     // message send to that conversation and the caller approved this exact replay.
     async linkedin_replay(input) { return registry.linkedin.replay!(input); },
-    async linkedin_sync() {
-      const sync = registry.linkedin.sync;
-      if (!sync) throw new Error('LinkedIn sync is not available in this build.');
-      const result = await sync();
-      searchIndex.warm();
-      return result;
-    },
     async linkedin_signin() {
       const profile = await openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };

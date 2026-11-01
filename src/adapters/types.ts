@@ -207,7 +207,7 @@ export interface ListResult {
   errors: ProviderError[];
 }
 
-/** The conversation limit an RPC call carries (`list_source` input, `list` options). */
+/** The conversation limit an RPC call carries (`sync` input, `list` options). */
 export interface OpenOptions {
   limit?: number;
 }
@@ -217,7 +217,7 @@ export interface OpenResult {
   cursor?: string;
 }
 
-/** Mirrors the rpcContract `linkedin_sync` output. */
+/** Mirrors the rpcContract `linkedin_record` input op. */
 export type LinkedInRecordOp = 'arm' | 'clear' | 'dump';
 
 /** One observed write, exactly as the page made it. No headers, no cookies, no tokens. */
@@ -254,6 +254,7 @@ export interface LinkedInReplayResult {
   status: number;
 }
 
+/** One source's refresh answer: its rows as of now, and why a delta check skipped a live read. Mirrors the rpcContract `sync` output. */
 export interface SyncResult {
   items: Conversation[];
   updatedAt: number;
@@ -280,10 +281,15 @@ export interface Adapter {
   capabilities(): Capabilities;
   /**
    * Conversation rows for this source. `cursor` is unused by every provider
-   * today (each re-lists in full); `opts.limit` is the `list_source` limit and
+   * today (each re-lists in full); `opts.limit` is the `sync` limit and
    * defaults to what the whole-inbox `list` asks for.
    */
   list(cursor?: string, opts?: OpenOptions): Promise<ListResult>;
+  /**
+   * The source's refresh answer: live rows, or cached ones a delta check just
+   * proved current. The adapter decides how; the caller never picks by name.
+   */
+  sync(opts?: OpenOptions): Promise<SyncResult>;
   open(id: string, opts?: OpenOptions): Promise<OpenResult>;
   media(account: Account, id: string, index: number): Promise<MediaPayload>;
   action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult>;
@@ -294,8 +300,6 @@ export interface Adapter {
   // adapters whose source has that shape, and each is a candidate for the
   // toolbox unification (T9):
 
-  /** LinkedIn's live read, behind `linkedin_sync`; `list` answers from the cache. */
-  sync?(): Promise<SyncResult>;
   /**
    * Arm, clear, or dump the in-page write recorder (slice D). Arming watches
    * `window.fetch`; nothing is sent by these calls.
@@ -313,7 +317,7 @@ export interface Adapter {
 
   /**
    * Cache-only decoration for one row the gateway returns straight from the
-   * cache (`cached`, `list_source`, `list`). No provider I/O: WhatsApp group
+   * cache (`cached`, `sync`, `list`). No provider I/O: WhatsApp group
    * rows carry the participants their cached thread remembers.
    */
   decorate?(item: Conversation): Conversation;
