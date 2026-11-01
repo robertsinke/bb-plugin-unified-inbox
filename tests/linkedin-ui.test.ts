@@ -39,7 +39,7 @@ type ControlSpec = {
  * expressions read. It answers `querySelectorAll` with the same list every time, the way a real
  * document answers the same selector twice when nothing has changed.
  */
-function fakePage(specs: ControlSpec[], pageText = '', options: { dialog?: any[] } = {}) {
+function fakePage(specs: ControlSpec[], pageText = '') {
   const elements: any[] = specs.map(spec => {
     const element: any = {
       tagName: String(spec.tag ?? 'button').toUpperCase(),
@@ -62,14 +62,11 @@ function fakePage(specs: ControlSpec[], pageText = '', options: { dialog?: any[]
     };
     return element;
   });
-  const dialog: any = options.dialog
-    ? { querySelectorAll: () => options.dialog, getBoundingClientRect: () => ({ x: 0, y: 0, width: 1, height: 1 }) }
-    : null;
   const document: any = {
     activeElement: null,
     documentElement: { innerText: pageText },
     // The dialog probe answers separately, so a test can put a modal in front of a crowded page.
-    querySelectorAll: (selector: string) => (/role="dialog"|dialog\[open\]|artdeco-modal/.test(selector) ? (dialog ? [dialog] : []) : elements),
+    querySelectorAll: () => elements,
   };
   const getComputedStyle = (element: any) => element.style;
   const evaluate = async (expression: string) => {
@@ -232,19 +229,15 @@ test('the send guard matches the controls that change LinkedIn state and nothing
   }
 });
 
-test('an open dialog is the surface, so its controls are not buried behind the page', async () => {
-  // A crowded page behind a compose modal: without scoping, the modal's controls fall past the cap.
-  const page = fakePage(Array.from({ length: 250 }, () => ({ text: 'Page control' })));
-  const crowded = await page.evaluate(pageControlsExpression());
-  assert.equal(crowded.length, 200);
-  assert.ok(crowded.every((control: any) => control.name === 'Page control'));
+test('the cap is generous enough to reach a modal appended after a crowded page', async () => {
+  // A compose modal is the last thing in the document; a tight cap truncated it away entirely.
+  const page = fakePage(Array.from({ length: 450 }, () => ({ text: 'Page control' })));
+  const controls = await page.evaluate(pageControlsExpression());
+  assert.equal(controls.length, 450);
+});
 
-  const modal = fakePage([{ text: 'Page control' }], '', {
-    dialog: [
-      { tagName: 'BUTTON', innerText: 'Send', style: {}, getAttribute: () => null, getBoundingClientRect: () => ({ x: 1, y: 2, width: 10, height: 10 }) },
-      { tagName: 'DIV', innerText: 'Write a message', style: {}, getAttribute: (key: string) => (key === 'contenteditable' ? 'true' : key === 'role' ? 'textbox' : null), getBoundingClientRect: () => ({ x: 1, y: 20, width: 300, height: 60 }) },
-    ],
-  });
-  const scoped = await modal.evaluate(pageControlsExpression());
-  assert.deepEqual(scoped.map((control: any) => control.name), ['Send', 'Write a message']);
+test('a crowded page stops at the cap rather than returning everything', async () => {
+  const page = fakePage(Array.from({ length: LINKEDIN_CONTROL_LIMIT + 40 }, () => ({ text: 'Page control' })));
+  const controls = await page.evaluate(pageControlsExpression());
+  assert.equal(controls.length, LINKEDIN_CONTROL_LIMIT);
 });

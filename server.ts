@@ -52,7 +52,7 @@ export const rpcContract = defineRpcContract({
     text: z.string().max(20_000).optional(),
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
-  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional() }) },
+  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
@@ -173,7 +173,8 @@ export default function plugin(bb: BbPluginApi) {
       if (typeof step.index !== 'number') throw new Error('A LinkedIn page click or typing step needs a control index.');
       if (step.op === 'click') return clickInLinkedInPage(step.index, step.allow ? { allow: step.allow } : undefined);
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
-      return typeInLinkedInPage(step.index, step.text);
+      const landed = await typeInLinkedInPage(step.index, step.text);
+      return { typed: landed.typed, ...(landed.reason ? { reason: landed.reason } : {}), ...(landed.control ? { focus: landed.control } : {}) };
     },
     async linkedin_record({ op }) { return registry.linkedin.record!(op); },
     async linkedin_writes() { return { writes: (await registry.linkedin.record!('dump')).writes ?? [] }; },
