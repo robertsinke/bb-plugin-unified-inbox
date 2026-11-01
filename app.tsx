@@ -534,7 +534,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const threaded=chat||selected?.account==='linkedin';
   const sendable=!!selected&&canSend(capabilities,selected.account);
   return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
-    {!selected && <header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="X" aria-hidden="true"/></button>}</span><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
+    {!selected && <header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
     {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>startMail('new','personal')}>Personal Gmail</button><button onClick={()=>startMail('new','business')}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
     {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
 
@@ -570,9 +570,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
 function FilterMenu({value,onChange}:{value:InboxFilter; onChange:(next:InboxFilter)=>void}) {
   const sources = ['whatsapp','personal','business','imessage','linkedin'] as const;
   return <span className="ui-menu ui-menu-start">
-    <button type="button" className="ui-icon-button" aria-haspopup="menu" aria-label={`Filter: ${value==='all'?'all conversations':value==='unread'?'unread':accounts[value].label}`} title="Filter this inbox"><Icon name="Funnel" aria-hidden="true"/></button>
+    <button type="button" className="ui-icon-button" aria-haspopup="menu" aria-label={`Filter: ${value==='all'?'all conversations':value==='unread'?'unread':accounts[value].label}`} title="Filter this inbox"><Icon name="ListView" aria-hidden="true"/></button>
     <span className="ui-menu-list" role="menu">
-      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='all'} onClick={()=>onChange('all')}><Icon name="Inbox" aria-hidden="true"/>All</button>
+      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='all'} onClick={()=>onChange('all')}><Icon name="LayoutList" aria-hidden="true"/>All</button>
       <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='unread'} onClick={()=>onChange('unread')}><Icon name="Mail" aria-hidden="true"/>Unread</button>
       {sources.map(key=><button type="button" key={key} role="menuitem" className="ui-menu-item" aria-pressed={value===key} onClick={()=>onChange(key)}><AppIcon account={key}/>{accounts[key].label}</button>)}
     </span>
@@ -606,8 +606,8 @@ function InvitationChip({item,busy,onAnswer}:{item:Item; busy:boolean; onAnswer:
   return <span className="ui-invite">
     <span className="ui-chip ui-invite-label" title="Pending invitation awaiting your response">Invitation</span>
     <span className="ui-invite-actions">
-      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'confirm');}} aria-label={`Accept ${item.title}'s invitation`} title="Accept"><Icon name="Check" aria-hidden="true"/></button>
-      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'reject');}} aria-label={`Ignore ${item.title}'s invitation`} title="Ignore"><Icon name="X" aria-hidden="true"/></button>
+      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'confirm');}} aria-label={`Accept ${item.title}'s invitation`} title="Accept"><Icon name="CircleCheck" aria-hidden="true"/></button>
+      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'reject');}} aria-label={`Ignore ${item.title}'s invitation`} title="Ignore"><Icon name="CircleX" aria-hidden="true"/></button>
     </span>
   </span>;
 }
