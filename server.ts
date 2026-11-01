@@ -17,6 +17,7 @@ import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, ment
 import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
 import { createGwsRunner } from './src/adapters/gws';
 import { accounts, createRegistry, registryCapabilities } from './src/adapters/index';
+import { capabilitiesSchema } from './src/adapters/capability';
 import { toProviderError } from './src/adapters/provider-error';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import type { Account, Conversation } from './src/adapters/types';
@@ -33,7 +34,6 @@ const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
 const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
-const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), invitations: z.boolean(), media: z.boolean(), attachments: z.boolean(), threads: z.boolean(), followsList: z.boolean(), search: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -70,7 +70,7 @@ export const rpcContract = defineRpcContract({
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
-  capabilities: { input: z.null(), output: z.record(account, capabilities) },
+  capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
 });
 
 /** The name a person knows a source by, used only when a failure has nothing specific to say. */

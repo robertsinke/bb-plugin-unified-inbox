@@ -7,6 +7,8 @@
 // Shapes mirror the RPC contract in server.ts (item/message zod schemas)
 // so the transport rewires routing without any payload conversion.
 
+import type { CapabilityKey } from './capability.ts';
+
 /**
  * Registry keys: one adapter per account, and the `account` value on every RPC
  * input. The tuple is the canonical list — `server.ts` builds its zod enum from
@@ -186,26 +188,12 @@ export interface ActionResult {
   text?: string;
 }
 
-/** What an adapter supports; the gateway consults this instead of try/catch. */
-export interface Capabilities {
-  /** gmail, whatsapp, and imessage implement `send`; the policy layer keeps gmail disabled. */
-  send: boolean;
-  markRead: boolean;
-  archive: boolean;
-  /** Whether pending invitations can be answered (accept / ignore) from here. */
-  invitations: boolean;
-  media: boolean;
-  attachments: boolean;
-  /**
-   * The conversation is a thread of messages, so it is read top to bottom and answered in a
-   * composer, rather than opened as a document and answered in a mail form.
-   */
-  threads: boolean;
-  /**
-   * Re-reading one conversation is cheap enough that the open thread may follow a list refresh.
-   * A source whose read is expensive declares false and keeps what it showed until reopened.
-   */
-  followsList: boolean;
+/**
+ * What an adapter supports; the gateway consults this instead of try/catch.
+ * The keys are named once, in `src/adapters/capability.ts`, and documented there;
+ * a capability added to that list is required of every declaration.
+ */
+export interface Capabilities extends Record<CapabilityKey, boolean> {
   /** Annotation-only pending OQ-4 (search ownership). */
   search?: boolean;
 }
