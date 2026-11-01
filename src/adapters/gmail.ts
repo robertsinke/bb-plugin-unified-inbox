@@ -14,7 +14,7 @@ import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, AttachmentPayload, Capabilities,
   Conversation, GmailAccount, ListResult, MediaPayload, Message, OpenOptions, OpenResult,
-  SendAuthorization, SendDraft, SendReceipt,
+  SendAuthorization, SendDraft, SendReceipt, SyncResult,
 } from './types.ts';
 
 /** Largest attachment the `attachment` RPC will hand a frame. */
@@ -184,6 +184,10 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
 
     async list(_cursor, opts?: OpenOptions): Promise<ListResult> {
       return { items: await listThreads(opts?.limit ?? 20), errors: [] };
+    },
+
+    async sync(opts?: OpenOptions): Promise<SyncResult> {
+      return { items: await listThreads(opts?.limit ?? 20), updatedAt: Date.now() };
     },
 
     open: (id: string, _opts?: OpenOptions) => openThread(id),
