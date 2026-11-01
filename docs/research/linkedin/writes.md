@@ -64,14 +64,52 @@ checked for being a conversation id, not for a shape this code would build.
 Refusals on the same path: without `confirm` the schema rejects the call, and naming a different
 conversation is refused with "The recorded action marks a different conversation as read".
 
-Mark-read stays `false` in `capabilities()` anyway: the replay surface needs a recorded write, which
-a user action cannot supply, so the inbox UI still has no path to it.
+Mark-read is enabled from this shape: `action('read'|'unread')` builds the request and replays it
+with the session's own csrf token, and the builder is proven against the captured request byte for
+byte. Verified live both directions through the inbox's own action path — the page's menu offered
+the opposite action after each call, and the cached row followed.
+
+## Reply: a REST createMessage
+
+Captured 2026-11-02 through a real reply in the visible UI (search, open thread, type, send — each
+step through the page driver, the send click approved by name *and* conversation):
+
+```
+POST /voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage
+{ "message": { "body": { "attributes": [], "text": "<text>" },
+               "renderContentUnions": [],
+               "conversationUrn": "<urn>",
+               "originToken": "<fresh uuid per send>" },
+  "mailboxUrn": "<the profile component of the conversation urn>",
+  "trackingId": "<opaque blob, replayed as recorded>",
+  "dedupeByClientGeneratedToken": false }
+```
+
+- The text is the single `text` field; the conversation is the urn; `dedupeByClientGeneratedToken`
+  is false, so a fresh `originToken` identifies the send rather than deduplicating it. The builder
+  pins a fresh UUID per message and may be pinned to repeat the same logical send.
+- `mailboxUrn` is read out of the conversation urn's own profile component — they matched in the
+  capture — so nothing about the account is hard-coded.
+- `trackingId` is an opaque serialized blob. It is replayed byte for byte as captured, because
+  regenerating it would mean guessing a serialization the capture does not explain; it identifies
+  analytics, not the message.
+- The builder reproduces the captured request byte for byte with the recorded originToken pinned,
+  and the recogniser accepts the built send as a message send to its own conversation.
+
+Reply is enabled from this shape: the composer sends through the generic `action` RPC with the
+selected account, exactly as Messages does, and a failed answer reports uncertainty and is never
+retried. The page driver's allowlist does not apply to the composer — it guards sends the *agent*
+initiates through the page, while the composer is the owner's own hands on their own threads.
+
+### How a thread is opened for a capture
+
+A direct `/messaging/thread/<full urn>` URL does not load the conversation. The page's own thread URL
+carries the short key — the `2-…` inside the full urn's parentheses — and the honest way in is the
+visible one: search the name, open the row the search offers. The send guard compares the approval's
+conversation against that key, read down from either form.
 
 ## What is still uncaptured
 
 One real write has been recorded and read back (a deliberate 404 probe), which proves the path.
-No LinkedIn *send* request has been captured yet — the three recorded sends left the buffer empty
-because of the read-out fault above, and they went to a recipient nobody meant to message — so
-`reply` stays unwired and every LinkedIn write capability other than `media` stays `false`. A reply
-to the allowlisted recipient with the recorder armed would settle the send template; accept/ignore
-still needs its own recording.
+What is still uncaptured: an invitation accept or ignore. That is the last LinkedIn write without a
+recorded shape, so the invitation chip reports and does not act.
