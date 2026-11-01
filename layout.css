@@ -105,11 +105,25 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-row-open{display:flex;align-items:center;gap:9px}
 /* A row's whole vocabulary behind one control, opened by hover or focus. */
 .ui-menu{position:relative;display:inline-flex}
-.ui-menu-list{position:absolute;top:100%;right:0;z-index:20;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid #8883;border-radius:8px;background:var(--background,#fff);box-shadow:0 8px 24px #0002;opacity:0;pointer-events:none}
+.ui-menu-list{position:absolute;top:100%;right:0;z-index:20;display:flex;flex-direction:column;min-width:150px;max-height:60vh;overflow:auto;padding:4px;border:1px solid #8883;border-radius:8px;background:var(--background,#fff);box-shadow:0 8px 24px #0002;opacity:0;pointer-events:none}
 .ui-menu:hover .ui-menu-list,.ui-menu:focus-within .ui-menu-list{opacity:1;pointer-events:auto}
 .ui-menu-item{padding:6px 10px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12px;text-align:left;white-space:nowrap;cursor:pointer}
 .ui-menu-item:hover:not(:disabled){background:#8882}
 .ui-menu-item:disabled{opacity:.45;cursor:default}
+.ui-menu-item .ui-source-icon{width:13px;height:13px;font-size:10px;flex:none}
+.ui-menu-item svg{width:13px;height:13px;flex:none}
+.ui-menu-item{display:flex;align-items:center;gap:8px;text-align:left}
+/* A menu on the left of a bar opens rightwards, so it never hangs off the window. */
+.ui-menu-start .ui-menu-list{left:0;right:auto}
+/* A refresh says it is in flight by fading, not by turning. */
+.ui-refresh-button.is-refreshing{opacity:.45}
+.ui-refresh-button.is-refreshing:hover{opacity:.7}
+/* The search owns its clear button, which exists only while there is something to clear. */
+.ui-search-wrap{position:relative;display:flex;flex:1;min-width:0;align-items:center}
+.ui-search{padding-right:24px}
+.ui-search-wrap .ui-search-clear{position:absolute;right:2px;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;opacity:.55}
+.ui-search-wrap .ui-search-clear:hover{opacity:1;background:#8882}
+.ui-search-wrap .ui-search-clear svg{width:12px;height:12px}
 .ui-row-copy{flex:1;min-width:0}
 .ui-row-top{align-items:baseline;gap:8px}
 .ui-row-name{flex:0 1 auto}
