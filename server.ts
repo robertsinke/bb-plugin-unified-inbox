@@ -32,7 +32,7 @@ const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
 const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
-const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), invitations: z.boolean(), media: z.boolean(), attachments: z.boolean(), threads: z.boolean(), confirmSend: z.boolean(), followsList: z.boolean(), search: z.boolean().optional() });
+const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), invitations: z.boolean(), media: z.boolean(), attachments: z.boolean(), threads: z.boolean(), followsList: z.boolean(), search: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -67,7 +67,7 @@ export const rpcContract = defineRpcContract({
   media: { input: z.object({ messageId: z.string().min(1).max(512), account: account.optional(), index: z.number().int().min(0).max(99).optional() }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().optional(), url: z.string().optional() }) },
   attachment: { input: z.object({ account: z.enum(['personal','business']), gmailId: z.string().min(1).max(512), filename: z.string().min(1).max(255) }).strict(), output: z.object({ dataUrl: z.string().max(8_000_000), mime: z.string(), filename: z.string().max(255), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT) }) },
   imsg_media: { input: z.object({ chatId: z.string().min(1).max(20), messageId: z.string().min(1).max(20), index: z.number().int().min(0).max(99) }).strict(), output: z.object({ dataUrl: z.string(), mime: z.string() }) },
-  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), proposalId: z.number().int().positive().optional() }).strict(), output: z.object({ status: z.string(), proposalId: z.number().int().positive().optional(), text: z.string().optional() }) },
+  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional() }).strict(), output: z.object({ status: z.string(), proposalId: z.number().int().positive().optional(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
   capabilities: { input: z.null(), output: z.record(account, capabilities) },
 });
@@ -224,8 +224,8 @@ export default function plugin(bb: BbPluginApi) {
       if (!read) throw new Error('Messages attachments are not available in this build.');
       return read(chatId, messageId, index);
     },
-    async action({ account, id, action, text, proposalId }) {
-      return registry[account].action(action, id, { text, proposalId });
+    async action({ account, id, action, text }) {
+      return registry[account].action(action, id, { text });
     },
     async send_gmail(input) {
       // Disabled until the BB owner-confirmation boundary is verified; RPC is agent-callable.

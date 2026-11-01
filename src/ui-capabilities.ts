@@ -11,7 +11,7 @@ import type { Account, Capabilities } from './adapters/types.ts';
 export type CapabilityMap = Record<Account, Capabilities>;
 
 /** Nothing is known before the declarations arrive, or if asking for them failed: offer no control. */
-const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, confirmSend: false, followsList: false };
+const UNKNOWN: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, followsList: false };
 
 function declared(capabilities: CapabilityMap | null, account: Account): Capabilities {
   return capabilities?.[account] ?? UNKNOWN;
@@ -47,14 +47,6 @@ export function canArchive(capabilities: CapabilityMap | null, account: Account)
  */
 export function hasThread(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).threads;
-}
-
-/**
- * Whether sending takes two steps: propose, then confirm. The composer asks this instead of
- * knowing which source works that way, and a proposal is never sent for a source that does not.
- */
-export function sendsWithConfirm(capabilities: CapabilityMap | null, account: Account): boolean {
-  return declared(capabilities, account).confirmSend;
 }
 
 /**

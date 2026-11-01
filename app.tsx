@@ -16,7 +16,7 @@ import { inboxDraftKey, readInboxDraft, writeInboxDraft } from './src/inbox-draf
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
-import { canAnswerInvitation, canArchive, canMarkRead, canSend, followsList, hasThread, sendsWithConfirm, type CapabilityMap } from './src/ui-capabilities';
+import { canAnswerInvitation, canArchive, canMarkRead, canSend, followsList, hasThread, type CapabilityMap } from './src/ui-capabilities';
 import type { Account } from './src/adapters/types';
 
 type Item = {account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; participants?:string[]};
@@ -259,7 +259,6 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const [filter,setFilter]=useState<InboxFilter>('all'); const [compose,setCompose]=useState(false); const [mail,setMail]=useState<MailDraft|null>(null); const [mailStatus,setMailStatus]=useState('');
   const [query,setQuery]=useState(''); const [hits,setHits]=useState<{account:Account; id:string}[]|null>(null);
   const [refreshedAt,setRefreshedAt]=useState<Partial<Record<Account, number>>>({}); const [refreshingInbox,setRefreshingInbox]=useState(false);
-  const [proposal,setProposal]=useState<{id:number; text:string; chatId:string; account:Account}|null>(null);
   const request=useRef(0); const refreshing=useRef(new Set<Account>()); const threadScroll=useRef<HTMLDivElement>(null); const replyDrafts=useRef(new Map<string,string>());
   const pendingDrafts=useRef(new Map<string,string>()); const draftTimers=useRef(new Map<string,number>());
   const pinnedBottom=useRef(true); const activeThread=useRef('');
@@ -398,15 +397,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
     },8000);
     return()=>{active=false;window.clearInterval(timer);};
   },[selected?.account,selected?.id,rpc]);
-  async function dropProposal() {
-    const current = proposal;
-    if (!current) return;
-    setProposal(null);
-    setText(current.text);
-    try { await rpc.call('action', { account: current.account, id: current.chatId, action: 'reject', proposalId: current.id }); } catch { setStatus('Could not cancel the unsent message.'); }
-  }
   async function open(i:Item) {
-    if (proposal && (proposal.account !== i.account || proposal.chatId !== i.id)) await dropProposal();
     const seq=++request.current; setSelected(i); setStatus(''); setText(readComposerDraft(i.account,i.id)); setOpening(true);
     try {
       const remembered=await rpc.call('cached_open',{account:i.account,id:i.id});
@@ -423,7 +414,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
       }
     } catch(error) {if(seq===request.current) setStatus(error instanceof Error?error.message:'Could not load this conversation.');} finally {if(seq===request.current) setOpening(false);}
   }
-  function back(){ void dropProposal(); ++request.current;setSelected(null);setStatus('');setOpening(false);}
+  function back(){ ++request.current;setSelected(null);setStatus('');setOpening(false);}
   function tag(item: Item) {
     const target = threadComposer(composers, threadId);
     if (!target) { setStatus('Open a thread beside the inbox to tag this conversation.'); return; }
@@ -452,40 +443,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
     try { await rpc.call('action',{account:i.account,id:i.id,action}); }
     catch(e){ setItems(old=>old.map(item=>item.account===i.account&&item.id===i.id?i:item)); setStatus(e instanceof Error?e.message:'Could not update this conversation.'); }
   }
-  async function proposeSend() {
-    if(!selected||busy||!text.trim()||proposal)return;
-    const draft = text.trim(), account = selected.account;
-    setBusy(true); setStatus('');
-    try {
-      const r = await rpc.call('action', { account, id: selected.id, action: 'reply', text: draft });
-      if (!r.proposalId) throw new Error('WhatsAgent did not create a proposal. Nothing was sent.');
-      setProposal({ id: r.proposalId, text: r.text || draft, chatId: selected.id, account });
-    } catch (e) { setStatus(e instanceof Error ? e.message : 'Could not prepare the message.'); }
-    finally { setBusy(false); }
-  }
-  async function confirmSend() {
-    if(!proposal||!selected||busy)return;
-    const sentText = proposal.text;
-    const chatId = proposal.chatId, account = proposal.account;
-    setBusy(true); setStatus('');
-    try {
-      await rpc.call('action', { account, id: chatId, action: 'confirm', proposalId: proposal.id, text: sentText });
-      setProposal(null);
-      pinnedBottom.current=true;
-      clearComposerDraft(account,chatId);
-      setText('');
-      const sentAt = Date.now();
-      setMessages(old => messagesAfterSend(old, sentText, sentAt));
-      try { const opened = await rpc.call('open', { account, id: chatId }); setMessages(messagesAfterSend(opened.messages, sentText, sentAt)); } catch { /* the bubble already on screen stays */ }
-      try { const listed = await rpc.call('list_source', { account }); setItems(old => [...listed.items, ...old.filter(item => item.account !== account)].sort((a,b) => b.date-a.date)); } catch { /* the open chat does not depend on the list */ }
-    } catch (e) { setProposal(null); setText(sentText); setStatus(e instanceof Error ? e.message : 'The message was not sent.'); }
-    finally { setBusy(false); }
-  }
   function submitComposer() {
     if(!selected||busy)return;
     // Without a send capability the box only keeps a draft, so nothing here can reach the source.
     if(!sendable||!text.trim())return;
-    if(sendsWithConfirm(capabilities,selected.account)){ if(proposal) void confirmSend(); else void proposeSend(); return; }
     void sendMessage();
   }
   async function sendMessage() {
@@ -541,7 +502,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
         ]}/></div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={selected.account==='imessage'?'Messages conversation':'WhatsApp messages'}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); void submitComposer();}}><div className="ui-promptbox">{proposal&&proposal.chatId===selected.id?<p className="ui-prompt-preview">{proposal.text}</p>:<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>{setText(e.target.value);saveComposerDraft(selected.account,selected.id,e.target.value);}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); void submitComposer();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{proposal&&proposal.chatId===selected.id?<button type="button" className="ui-prompt-cancel" disabled={busy} onClick={()=>void dropProposal()}>Don't send</button>:null}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||(!proposal&&!text.trim())} aria-label={proposal?`Send this ${accounts[selected.account].label} message`:'Send'}><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); void submitComposer();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>{setText(e.target.value);saveComposerDraft(selected.account,selected.id,e.target.value);}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); void submitComposer();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
     </section>:<><div className="ui-list"><header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" busy={refreshingInbox} marker={errors.length?`Some messages couldn't load: ${errors.join(' ')}`:undefined} actions={[
           { label: 'New', run: () => setCompose(!compose) },

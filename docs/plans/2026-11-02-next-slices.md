@@ -186,13 +186,21 @@ What remains by name in `app.tsx` is presentation (which surface renders a name,
 icon a source gets) and one dispatch: `sync` picks `linkedin_sync` over `list_source`
 (`app.tsx:328`), which is a transport difference the registry should absorb next.
 
-**Open, found while proving the WhatsApp path:** `confirmSend` is declared by the source,
-but WhatsApp's proposal endpoint refuses group chats outright — WhatsAgent's R8 says the
-owner's own composer may send into a group while an agent proposal may not exist for one.
-So a group row (21 of 50 WhatsApp rows are 1:1, the rest groups) shows a composer whose
-send the backend denies, and the owner sees the transport string. The capability that
-decides this lives on the *conversation*, not the source, so the fix is a per-conversation
-declaration ("this chat accepts a send from here") rather than a fourth source flag.
+### Group sends: the inbox was on the wrong endpoint (done)
+
+Found while proving the WhatsApp path: the agent's `propose-send` tool refuses
+`chat.kind !== '1:1'` (WhatsAgent R8 — the *drafting agent* stays out of groups; AE4 keeps
+groups writable by the owner). So every group row offered a composer whose send the backend
+denied, and the owner saw the transport string.
+
+The fix needed **no WhatsAgent change**: the owner's composer path already existed over
+loopback as `POST /api/chats/:jid/messages`, dispatching `send` with `caller: 'frontend'`
+to the single paced outbox, with no group restriction. The inbox had been reaching for the
+agent's tool because that is the tool-shaped surface; the composer path is the right one
+for text the owner typed. `confirmSend` is gone with it — nothing is approved but the
+owner's own sentence, so the two-click "Review this message / Don't send" flow is retired
+and every source in the inbox now sends on one click. Verified live with a message to the
+owner's Test-bb group.
 
 ## Slice G — UI tests and bubble standardisation
 

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canAnswerInvitation, canArchive, canSend, canMarkRead, followsList, hasThread, sendsWithConfirm, type CapabilityMap } from '../src/ui-capabilities.ts';
+import { canAnswerInvitation, canArchive, canSend, canMarkRead, followsList, hasThread, type CapabilityMap } from '../src/ui-capabilities.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Capabilities } from '../src/adapters/types.ts';
 
-const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, confirmSend: true, followsList: true };
-const NOTHING: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, confirmSend: false, followsList: false };
+const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, followsList: true };
+const NOTHING: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, followsList: false };
 
 const everySource = (declaration: Capabilities): CapabilityMap =>
   Object.fromEntries(accounts.map(account => [account, { ...declaration }])) as CapabilityMap;
@@ -15,7 +15,6 @@ const RULES = [
   ['mark read', canMarkRead],
   ['archive', canArchive],
   ['a thread', hasThread],
-  ['a confirming send', sendsWithConfirm],
   ['following the list', followsList],
 ] as const;
 
@@ -115,19 +114,6 @@ test('the composer follows the thread declaration, not the source name', () => {
     'the two mail accounts keep their own surface while a thread source keeps the composer',
   );
   assert.equal(hasThread(null, 'whatsapp'), false, 'no composer before the declaration is known');
-});
-
-test('a two-phase source is asked to confirm, and a one-step source is not', () => {
-  const confirming = everySource({ ...NOTHING, send: true, confirmSend: true });
-  const direct = everySource({ ...NOTHING, send: true, confirmSend: false });
-  for (const account of accounts) {
-    assert.equal(sendsWithConfirm(confirming, account), true, account);
-    assert.equal(sendsWithConfirm(direct, account), false, account);
-  }
-  // Declaring the confirmation is independent of being able to send at all.
-  assert.equal(sendsWithConfirm(everySource({ ...NOTHING, confirmSend: true }), 'whatsapp'), true);
-  assert.equal(canSend(everySource({ ...NOTHING, confirmSend: true }), 'whatsapp'), false);
-  assert.equal(sendsWithConfirm(null, 'whatsapp'), false, 'a source with no declaration is never asked twice');
 });
 
 test('an expensive source does not re-read its open thread when the list moves', () => {

@@ -48,14 +48,21 @@ Declaration meanings:
 | `media` | Inline media can be served for an open conversation. |
 | `attachments` | Named files can be served for a message. |
 | `threads` | The conversation is a thread of messages, so the inbox reads it top to bottom and answers in a composer. False means the source opens a document with its own reading surface and mail form. |
-| `confirmSend` | Sending is two-phase: a proposal is made first and only sent once that proposal is confirmed. WhatsApp declares it; the composer asks rather than knowing. |
 | `followsList` | Re-reading one conversation is cheap enough that the open thread may follow a list refresh. LinkedIn declares false: its read is seconds long, so it keeps what it showed until reopened. |
 
-These three exist because `app.tsx` used to decide them by asking which source it was
-looking at: a `threaded` that named LinkedIn, a composer that recognised WhatsApp's
-proposal, and a re-read that skipped LinkedIn. A declaration is the same decision, made
-by the source that owns it, and a new source now inherits the right behaviour by
-declaring it instead of by being mentioned in the UI.
+These exist because `app.tsx` used to decide them by asking which source it was looking
+at: a `threaded` that named LinkedIn and a re-read that skipped LinkedIn. A declaration is
+the same decision, made by the source that owns it, so a new source inherits the right
+behaviour by declaring it instead of by being mentioned in the UI.
+
+**WhatsApp sends through the owner's composer, not the agent's proposal.** `reply` on
+WhatsApp posts to WhatsAgent's `POST /api/chats/:jid/messages`, which dispatches the `send`
+action as `caller: 'frontend'` — the owner's own composer — and enqueues to the single paced
+outbox. The agent's `propose-send` tool refuses a group outright (WhatsAgent R8 excludes the
+*drafting agent* from groups while AE4 keeps groups writable by the owner), so the inbox,
+which types for the owner, belongs on the composer path. That is why a group chat sends from
+here, and why there is no two-phase "propose, then confirm" in this UI: nothing is being
+approved but the owner's own sentence.
 
 ## Known asymmetries
 

@@ -16,6 +16,8 @@ export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAte
 /** A pending invitation the read carries, with the params its answer needs. */
 export const LINKEDIN_INVITE = 'urn:li:fs_relInvitation:12345';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
+/** A group chat: the composer endpoint accepts one, the agent's proposal tool does not. */
+export const WHATSAPP_GROUP_ID = '120363413535442462@g.us';
 export const IMSG_ID = '50';
 
 const GMAIL_THREAD = {

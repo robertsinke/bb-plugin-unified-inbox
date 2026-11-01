@@ -6,7 +6,7 @@ import { sourceAvatarUrl } from '../avatar-url.ts';
 import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappTitle } from '../whatsapp-chat.ts';
-import { approvalHash, confirmProposalRequest, latestInboundId } from '../whatsapp-confirm.ts';
+import { composerSendRequest } from '../whatsapp-send.ts';
 import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from '../whatsapp-media.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
@@ -15,7 +15,7 @@ import type {
   MediaPayload, Message, OpenOptions, OpenResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, confirmSend: true, followsList: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';
@@ -199,13 +199,16 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     return { dataUrl: mediaDataUrl(bytes, mime), mime: mime.split(';')[0].trim().toLowerCase(), ...(info.filename ? { filename: info.filename } : {}) };
   }
 
-  /** WhatsAgent holds the approval: the reviewed hash and the latest inbound id travel with it. */
-  async function confirm(proposalId: number, baseHash: string, inboundId: string | undefined): Promise<void> {
+  /**
+   * The owner's composer path: WhatsAgent enqueues the text to its paced outbox and answers 202
+   * with the row. It accepts a group, which the agent's proposal tool does not (R8).
+   */
+  async function sendFromComposer(chatJid: string, text: string): Promise<void> {
     const { port } = await waRuntime();
-    const request = confirmProposalRequest(port, proposalId, baseHash, inboundId);
+    const request = composerSendRequest(port, chatJid, text);
     const response = await fetch(request.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: request.origin }, body: JSON.stringify(request.body) });
     const payload = await response.json().catch(() => ({})) as { error?: unknown };
-    if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'WhatsApp did not accept the confirmation. It has not been sent.');
+    if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'WhatsApp did not accept the message. It has not been sent.');
   }
 
   return {
@@ -229,26 +232,11 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     media: (_account, id: string) => image(id),
 
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
-      if (CAPABILITIES.send && kind === 'reply' && opts?.text?.trim()) {
-        const proposed = await wa('propose-send', { chatJid: id, text: opts.text.trim() });
-        const created = Number(proposed.proposal_id ?? proposed.proposal?.id);
-        const proposalText = String(proposed.proposal?.text ?? opts.text.trim());
-        if (!Number.isInteger(created) || created <= 0) throw new Error('WhatsAgent did not create a proposal. Nothing was sent.');
-        return { status: 'Review this message before it sends.', proposalId: created, text: proposalText };
-      }
-      if (CAPABILITIES.send && kind === 'confirm' && opts?.proposalId && opts.text?.trim()) {
-        try {
-          const fresh = await wa('get-messages', { chatJid: id, limit: 30 });
-          await confirm(opts.proposalId, approvalHash(opts.text), latestInboundId(fresh.items ?? []));
-          return { status: 'Sending.' };
-        } catch (cause) {
-          await wa('reject-proposal', { id: opts.proposalId }).catch(() => undefined);
-          throw cause instanceof Error ? cause : new Error('WhatsApp did not accept the confirmation. It has not been sent.');
-        }
-      }
-      if (CAPABILITIES.send && kind === 'reject' && opts?.proposalId) {
-        await wa('reject-proposal', { id: opts.proposalId }).catch(() => undefined);
-        return { status: 'Not sent.' };
+      if (CAPABILITIES.send && kind === 'reply') {
+        const draft = opts?.text?.trim();
+        if (!draft) throw new Error('Sending needs the text to send.');
+        await sendFromComposer(id, draft);
+        return { status: 'Sending.' };
       }
       if (canChange(CAPABILITIES, kind)) {
         if (kind === 'read') {

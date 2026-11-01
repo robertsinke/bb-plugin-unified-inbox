@@ -156,14 +156,12 @@ export interface WhatsAppDraft {
  * unset and no adapter may treat its absence as consent for anything else.
  */
 export interface SendAuthorization {
-  proposalId?: number;
   approval?: { id: string; hash: string };
 }
 
 /** Mirrors the rpcContract `action` output and `send_gmail` output. */
 export interface SendReceipt {
   status: string;
-  proposalId?: number;
   text?: string;
 }
 
@@ -179,12 +177,10 @@ export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | '
 /** Mirrors the optional fields of the rpcContract `action` input. */
 export interface ActionOptions {
   text?: string;
-  proposalId?: number;
 }
 
 export interface ActionResult {
   status: string;
-  proposalId?: number;
   text?: string;
 }
 
@@ -203,11 +199,6 @@ export interface Capabilities {
    * composer, rather than opened as a document and answered in a mail form.
    */
   threads: boolean;
-  /**
-   * Sending is two-phase: the source makes a proposal first and only sends once the proposal is
-   * confirmed. The UI asks this instead of knowing which source behaves that way.
-   */
-  confirmSend: boolean;
   /**
    * Re-reading one conversation is cheap enough that the open thread may follow a list refresh.
    * A source whose read is expensive declares false and keeps what it showed until reopened.
