@@ -461,3 +461,25 @@ export function messageSendTemplate(write: RecordedWrite, conversationId: string
   setAt(body, fields[0].path, text);
   return { ...write, body: JSON.stringify(body) };
 }
+
+/**
+ * TEMPORARY instrument. Reads the received-invitations payload and reports, for the first
+ * invitation only: its field names, and whether any field looks like it carries the per-invitation
+ * token the mynetwork accept click needed. Nothing else - no names, no notes, no token values.
+ * Removed once the question it answers ("where does the invitation action's token come from?") is
+ * settled.
+ */
+export function invitationKeysExpression(): string {
+  return pageExpression(`
+    return fetch('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20', { headers: { accept: 'application/vnd.linkedin.normalized+json+2.1' } })
+      .then(raw => raw.json())
+      .then(answer => {
+        const elements = answer && answer.elements ? answer.elements : [];
+        const first = elements[0] || {};
+        const keys = Object.keys(first).sort();
+        const tokenish = keys.filter(key => /token|valid/i.test(key));
+        return { count: elements.length, keys, tokenish: tokenish.map(key => [key, typeof first[key] === 'string' ? String(first[key]).length : String(first[key])]) };
+      })
+      .catch(error => ({ error: String(error && error.message ? error.message : error) }));
+  `);
+}
