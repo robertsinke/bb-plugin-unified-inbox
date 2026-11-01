@@ -77,8 +77,8 @@ export function inboxMentionContext(input: {
   const head = [`Inbox conversation: ${name} (${mentionLabels[input.account]})`, `Conversation id: ${input.id}`, 'Latest messages, oldest first:'];
   const footer = input.account === 'whatsapp'
     ? [
-        'Reply by proposing a message; the owner confirms it in the Inbox page before it sends:',
-        `printf '%s' '${JSON.stringify({ account: 'whatsapp', id: input.id, action: 'reply', text: '<reply>' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
+        'Reply with an explicit send; it goes out as you, without a second confirmation in the page:',
+        `printf '%s' '${JSON.stringify({ account: 'whatsapp', id: input.id, action: 'reply', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
       ]
     : input.account === 'imessage'
       ? ['Messages sending is not available in this plugin; this conversation is read-only context.']

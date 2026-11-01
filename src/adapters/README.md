@@ -10,9 +10,12 @@
   canonical account list is the `accounts` tuple in `types.ts`.
 - **Cache and search** — `inbox-cache` stores conversations and threads;
   `search-index` ranks cached rows. Adapters write the cache; they do not own it.
-- **Unread preservation, error isolation, and the send policy** — a failing
-  source contributes an error without failing the other sources, and
-  `send_gmail` decides whether a declared send may run at all.
+- **Unread preservation, error isolation, and the send gate** — a failing
+  source contributes an error without failing the other sources, and every send
+  path goes through one gate (`policy.ts`) that refuses what the policy disables,
+  what the approval does not cover, and what is stale or already spent. The gate
+  owns the delivery call, so a refusal never reaches an adapter, and every attempt
+  lands in `send-audit.ts`.
 
 ## An adapter owns
 
@@ -67,9 +70,11 @@ approved but the owner's own sentence.
 ## Known asymmetries
 
 - **Gmail sending is implemented but disabled by policy.** The adapter declares
-  `send: true` and `send()` works against the runner; `send_gmail` in
-  `server.ts` still refuses every call. The capability is honest about the
-  adapter; the policy narrows it at the RPC boundary.
+  `send: true` and `send()` works against the runner; `SEND_POLICY` in
+  `policy.ts` disables both Gmail accounts, and the gate refuses every
+  `send_gmail` call with that rule's reason. The capability is honest about the
+  adapter; the policy narrows it at the transport boundary. The gate is a choke
+  point and an audit trail, not containment — OQ-1 owns that.
 - **Messages read state is local.** Messages exposes no read state to sync, so
   `read`/`unread` update `inbox-cache` only and never call `imsg`.
 - **One media entry point.** WhatsApp, Gmail and Messages answer `media()` with a
