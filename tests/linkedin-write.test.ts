@@ -11,6 +11,10 @@ import {
   type RecordedWrite,
 } from '../src/linkedin-write.ts';
 
+/** The dump as the adapter reads it: an object with `writes`, never a bare array. */
+const dumpOf = async (page: { evaluate: (expression: string) => Promise<unknown> }) => (await page.evaluate(recordedWritesExpression()) as { writes: RecordedWrite[] }).writes;
+
+
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
 
 const ORIGIN = 'https://www.linkedin.com';
@@ -65,7 +69,7 @@ test('the recorder arms once, wraps once, and lets the page’s own call through
   const response = await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: '{"a":1}' });
   assert.equal(response.status, 200);
   assert.equal(page.calls.length, 1);
-  const recorded = await page.evaluate(recordedWritesExpression());
+  const recorded = await dumpOf(page);
   assert.equal(recorded.length, 1);
 });
 
@@ -78,7 +82,7 @@ test('a recorder bookkeeping fault still returns the real response', async () =>
   const response = await page.window.fetch('/voyager/api/graphql', hostile);
   assert.equal(response.status, 200);
   assert.equal(page.calls.length, 1);
-  assert.deepEqual(await page.evaluate(recordedWritesExpression()), []);
+  assert.deepEqual(await dumpOf(page), []);
 });
 
 test('only same-origin writes to /voyager/api/ are recorded', async () => {
@@ -92,7 +96,7 @@ test('only same-origin writes to /voyager/api/ are recorded', async () => {
   await page.window.fetch('//elsewhere.test/voyager/api/graphql', { method: 'POST', body: '{"d":4}' });
   await page.window.fetch('/feed/update', { method: 'POST', body: '{"e":5}' });
 
-  const recorded = await page.evaluate(recordedWritesExpression());
+  const recorded = await dumpOf(page);
   // Newest first, and the recorder strips its own origin so a template names no host.
   assert.deepEqual(recorded.map((write: RecordedWrite) => write.url), [
     '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=x',
@@ -107,22 +111,22 @@ test('the recorder keeps five writes, newest last, and drops an oversized body',
   for (let index = 0; index < 6; index += 1) {
     await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: JSON.stringify({ index }) });
   }
-  const recorded = await page.evaluate(recordedWritesExpression());
+  const recorded = await dumpOf(page);
   assert.deepEqual(recorded.map((write: RecordedWrite) => JSON.parse(write.body).index), [5, 4, 3, 2, 1]);
   assert.deepEqual(page.window.__unifiedInboxWrites.map((write: RecordedWrite) => JSON.parse(write.body).index), [1, 2, 3, 4, 5]);
 
   assert.deepEqual(await page.evaluate(clearRecordedWritesExpression()), { cleared: 5 });
-  assert.deepEqual(await page.evaluate(recordedWritesExpression()), []);
+  assert.deepEqual(await dumpOf(page), []);
 
   await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: JSON.stringify({ padding: 'x'.repeat(LINKEDIN_WRITE_LIMIT) }) });
-  assert.deepEqual(await page.evaluate(recordedWritesExpression()), []);
+  assert.deepEqual(await dumpOf(page), []);
   // The bound is bytes, so a shorter multi-byte body over the same limit is dropped too.
   await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: JSON.stringify({ padding: '😀'.repeat(LINKEDIN_WRITE_LIMIT / 4) }) });
-  assert.deepEqual(await page.evaluate(recordedWritesExpression()), []);
+  assert.deepEqual(await dumpOf(page), []);
 
   // Clearing empties the array in place, so the armed wrapper keeps recording into it.
   await page.window.fetch('/voyager/api/graphql', { method: 'POST', body: '{"fresh":true}' });
-  assert.equal((await page.evaluate(recordedWritesExpression())).length, 1);
+  assert.equal((await dumpOf(page)).length, 1);
 });
 
 test('replay refuses anything that is not a same-origin voyager path or a real JSON write', () => {
@@ -250,7 +254,7 @@ test('nothing keeps a cookie, a csrf token, or a set-cookie value', async () => 
     credentials: 'include',
     headers: { 'csrf-token': 'session-token', cookie: 'JSESSIONID=session-token', 'set-cookie': 'x=session-token' },
   });
-  const recorded = await page.evaluate(recordedWritesExpression()) as RecordedWrite[];
+  const recorded = await dumpOf(page) as RecordedWrite[];
   assert.deepEqual(Object.keys(recorded[0]).sort(), ['body', 'capturedAt', 'method', 'url']);
   assert.doesNotMatch(JSON.stringify(recorded), /session-token|csrf-token|set-cookie|JSESSIONID|cookie/i);
   // The recorder reads the request line only; it never touches the cookie store or the headers.
@@ -264,4 +268,16 @@ test('the recorded text comes back only from a single text field that names this
   assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc', message: { text: 'x' } } }), 'urn:li:msg_conversation:2-zzz'), null);
   assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc' } }), 'urn:li:msg_conversation:2-abc'), null);
   assert.equal(recordedSendText(write({ variables: { conversationUrn: 'urn:li:msg_conversation:2-abc', a: { text: 'x' }, b: { text: 'y' } } }), 'urn:li:msg_conversation:2-abc'), null);
+});
+
+test('a dump answers under `writes`, because a bare array reads back as nothing recorded', async () => {
+  // The recorder stored writes and the dump reported none for exactly this reason: the page returned
+  // an array, the caller read `.writes` off it, and the buffer that was full looked empty.
+  const expression = recordedWritesExpression();
+  assert.match(expression, /return \{ writes: list\.slice\(\)/);
+  const stored = [{ method: 'POST', url: '/voyager/api/x', body: '{"a":1}', capturedAt: 7 }];
+  const page = { __unifiedInboxWrites: stored } as unknown;
+  const read = new Function('window', `return (${expression});`)(page) as { writes: unknown[] };
+  assert.equal(Array.isArray(read), false, 'the dump must answer with an object');
+  assert.deepEqual(read.writes, stored);
 });

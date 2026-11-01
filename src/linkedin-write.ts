@@ -141,16 +141,20 @@ export function recorderStatsExpression(): string {
   `);
 }
 
-/** A copy of what is stored, newest first. The page's own array is not handed out. */
+/**
+ * A copy of what is stored, newest first, under `writes`. The page's own array is not handed out, and
+ * the wrapper is deliberately not bare: the caller reads `writes` off an object, so a bare array
+ * arrives as `undefined` and reads back as "nothing recorded" while the buffer is full.
+ */
 export function recordedWritesExpression(): string {
   return pageExpression(`
     const list = Array.isArray(window.__unifiedInboxWrites) ? window.__unifiedInboxWrites : [];
-    return list.slice().reverse().map(write => ({
+    return { writes: list.slice().reverse().map(write => ({
       method: String(write.method),
       url: String(write.url),
       body: String(write.body),
       capturedAt: Number(write.capturedAt) || 0,
-    }));
+    })) };
   `);
 }
 
