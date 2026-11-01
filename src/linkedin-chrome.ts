@@ -20,7 +20,6 @@ import {
   controlRectExpression,
   controlTextExpression,
   focusControlExpression,
-  insertTextFallbackExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
@@ -322,6 +321,16 @@ export async function clickInLinkedInPage(
   });
 }
 
+/** One character at a time, the way a keyboard delivers it: some editors only listen to keys. */
+async function typeAsKeys(page: Page, text: string): Promise<void> {
+  for (const character of text) {
+    const base = { key: character, text: character, unmodifiedText: character };
+    await page.client.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base }, page.sessionId);
+    await page.client.send('Input.dispatchKeyEvent', { type: 'char', ...base }, page.sessionId);
+    await page.client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, page.sessionId);
+  }
+}
+
 /**
  * Focuses the control at `index` and inserts `text` as trusted input. `el.value = …` and
  * `textContent = …` are ignored by Lexical and React, so the text has to arrive as a real editing
@@ -337,32 +346,25 @@ export async function typeInLinkedInPage(index: number, text: string): Promise<{
     const control = found as PageControl | null;
     if (!control || typeof control !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
     if (isSendControl(control)) return { typed: false, control, reason: `"${control.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
+    const landed = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
     // A trusted click puts the caret in the editor. DOM focus alone does not: LinkedIn's composer is
     // a Lexical contenteditable that only opens an editing session on a real pointer event.
     const x = Math.round(control.x + control.width / 2);
     const y = Math.round(control.y + control.height / 2);
+    const textLanded = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
     if (typed) {
       for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
         await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
       }
       await page.client.send('Input.insertText', { text: typed }, page.sessionId);
-      // Some editors drop a browser-level insert; ask the editable whether the text arrived, and if it
-      // did not, hand the same text over as an editing command. Believing an unverified insert would
-      // send an empty message.
-      const held = String(await evaluate(page, controlTextExpression(index)) ?? '');
-      if (!held.includes(typed.slice(0, 40))) {
-        await evaluate(page, insertTextFallbackExpression(typed));
-        const after = String(await evaluate(page, controlTextExpression(index)) ?? '');
-        if (!after.includes(typed.slice(0, 40))) {
-          return { typed: false, control, reason: 'LinkedIn did not accept the text; the field still reads empty.' };
-        }
-      }
+      // LinkedIn's composer drops a browser-level insert, so the text arrives the way a person's does:
+      // one key at a time. Both are verified below, because believing an unverified insert would send
+      // an empty message.
+      if (!(await textLanded())) await typeAsKeys(page, typed);
+      if (!(await textLanded())) return { typed: false, control, reason: 'LinkedIn did not accept the text; the field still reads empty.' };
     }
-    // Report where the text landed: an index that pointed at the wrong control is otherwise silent.
-    const controls = await page.client.send<unknown>('Runtime.evaluate', { expression: pageControlsExpression(), awaitPromise: true, returnByValue: true }, page.sessionId)
-      .then(answer => (answer as { result?: { value?: unknown } }).result?.value);
-    const landed = Array.isArray(controls) ? (controls as PageControl[]).find(control => control.focused) : undefined;
-    return { typed: true, ...(landed ? { control: landed } : {}) };
+    // Report the control that took the text, so a wrong index is visible instead of silent.
+    return { typed: true, control };
   });
 }
 

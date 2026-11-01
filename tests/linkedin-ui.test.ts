@@ -12,7 +12,6 @@ import {
   pageTextExpression,
   type PageControl,
   controlTextExpression,
-  insertTextFallbackExpression,
 } from '../src/linkedin-ui.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
@@ -248,16 +247,11 @@ test('a crowded page stops at the cap rather than returning everything', async (
   assert.equal(controls.length, LINKEDIN_CONTROL_LIMIT);
 });
 
-test('a text insert is verifiable, so an editor that drops it is caught instead of sending nothing', async () => {
+test('a field can be read back, so a caller sees whether typing landed', async () => {
   const page = fakePage([{ tag: 'div', text: '' }]);
   const element = page.elements[0];
   assert.equal(await page.evaluate(controlTextExpression(0)), '');
   element.innerText = 'Note to self';
   assert.equal(await page.evaluate(controlTextExpression(0)), 'Note to self');
   assert.equal(await page.evaluate(controlTextExpression(9)), '');
-
-  // The fallback refuses to guess at text it was not given, and refuses when nothing editable is focused.
-  assert.throws(() => insertTextFallbackExpression(''), /needs the text/);
-  const answer = await page.evaluate(insertTextFallbackExpression('Note to self'));
-  assert.deepEqual(answer, { inserted: false, reason: 'Nothing editable has focus.' });
 });
