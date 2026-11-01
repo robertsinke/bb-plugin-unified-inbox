@@ -183,8 +183,8 @@ declarations replace the last of it, each owned by the source that knows the ans
 The proposal also stopped carrying the name of its source: it carries the account it
 belongs to, so cancelling it after switching conversations cannot address the wrong one.
 What remains by name in `app.tsx` is presentation (which surface renders a name, which
-icon a source gets) and one dispatch: `sync` picks `linkedin_sync` over `list_source`
-(`app.tsx:328`), which is a transport difference the registry should absorb next.
+icon a source gets); the last dispatch — `sync` picking `linkedin_sync` over `list_source` —
+was absorbed by the registry (`fbf7bee`, one `sync` RPC, every adapter answers it).
 
 ### Group sends: the inbox was on the wrong endpoint (done)
 
