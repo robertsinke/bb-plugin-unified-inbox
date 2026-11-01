@@ -147,8 +147,23 @@ What the capture taught:
   a recorded request — which only reaches the one invitation that was recorded. The honest wiring
   is the read carrying the token; that design is still open.
 - `parentSpanId` is tracing noise; `onClientRequestFailureAction` is the client's own failure toast.
-- The accept is the same endpoint family with a different `inviteeActionType` — presumed, not
-  recorded. The accept capture still needs its own real click on a pending invitation.
+- The accept is the same request with `InviteeActionType_ACCEPT` — captured 2026-11-02 too, from
+  a real accept (Ada Lovelace, owner's pick), and the builder reproduces both captures byte for
+  byte with the per-request randomness pinned.
 
-What is still uncaptured: an invitation accept. Once recorded, that is the last LinkedIn write
-without a shape; the invitation chip reports and does not act until its wiring is designed.
+## The invitation chip, wired
+
+The `validationToken` question settled the wiring: it is the `sharedSecret` field of the same
+received-invitations payload the read path already fetches (confirmed by sampling the payload's
+field names, nothing else). The read now keeps, per invitation, the sharedSecret, the inviter's
+profile id, and the person's first name for the toast text; the adapter builds the same request the
+page's own button sends, so any invitation the inbox shows can be answered — never a replay of one
+recorded invitation. The `invitations` capability declares it, and the invitation chip carries
+Accept and Ignore buttons.
+
+The replay validator followed the recorder: the origin is the boundary, not a path prefix, because
+the invitation actions live outside voyager. Same-hostile checks stay — scheme, protocol-relative,
+traversal, control characters.
+
+Every LinkedIn write this inbox can make is now built from a real capture: reply, mark read,
+invitation accept, invitation ignore. Slice D's observation-first acceptance is met for all of them.
