@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { ExperimentalBadge } from '@get-bb/plugin-sdk/app';
@@ -10,18 +10,35 @@ import './chat.css';
 import './layout.css';
 import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
-import { messagesAfterSend } from './src/sent-message';
 import { isInvitationId } from './src/linkedin-inbox';
-import { inboxDraftKey, readInboxDraft, writeInboxDraft } from './src/inbox-drafts';
+import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps } from './src/inbox-session';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
-import { canAnswerInvitation, canArchive, canMarkRead, canSend, followsList, hasThread, type CapabilityMap } from './src/ui-capabilities';
-import type { Account } from './src/adapters/types';
+import { canAnswerInvitation, canArchive, canMarkRead, canSend, hasThread } from './src/ui-capabilities';
+import type { Account, Message as InboxMessage } from './src/adapters/types';
 
-type Item = {account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; participants?:string[]};
-type Message = {link?:string; edited?:boolean; replyContext?:boolean; imsgId?:string; imsgAttachments?:{index:number;name:string;available:boolean}[]; sender:string; text:string; date:number; fromMe?:boolean; media?:WhatsAppMedia; html?:string; to?:string; cc?:string; replyTo?:string; subject?:string; messageId?:string; references?:string; suggestedTo?:string; suggestedCc?:string; reactions?:{sender:string;label:string}[]; attachments?:string[]; gmailId?:string};
-type MailDraft = {account:'personal'|'business'; to:string; cc:string; subject:string; text:string; threadId?:string; inReplyTo?:string; references?:string};
+/*
+ * The row, thread and draft shapes belong to the session: the panel renders what
+ * it publishes and never keeps a second copy of them.
+ */
+type Item = InboxItem;
+type Message = InboxMessage;
+
+/**
+ * The panel mounts twice — the nav panel and the tab slot — and both must show the
+ * same inbox with the same timers, so the session is created once and shared.
+ */
+let shared: InboxSession | null = null;
+function draftStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined {
+  try { return window.localStorage; } catch { return undefined; }
+}
+function getInboxSession(rpc: InboxSessionDeps['rpc']): InboxSession {
+  shared ??= createInboxSession({ rpc, storage: draftStorage(), now: () => Date.now() });
+  return shared;
+}
+/** Every source, for the manual refresh: the heartbeat leaves LinkedIn alone until asked. */
+const allSources: Account[] = ['whatsapp','personal','business','imessage','linkedin'];
 const accounts: Record<Account, {label:string}> = {
   personal:{label:'Personal Gmail'}, business:{label:'Inhouse Gmail'}, whatsapp:{label:'WhatsApp'}, imessage:{label:'Messages'}, linkedin:{label:'LinkedIn'},
 };
@@ -251,52 +268,24 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const navigate = useBbNavigate();
   const rpc=useRpc<typeof rpcContract>();
   const composers=useComposers();
-  const [items,setItems]=useState<Item[]>([]); const [errors,setErrors]=useState<string[]>([]);
-  const [capabilities,setCapabilities]=useState<CapabilityMap|null>(null);
-  const [selected,setSelected]=useState<Item|null>(null); const [messages,setMessages]=useState<Message[]>([]);
-  const [status,setStatus]=useState(''); const [text,setText]=useState(''); const [busy,setBusy]=useState(false);
-  const [opening,setOpening]=useState(false);
-  const [filter,setFilter]=useState<InboxFilter>('all'); const [compose,setCompose]=useState(false); const [mail,setMail]=useState<MailDraft|null>(null); const [mailStatus,setMailStatus]=useState('');
-  const [query,setQuery]=useState(''); const [hits,setHits]=useState<{account:Account; id:string}[]|null>(null);
-  const [refreshedAt,setRefreshedAt]=useState<Partial<Record<Account, number>>>({}); const [refreshingInbox,setRefreshingInbox]=useState(false);
-  const request=useRef(0); const refreshing=useRef(new Set<Account>()); const threadScroll=useRef<HTMLDivElement>(null); const replyDrafts=useRef(new Map<string,string>());
-  const pendingDrafts=useRef(new Map<string,string>()); const draftTimers=useRef(new Map<string,number>());
-  const pinnedBottom=useRef(true); const activeThread=useRef('');
-  function draftStorage() { try { return window.localStorage; } catch { return undefined; } }
-  function readComposerDraft(account:Account,id:string) {
-    const key=inboxDraftKey({account,id});
-    if(pendingDrafts.current.has(key))return pendingDrafts.current.get(key)||'';
-    return readInboxDraft(draftStorage(),key) ?? replyDrafts.current.get(key) ?? '';
-  }
-  function persistComposerDraft(key:string) {
-    const timer=draftTimers.current.get(key);
-    if(timer!==undefined){window.clearTimeout(timer);draftTimers.current.delete(key);}
-    const value=pendingDrafts.current.get(key);
-    if(value!==undefined && writeInboxDraft(draftStorage(),key,value))pendingDrafts.current.delete(key);
-  }
-  function flushComposerDrafts() { for(const key of pendingDrafts.current.keys())persistComposerDraft(key); }
-  function saveComposerDraft(account:Account,id:string,value:string) {
-    const key=inboxDraftKey({account,id});
-    if(value)replyDrafts.current.set(key,value);else replyDrafts.current.delete(key);
-    pendingDrafts.current.set(key,value);
-    const oldTimer=draftTimers.current.get(key);
-    if(oldTimer!==undefined)window.clearTimeout(oldTimer);
-    draftTimers.current.set(key,window.setTimeout(()=>persistComposerDraft(key),250));
-  }
-  function clearComposerDraft(account:Account,id:string) {
-    const key=inboxDraftKey({account,id});
-    const timer=draftTimers.current.get(key);
-    if(timer!==undefined){window.clearTimeout(timer);draftTimers.current.delete(key);}
-    replyDrafts.current.delete(key);
-    pendingDrafts.current.set(key,'');
-    if(writeInboxDraft(draftStorage(),key,'') )pendingDrafts.current.delete(key);
-  }
+  const session=getInboxSession(rpc);
+  // State and time live in the session; the panel renders its snapshot.
+  const state=useSyncExternalStore(session.subscribe,session.snapshot);
+  const {items,errors,capabilities,selected,messages,status,text,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,mail,mailStatus}=state;
+  /* Which account picker is open is the one thing only the panel needs to know. */
+  const [compose,setCompose]=useState(false);
+  const threadScroll=useRef<HTMLDivElement>(null); const pinnedBottom=useRef(true); const activeThread=useRef('');
+  // The one heartbeat: `tick` runs every due list refresh, thread watch, search
+  // debounce and draft write. A hidden panel ticks nothing, so a draft still inside
+  // its debounce is written when the panel hides or goes away instead.
   useEffect(()=>{
-    const onVisibility=()=>{if(document.visibilityState==='hidden')flushComposerDrafts();};
-    window.addEventListener('pagehide',flushComposerDrafts);
-    document.addEventListener('visibilitychange',onVisibility);
-    return()=>{window.removeEventListener('pagehide',flushComposerDrafts);document.removeEventListener('visibilitychange',onVisibility);flushComposerDrafts();};
-  },[]);
+    const timer=window.setInterval(()=>{if(document.visibilityState==='visible')void session.tick(Date.now());},1000);
+    const flushDrafts=()=>session.flush();
+    const flushOnHide=()=>{if(document.visibilityState==='hidden')flushDrafts();};
+    window.addEventListener('pagehide',flushDrafts);
+    document.addEventListener('visibilitychange',flushOnHide);
+    return()=>{window.clearInterval(timer);window.removeEventListener('pagehide',flushDrafts);document.removeEventListener('visibilitychange',flushOnHide);flushDrafts();};
+  },[session]);
   useLayoutEffect(()=>{
     const scroller=threadScroll.current;
     if(!scroller||!selected){if(!selected)activeThread.current='';return;}
@@ -311,36 +300,6 @@ function Inbox({ threadId }: { threadId: string | null }) {
     for(const child of Array.from(scroller.children))observer.observe(child);
     return()=>observer.disconnect();
   },[selected?.account,selected?.id,messages,opening]);
-  useEffect(()=>{
-    let alive=true;
-    void rpc.call('capabilities',null).then(declared=>{if(alive)setCapabilities(declared);}).catch(()=>{ /* the sources stay offerless rather than guessing what they can do */ });
-    return()=>{alive=false;};
-  },[rpc]);
-  const refresh=useCallback(async(sources:Account[]=['whatsapp','personal','business','imessage'])=>{
-    const pending=sources.filter(account=>!refreshing.current.has(account));
-    if(!pending.length)return;
-    for (const account of pending) refreshing.current.add(account);
-    setRefreshingInbox(true);
-    try {
-      await Promise.all(pending.map(async account=>{
-        try {
-          const listed=account==='linkedin' ? await rpc.call('linkedin_sync',null) : await rpc.call('list_source',{account});
-          setItems(old=>[...old.filter(item=>item.account!==account),...listed.items].sort((a,b)=>b.date-a.date));
-          setRefreshedAt(old=>({...old,[account]:Date.now()}));
-          setErrors(old=>old.filter(error=>!error.startsWith(accounts[account].label)));
-        } catch(error) {const detail=account==='linkedin'&&error instanceof Error?` ${error.message}`:'';setErrors(old=>old.some(error=>error.startsWith(accounts[account].label))?old:[...old,account==='imessage'?'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.':`${accounts[account].label} could not refresh.${detail} Previously loaded messages may be stale.`]);}
-      }));
-    } finally { for (const account of pending) refreshing.current.delete(account); setRefreshingInbox(refreshing.current.size>0); }
-  },[rpc]);
-  function refreshManually(){void refresh(['whatsapp','personal','business','imessage','linkedin']);}
-  useEffect(()=>{let alive=true; void (async()=>{try {const cached=await rpc.call('cached',null); if(alive)setItems(cached.items);} catch { /* the next sync still fills the list */ } if(alive)void refresh();})(); const whatsappTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['whatsapp','imessage']);},8000); const gmailTimer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh(['personal','business']);},45000); return()=>{alive=false;window.clearInterval(whatsappTimer);window.clearInterval(gmailTimer);};},[refresh,rpc]);
-  useEffect(()=>{
-    const q=query.trim();
-    if(!q){setHits(null);return;}
-    let alive=true;
-    const timer=window.setTimeout(()=>{void rpc.call('search',{query:q}).then(result=>{if(alive)setHits(result.ids);}).catch(()=>{if(alive)setHits([]);});},150);
-    return()=>{alive=false;window.clearTimeout(timer);};
-  },[query,rpc]);
   async function openLink(url: string) {
     let href = '';
     try { const parsed = new URL(url); if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return; href = parsed.toString(); } catch { return; }
@@ -362,120 +321,16 @@ function Inbox({ threadId }: { threadId: string | null }) {
         } catch (error) { if (attempt === 1) throw error; }
       }
       navigate.toThread(threadId);
-    } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not open that link in the browser.'); }
+    } catch (error) { session.notify(error instanceof Error ? error.message : 'Could not open that link in the browser.'); }
   }
-  useEffect(()=>{
-    if(!selected)return;
-    const current=items.find(item=>item.account===selected.account&&item.id===selected.id);
-    if(!current||(current.date===selected.date&&current.preview===selected.preview))return;
-    const seq=++request.current;
-    setSelected(current);
-    if(!followsList(capabilities,current.account))return;
-    void rpc.call('open',{account:current.account,id:current.id}).then(result=>{if(seq===request.current)setMessages(result.messages);}).catch(()=>{ /* the messages already on screen stay */ });
-  },[items,rpc,selected]);
-  useEffect(()=>{
-    if (!selected || selected.account !== 'whatsapp') return;
-    const id=selected.id;
-    let running=false, active=true;
-    const timer=window.setInterval(()=>{
-      if(document.visibilityState!=='visible' || running) return;
-      const seq=request.current;
-      running=true;
-      void rpc.call('open',{account:'whatsapp',id}).then(result=>{if(active && seq===request.current)setMessages(result.messages);}).catch(()=>{}).finally(()=>{running=false;});
-    },5000);
-    return()=>{active=false;window.clearInterval(timer);};
-  },[selected?.account,selected?.id,rpc]);
-  useEffect(()=>{
-    if (!selected || selected.account !== 'imessage') return;
-    const id=selected.id;
-    let running=false, active=true;
-    const timer=window.setInterval(()=>{
-      if(document.visibilityState!=='visible' || running) return;
-      const seq=request.current;
-      running=true;
-      void rpc.call('open',{account:'imessage',id}).then(result=>{if(active && seq===request.current)setMessages(result.messages);}).catch(()=>{}).finally(()=>{running=false;});
-    },8000);
-    return()=>{active=false;window.clearInterval(timer);};
-  },[selected?.account,selected?.id,rpc]);
-  async function open(i:Item) {
-    const seq=++request.current; setSelected(i); setStatus(''); setText(readComposerDraft(i.account,i.id)); setOpening(true);
-    try {
-      const remembered=await rpc.call('cached_open',{account:i.account,id:i.id});
-      if(seq===request.current && remembered.messages.length){ setMessages(remembered.messages); setOpening(false); }
-      else if(seq===request.current) setMessages([]);
-      const messagesToShow=await rpc.call('open',{account:i.account,id:i.id}).then(result=>result.messages);
-      if(seq===request.current) setMessages(messagesToShow);
-      if (canMarkRead(capabilities,i.account) && i.unread && seq===request.current) {
-        void rpc.call('action', { account: i.account, id: i.id, action: 'read' }).then(() => {
-          if (seq !== request.current) return;
-          setItems(old => old.map(item => item.account===i.account && item.id===i.id ? { ...item, unread: false } : item));
-          setSelected(cur => cur && cur.account===i.account && cur.id===i.id ? { ...cur, unread: false } : cur);
-        }).catch(() => { /* the conversation stays unread if the source rejects the update */ });
-      }
-    } catch(error) {if(seq===request.current) setStatus(error instanceof Error?error.message:'Could not load this conversation.');} finally {if(seq===request.current) setOpening(false);}
-  }
-  function back(){ ++request.current;setSelected(null);setStatus('');setOpening(false);}
   function tag(item: Item) {
     const target = threadComposer(composers, threadId);
-    if (!target) { setStatus('Open a thread beside the inbox to tag this conversation.'); return; }
+    if (!target) { session.notify('Open a thread beside the inbox to tag this conversation.'); return; }
     try {
       target.insert({ provider: MENTION_PROVIDER, id: mentionId(item.account, item.id), label: item.title || item.preview || 'Inbox conversation' }, { at: 'end', block: true });
       target.focus();
       requestAnimationFrame(() => target.focus());
-    } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not tag this conversation.'); }
-  }
-  async function answer(i:Item, action:'confirm'|'reject') {
-    if(busy||!selected)return;
-    setBusy(true); setStatus('');
-    try{
-      const result = await rpc.call('action', { account: i.account, id: i.id, action });
-      setStatus(result.status);
-      try { const listed = await rpc.call('list_source', { account: i.account }); setItems(old => [...listed.items, ...old.filter(item => item.account !== i.account)].sort((a,b)=>b.date-a.date)); } catch { /* the status already says what happened */ }
-    } catch (e) { setStatus(e instanceof Error ? e.message : 'The invitation was not answered.'); }
-    finally { setBusy(false); }
-  }
-  async function mark(i:Item, action:'read'|'unread'|'archive') {
-    if(busy)return;
-    if(action==='archive'&&!window.confirm('Archive this Gmail conversation?'))return;
-    const unread=action==='unread';
-    setItems(old=>action==='archive'?old.filter(item=>!(item.account===i.account&&item.id===i.id)):old.map(item=>item.account===i.account&&item.id===i.id?{...item,unread}:item));
-    setSelected(cur=>cur&&cur.account===i.account&&cur.id===i.id?action==='archive'?null:{...cur,unread}:cur);
-    try { await rpc.call('action',{account:i.account,id:i.id,action}); }
-    catch(e){ setItems(old=>old.map(item=>item.account===i.account&&item.id===i.id?i:item)); setStatus(e instanceof Error?e.message:'Could not update this conversation.'); }
-  }
-  function submitComposer() {
-    if(!selected||busy)return;
-    // Without a send capability the box only keeps a draft, so nothing here can reach the source.
-    if(!sendable||!text.trim())return;
-    void sendMessage();
-  }
-  async function sendMessage() {
-    if(!selected||busy||!sendable||!text.trim())return;
-    const chatId = selected.id, draft = text.trim(), account = selected.account;
-    setBusy(true); setStatus('');
-    try {
-      const result = await rpc.call('action', { account, id: chatId, action: 'reply', text: draft });
-      pinnedBottom.current = true;
-      clearComposerDraft(account, chatId);
-      setText('');
-      const sentAt = Date.now();
-      setMessages(old => messagesAfterSend(old, draft, sentAt));
-      setStatus(result.status);
-      try { const opened = await rpc.call('open', { account, id: chatId }); setMessages(messagesAfterSend(opened.messages, draft, sentAt)); } catch { /* the bubble already on screen stays */ }
-      try { const listed = await rpc.call('list_source', { account: 'imessage' }); setItems(old => [...listed.items, ...old.filter(item => item.account !== 'imessage')].sort((a,b) => b.date-a.date)); } catch { /* the open chat does not depend on the list */ }
-    } catch (e) { setText(draft); setStatus(e instanceof Error ? e.message : 'The message was not sent.'); }
-    finally { setBusy(false); }
-  }
-  function startMail(mode:'new'|'reply'|'replyAll'|'forward', account:'personal'|'business') {
-    const m=messages.at(-1); const subject=m?.subject||selected?.title||'';
-    const replyTo=m?.suggestedTo||'';
-    const cc=mode==='replyAll' ? m?.suggestedCc||'' : '';
-    setMail({account,to:mode==='reply'||mode==='replyAll'?replyTo:'',cc,subject:mode==='new'?'':mode==='forward'?`Fwd: ${subject.replace(/^fwd:\s*/i,'')}`:`Re: ${subject.replace(/^re:\s*/i,'')}`,text:mode==='forward'?`\n\n---------- Forwarded message ----------\nFrom: ${m?.sender||''}\n\n${m?.text||''}`:'',...(mode==='reply'||mode==='replyAll'?{threadId:selected?.id,inReplyTo:m?.messageId,references:[m?.references,m?.messageId].filter(Boolean).join(' ')}:{})});setCompose(false);setMailStatus('');
-  }
-  async function sendMail() {
-    if(!mail||busy||!mail.to.trim()||!mail.text.trim())return;
-    if(!window.confirm(`Send from ${accounts[mail.account].label} to ${mail.to}?`))return;
-    setBusy(true);setMailStatus('Sending…');try {const result=await rpc.call('send_gmail',mail);setMailStatus(result.status);setMail(null);setStatus(result.status);}catch(e){setMailStatus(e instanceof Error?e.message:'Send outcome unknown. Check Gmail Sent before retrying.');}finally{setBusy(false);}
+    } catch (error) { session.notify(error instanceof Error ? error.message : 'Could not tag this conversation.'); }
   }
   const latestRefresh=Math.max(0,...Object.values(refreshedAt).filter((value): value is number => typeof value==='number'));
   const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
@@ -487,29 +342,29 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const sendable=!!selected&&canSend(capabilities,selected.account);
   return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
     
-    {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>startMail('new','personal')}>Personal Gmail</button><button onClick={()=>startMail('new','business')}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
-    {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
+    {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','personal');setCompose(false);}}>Personal Gmail</button><button onClick={()=>{session.startMail('new','business');setCompose(false);}}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
+    {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>session.setMail({to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>session.setMail({cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>session.setMail({subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>session.setMail({text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>{const label=accounts[mail.account].label;if(window.confirm(`Send from ${label} to ${mail.to}?`))void session.sendMail();}}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))session.discardMail();}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
 
-    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={back} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={answer}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} busy={busy} actions={[
+    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>session.back()} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} busy={busy} actions={[
           ...(isMail(selected.account)?[
-            { label: 'Reply', run: () => startMail('reply', selected.account as 'personal'|'business'), title: 'Reply to this conversation', disabled: opening&&!messages.length },
-            { label: 'Reply all', run: () => startMail('replyAll', selected.account as 'personal'|'business'), title: 'Reply to everyone on this thread', disabled: opening&&!messages.length },
-            { label: 'Forward', run: () => startMail('forward', selected.account as 'personal'|'business'), title: 'Forward this conversation', disabled: opening&&!messages.length },
+            { label: 'Reply', run: () => session.startMail('reply', selected.account as 'personal'|'business'), title: 'Reply to this conversation', disabled: opening&&!messages.length },
+            { label: 'Reply all', run: () => session.startMail('replyAll', selected.account as 'personal'|'business'), title: 'Reply to everyone on this thread', disabled: opening&&!messages.length },
+            { label: 'Forward', run: () => session.startMail('forward', selected.account as 'personal'|'business'), title: 'Forward this conversation', disabled: opening&&!messages.length },
           ]:[]),
           { label: 'Add to chat', run: () => tag(selected) },
-          ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void mark(selected, selected.unread?'read':'unread') }]:[]),
-          ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => void mark(selected,'archive') }]:[]),
-        ]}/></div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
+          ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
+          ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => { if(window.confirm('Archive this Gmail conversation?')) void session.mark(selected,'archive'); } }]:[]),
+        ]}/></div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>session.setMail({to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>session.setMail({cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>session.setMail({subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>session.setMail({text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>{const label=accounts[mail.account].label;if(window.confirm(`Send from ${label} to ${mail.to}?`))void session.sendMail();}}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))session.discardMail();}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={selected.account==='imessage'?'Messages conversation':'WhatsApp messages'}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); void submitComposer();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>{setText(e.target.value);saveComposerDraft(selected.account,selected.id,e.target.value);}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); void submitComposer();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:<><div className="ui-list"><header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" busy={refreshingInbox} marker={errors.length?`Some messages couldn't load: ${errors.join(' ')}`:undefined} actions={[
+    </section>:<><div className="ui-list"><header className="ui-mail-bar"><FilterMenu value={filter} onChange={next=>session.setFilter(next)} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" busy={refreshingInbox} marker={errors.length?`Some messages couldn't load: ${errors.join(' ')}`:undefined} actions={[
           { label: 'New', run: () => setCompose(!compose) },
-          { label: 'Refresh', run: refreshManually, title: refreshTitle },
-        ]}/></header>{shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{accounts[i.account].label}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><span className="ui-row-meta"><time className="ui-row-time">{date(i.date)}</time>{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={answer}/>:<span className="ui-chip">Invitation</span>)}</span></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></div><div className="ui-row-side"><div className="ui-row-actions"><ItemMenu label={i.title||i.preview||'this conversation'} busy={busy} actions={[
+          { label: 'Refresh', run: () => void session.refresh(allSources), title: refreshTitle },
+        ]}/></header>{shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{accounts[i.account].label}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><span className="ui-row-meta"><time className="ui-row-time">{date(i.date)}</time>{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></div><div className="ui-row-side"><div className="ui-row-actions"><ItemMenu label={i.title||i.preview||'this conversation'} busy={busy} actions={[
       { label: 'Add to chat', run: () => tag(i) },
-      ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void mark(i, i.unread?'read':'unread') }]:[]),
+      ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
     ]}/></div></div></div>)}</div><p className="ui-footnote">Showing the latest 20 threads per Gmail and Messages account, 50 WhatsApp chats, and the latest 20 LinkedIn conversations.</p></>}
   </div>;
 }
