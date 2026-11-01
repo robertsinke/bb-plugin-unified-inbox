@@ -572,21 +572,18 @@ function InboxWorkspace() {
   </div>;
 }
 function useInboxBadge(): ExperimentalBadge | null {
+  // The badge rides the session the panel rides: one heartbeat, one cadence,
+  // one unread list. `tick` is a no-op at an instant it has already served, so a
+  // badge and a mounted panel together still run one round per due time.
   const rpc = useRpc<typeof rpcContract>();
-  const [count, setCount] = useState(0);
+  const session = getInboxSession(rpc);
+  const state = useSyncExternalStore(session.subscribe, session.snapshot);
   useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        await Promise.all((['whatsapp', 'personal', 'business', 'imessage'] as const).map(account => rpc.call('sync', { account })));
-        const cached = await rpc.call('cached', null);
-        if (alive) setCount(cached.items.filter(item => item.unread).length);
-      } catch { /* a later refresh can still update the count */ }
-    };
-    void tick();
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void tick(); }, 20000);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, [rpc]);
+    session.start();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') session.tick(Date.now()); }, 1000);
+    return () => { window.clearInterval(timer); };
+  }, [session]);
+  const count = state.items.filter(item => item.unread).length;
   if (count < 1) return null;
   return { count, label: count === 1 ? '1 unread message' : `${count} unread messages` };
 }
