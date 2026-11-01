@@ -186,6 +186,14 @@ What remains by name in `app.tsx` is presentation (which surface renders a name,
 icon a source gets) and one dispatch: `sync` picks `linkedin_sync` over `list_source`
 (`app.tsx:328`), which is a transport difference the registry should absorb next.
 
+**Open, found while proving the WhatsApp path:** `confirmSend` is declared by the source,
+but WhatsApp's proposal endpoint refuses group chats outright — WhatsAgent's R8 says the
+owner's own composer may send into a group while an agent proposal may not exist for one.
+So a group row (21 of 50 WhatsApp rows are 1:1, the rest groups) shows a composer whose
+send the backend denies, and the owner sees the transport string. The capability that
+decides this lives on the *conversation*, not the source, so the fix is a per-conversation
+declaration ("this chat accepts a send from here") rather than a fourth source flag.
+
 ## Slice G — UI tests and bubble standardisation
 
 - Add a jsdom-based render test for the row and the chat bubble: same message,
