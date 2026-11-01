@@ -191,6 +191,39 @@ export function typingTargetExpression(index: number): string {
 })()`;
 }
 
+/**
+ * A structural description of the control at `index`: what it is, whether it or anything inside it
+ * is editable, and whether a shadow root is hiding that. LinkedIn's composer swallowed three
+ * insertion methods without a trace, and this is the read that says why.
+ */
+export function describeControlExpression(index: number): string {
+  const at = controlIndex(index, 'describeControlExpression');
+  return `(() => {${pageBody()}
+  const controls = enumerate();
+  const control = controls[${at}];
+  if (!control) return { found: false, count: controls.length };
+  const summary = node => node ? {
+    tag: String(node.tagName || '').toLowerCase(),
+    role: attribute(node, 'role') || '',
+    contenteditable: attribute(node, 'contenteditable'),
+    editable: node.isContentEditable === true,
+    shadow: !!node.shadowRoot,
+    hidden: (() => { const style = typeof getComputedStyle === 'function' ? getComputedStyle(node) : null; return !!(style && (style.visibility === 'hidden' || style.display === 'none')); })(),
+  } : null;
+  const EDITS = '[contenteditable="true"], textarea, input';
+  const inside = control.querySelector ? control.querySelector(EDITS) : null;
+  const shadowEdits = control.shadowRoot ? control.shadowRoot.querySelectorAll(EDITS).length : 0;
+  return {
+    found: true,
+    self: summary(control),
+    editableInside: summary(inside),
+    children: control.children ? Array.from(control.children).slice(0, 4).map(summary) : [],
+    shadowEditables: shadowEdits,
+    textLength: String(control.innerText || control.textContent || '').length,
+  };
+})()`;
+}
+
 /** What the control at `index` currently holds, so a caller can see whether typing landed. */
 export function controlTextExpression(index: number): string {
   const at = controlIndex(index, 'controlTextExpression');
