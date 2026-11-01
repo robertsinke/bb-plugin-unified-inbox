@@ -257,11 +257,24 @@ export function recipientsExpression(): string {
 }
 
 /**
- * The conversation an open messaging page is showing, from the page's own URL — the one statement
- * about the target that an in-thread reply has. A reply box carries no recipient chips, so the urn
- * in `/messaging/thread/<urn>` is what a send approval must name.
+ * The short conversation key a LinkedIn thread URL names — the `2-…` that sits inside a full
+ * conversation urn's parentheses. A thread URL carries the key alone; a cached row carries the full
+ * urn; a send approval may arrive as either, so both are read down to the key before they are
+ * compared. Anything this does not recognise is passed through unchanged, so an unrecognised
+ * value can only fail the comparison, never pass it by transformation.
  */
-export function threadUrnExpression(): string {
+export function conversationKeyOf(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const full = /^urn:li:msg_conversation:\((urn:li:fsd_profile:[^,]+),(.+)\)$/.exec(value);
+  return full ? full[2] : value;
+}
+
+/**
+ * The conversation an open messaging page is showing, from the page's own URL — the one statement
+ * about the target that an in-thread reply has. A reply box carries no recipient chips, so the key
+ * in `/messaging/thread/<key>` is what a send approval must name.
+ */
+export function threadKeyExpression(): string {
   return `(() => {
   const thread = /^\\/messaging\\/thread\\/([^/?#]+)/.exec(location.pathname);
   if (!thread) return '';
@@ -281,9 +294,9 @@ export type SendDecision = { ok: true; recipient: string } | { ok: false; reason
  * The recipient must be allowlisted, and the page must agree about who is on the receiving end:
  * a compose box says it with recipient chips, an open thread says it with the conversation its own
  * URL names. `observed` carries whichever of those the page offered — the caller reads the chips
- * first and the thread urn only when there are no chips to read.
+ * first and the thread key only when there are no chips to read.
  */
-export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadUrn: string }): SendDecision {
+export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadKey: string }): SendDecision {
   const wanted = allowlistedRecipient(approval?.recipient);
   if (approval?.allow !== 'send' || !wanted) {
     return { ok: false, reason: `${JSON.stringify(controlName)} sends to LinkedIn; it needs { allow: 'send', recipient: '<allowlisted person>' }, and only allowlisted people can receive a test send.` };
@@ -294,8 +307,10 @@ export function sendApprovalDecision(approval: SendApproval | undefined, control
     }
     return { ok: true, recipient: wanted };
   }
-  if (!approval.conversation || !sameConversationUrn(observed.threadUrn, approval.conversation)) {
-    return { ok: false, reason: `The page shows ${observed.threadUrn ? `conversation ${observed.threadUrn}` : 'no open conversation'}; the approval names ${approval.conversation ? `conversation ${approval.conversation}` : 'no conversation'}. Nothing was clicked.` };
+  const shown = conversationKeyOf(observed.threadKey);
+  const approved = conversationKeyOf(approval.conversation ?? '');
+  if (!approved || shown !== approved) {
+    return { ok: false, reason: `The page shows ${shown ? `conversation ${shown}` : 'no open conversation'}; the approval names ${approved ? `conversation ${approved}` : 'no conversation'}. Nothing was clicked.` };
   }
   return { ok: true, recipient: wanted };
 }

@@ -15,7 +15,8 @@ import {
   LINKEDIN_SEND_ALLOWLIST,
   describeControlExpression,
   sendApprovalDecision,
-  threadUrnExpression,
+  threadKeyExpression,
+  conversationKeyOf,
   type SendApproval,
 } from '../src/linkedin-ui.ts';
 import { writeRecorderExpression } from '../src/linkedin-write.ts';
@@ -273,30 +274,39 @@ test('a pattern reaches the page with its backslash intact', () => {
   assert.ok(!recipientsExpression().includes('^removes+'));
 });
 
-test('the thread urn is read from the page URL, because a reply box has no chips', () => {
-  const expression = threadUrnExpression();
+test('the thread key is read from the page URL, because a reply box has no chips', () => {
+  const expression = threadKeyExpression();
   // The regex escapes must survive the template literal, or the page reads every path as empty.
   assert.ok(expression.includes('/^\\/messaging\\/thread\\/([^/?#]+)/'), 'the thread pattern lost a backslash');
   const read = new Function('location', `return (${expression});`);
   const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
   assert.equal(read({ pathname: `/messaging/thread/${encodeURIComponent(urn)}` }), urn);
+  // The page URL carries the short key, and a full urn reads down to the same key.
+  assert.equal(conversationKeyOf('urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc==)'), '2-abc==');
+  assert.equal(conversationKeyOf('2-abc=='), '2-abc==');
+  assert.equal(conversationKeyOf('urn:li:msg_conversation:broken'), 'urn:li:msg_conversation:broken');
+  assert.equal(conversationKeyOf(null), '');
   assert.equal(read({ pathname: "/messaging/thread/urn%3Abroken%'))" }), ''); // a bad encoding is nothing, not a guess
   assert.equal(read({ pathname: '/messaging/' }), '');
 });
 
 test('an in-thread send is allowed only when the approval names the conversation on screen', () => {
   const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,2-abc)';
-  const approval: SendApproval = { allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe', conversation: urn };
-  // A reply box has no chips, so the thread urn decides — matching urn passes, anything else refuses.
-  assert.deepEqual(sendApprovalDecision(approval, 'Send', { recipients: [], threadUrn: urn }), { ok: true, recipient: 'andrea sophie stave lepsøe' });
-  assert.equal(sendApprovalDecision({ ...approval, conversation: 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)' }, 'Send', { recipients: [], threadUrn: urn }).ok, false);
-  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: [], threadUrn: urn }).ok, false);
-  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: [], threadUrn: '' }).ok, false);
-  // The compose box path is unchanged: the chips decide there, and the urn is never consulted.
-  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadUrn: '' }).ok, true);
-  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: ['Robert Sinke'], threadUrn: urn }).ok, false);
+  // A reply box has no chips, so the thread key decides: the page shows the short key the full
+  // urn contains, and either form of the approval names the same conversation.
+  const key = '2-ZDViYmEwOTQtNDlhNC00M2M0LTkyNTEtNjZlODQ0YTdmZDU4XzAxMg==';
+  const full = `urn:li:msg_conversation:(urn:li:fsd_profile:ACo123,${key})`;
+  const approval: SendApproval = { allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe', conversation: full };
+  assert.deepEqual(sendApprovalDecision(approval, 'Send', { recipients: [], threadKey: key }), { ok: true, recipient: 'andrea sophie stave lepsøe' });
+  assert.equal(sendApprovalDecision({ ...approval, conversation: key }, 'Send', { recipients: [], threadKey: key }).ok, true);
+  assert.equal(sendApprovalDecision({ ...approval, conversation: 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)' }, 'Send', { recipients: [], threadKey: key }).ok, false);
+  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: [], threadKey: key }).ok, false);
+  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: [], threadKey: '' }).ok, false);
+  // The compose box path is unchanged: the chips decide there, and the key is never consulted.
+  assert.equal(sendApprovalDecision({ allow: 'send', recipient: 'Andrea Sophie Stave Lepsøe' }, 'Send', { recipients: ['Andrea Sophie Stave Lepsøe'], threadKey: '' }).ok, true);
+  assert.equal(sendApprovalDecision({ ...approval }, 'Send', { recipients: ['Robert Sinke'], threadKey: key }).ok, false);
   // And the name gate still comes first, whichever box the send sits in.
-  const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadUrn: urn });
+  const refused = sendApprovalDecision(undefined, 'Send', { recipients: [], threadKey: key });
   assert.equal(refused.ok, false);
   if (!refused.ok) assert.match(refused.reason, /needs \{ allow: 'send', recipient/);
 });
