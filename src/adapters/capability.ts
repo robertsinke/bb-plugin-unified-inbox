@@ -6,8 +6,8 @@ import type { ActionKind, Capabilities } from './types.ts';
 
 /**
  * The capability flag behind each state-changing action. Deliberately partial:
- * `reply`, `confirm` and `reject` are the composer and proposal flow, which a
- * source implements or does not — they are not a boolean the UI can offer.
+ * `reply` (and LinkedIn's `confirm` / `reject`, which answer an invitation) is a
+ * surface the source implements or does not — it is not a boolean the UI offers.
  */
 const STATE_ACTION: Partial<Record<ActionKind, 'markRead' | 'archive'>> = {
   read: 'markRead',

@@ -168,9 +168,11 @@ export interface SendReceipt {
 /**
  * Non-send operations (rpcContract `action`). Per-provider support today:
  * - gmail (personal, business): read, unread, archive
- * - whatsapp: read, unread, reply (propose), confirm, reject
- * - imessage: read, unread (local state), reply (sends through `imsg send`);
- *   archive, confirm, and reject are refused.
+ * - whatsapp: read, unread, reply (sends through the owner's composer endpoint)
+ * - imessage: read, unread (local state), reply (sends through `imsg send`)
+ * - linkedin: read, unread, reply, confirm / reject (an invitation answer)
+ * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,
+ * and those two kinds now carry LinkedIn's accept / ignore of an invitation.
  */
 export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject';
 
