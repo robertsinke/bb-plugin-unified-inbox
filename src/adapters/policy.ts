@@ -4,6 +4,7 @@
 //
 // What this is: one choke point and one audit trail. What it is not: containment.
 // A local process can still reach the source directly; OQ-1 owns that boundary.
+import { randomUUID } from 'node:crypto';
 import type { Account, SendReceipt } from './types.ts';
 
 /** One attempted send as the gate saw it: no body, no attachment bytes, ever. */
@@ -55,6 +56,23 @@ export const SEND_POLICY: Record<Account, SendPolicy> = {
 export interface SendGateDeps {
   now: () => number;
   audit: (row: AuditRow) => void;
+}
+
+/**
+ * The approval a caller's explicit statement earns, or none at all.
+ *
+ * `allow: 'send'` is the one word the RPC surface has for "yes, this one" — the LinkedIn page
+ * driver uses the same word for its irreversible click — so a reply that does not carry it
+ * reaches the gate with no approval and is refused and recorded there. This mints the approval;
+ * the gate still decides.
+ *
+ * Honest limit: the transport takes the caller's word for it. The RPC layer validates the send
+ * itself (the adapter's write builder, the composer path) but issues no token, so these rules are
+ * a choke point and a record, not proof of identity — a host-issued token is containment, which
+ * OQ-1 owns. When one arrives, it replaces this value and the gate is unchanged.
+ */
+export function approvalFor(allow: 'send' | undefined, conversationId: string, at: number): SendApproval | undefined {
+  return allow === 'send' ? { id: randomUUID(), conversationId, issuedAt: at } : undefined;
 }
 
 export function createSendGate({ now, audit }: SendGateDeps) {

@@ -408,7 +408,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     state.status = '';
     notify();
     try {
-      const result = await deps.rpc.call('action', { account, id, action: 'reply', text: draft });
+      // The owner pressing Send is the statement the transport can carry: the gate refuses and
+      // records a reply that arrives without it.
+      const result = await deps.rpc.call('action', { account, id, action: 'reply', text: draft, allow: 'send' });
       clearComposerDraft(account, id);
       state.text = '';
       const sentAt = clock();

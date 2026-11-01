@@ -195,7 +195,11 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   await session.submit();
 
   assert.deepEqual(rpc.calls.slice(before).map(call => call.name), ['action', 'open', 'sync'], 'one reply, then the reconciliation');
-  assert.deepEqual(rpc.calls[before].input, { account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'On my way' });
+  assert.deepEqual(
+    rpc.calls[before].input,
+    { account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'On my way', allow: 'send' },
+    'the owner pressing Send is the statement the gate needs; no other caller makes it',
+  );
   assert.equal(session.snapshot().text, '', 'the composer is empty');
   assert.equal(readInboxDraft(storage, key), undefined, 'and the draft is gone from storage');
   assert.ok(
