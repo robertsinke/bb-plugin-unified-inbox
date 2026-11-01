@@ -103,6 +103,9 @@ test('the enumeration asks for the element kinds a person can use, all at once',
     assert.ok(selector.includes(kind), `the selector should carry ${kind}`);
   }
   // No envelope: these expressions answer plain values, unlike the read module.
+  // The modal's send button says "Compose message"; the one that opens the modal is different.
+  assert.equal(isSendControl({ index: 0, role: 'button', name: 'Compose message', tag: 'button', x: 0, y: 0, width: 1, height: 1, focused: false }), true);
+  assert.equal(isSendControl({ index: 0, role: 'button', name: 'Compose a new message', tag: 'button', x: 0, y: 0, width: 1, height: 1, focused: false }), false);
   assert.doesNotMatch(expression, /ok: true/);
 });
 
@@ -221,10 +224,11 @@ test('only LinkedIn paths are navigable, and a scheme, host, or traversal is ref
 
 test('the send guard matches the controls that change LinkedIn state and nothing else', () => {
   const control = (name: string): PageControl => ({ index: 0, role: 'button', name, tag: 'button', x: 0, y: 0, width: 1, height: 1, focused: false });
-  for (const name of ['Send', 'Send message', ' send now ', 'Send invitation', 'Accept', 'Connect', 'Publish', 'Post']) {
+  // "Compose message" is the modal's send button on today's markup; "Compose a new message" opens it.
+  for (const name of ['Send', 'Send message', ' send now ', 'Compose message', 'Send invitation', 'Accept', 'Connect', 'Publish', 'Post']) {
     assert.equal(isSendControl(control(name)), true, `${name} should need approval`);
   }
-  for (const name of ['Search', 'See all', 'Compose message', 'Dismiss', '', 'Send later']) {
+  for (const name of ['Search', 'See all', 'Compose a new message', 'Dismiss', '', 'Send later']) {
     assert.equal(isSendControl(control(name)), false, `${name} should not need approval`);
   }
 });

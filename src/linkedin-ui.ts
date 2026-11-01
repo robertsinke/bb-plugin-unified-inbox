@@ -190,7 +190,10 @@ export function linkedInPath(value: unknown): string | null {
  * invitation accepted or a connection made, a post published. This is the guard that makes the one
  * irreversible click explicit.
  */
-export const LINKEDIN_SEND_CONTROL = /^(send|send message|send now|send invitation|accept|connect|publish|post)$/i;
+// LinkedIn's own labels for the irreversible click: the modal's send button says "Compose message"
+// while the button that *opens* the modal says "Compose a new message", and the anchors keep the
+// two apart. Anything added here has to be a control that publishes or answers, never one that opens.
+export const LINKEDIN_SEND_CONTROL = /^(send|send message|send now|compose message|send invitation|accept|connect|publish|post)$/i;
 
 /** Matches that pattern against the control's trimmed, lowercased accessible name. */
 export function isSendControl(control: PageControl): boolean {
