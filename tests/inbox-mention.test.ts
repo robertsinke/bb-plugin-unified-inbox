@@ -27,6 +27,7 @@ test('context names the conversation and keeps the newest messages', () => {
   assert.match(context, /You: message 13/);
   assert.doesNotMatch(context, /message 1\b/);
   assert.match(context, /printf '%s' '\{"account":"whatsapp","id":"1203@g\.us","action":"reply"/);
+  assert.match(context, /"allow":"send"/, 'the documented send carries the gate\'s one approval word');
   assert.match(context, /bb plugin rpc call unified-inbox action --input-file/);
 });
 
