@@ -3,7 +3,7 @@
 // the factory that turns a raw provider failure into a scrubbed ProviderError.
 import type { createInboxCache } from '../inbox-cache.ts';
 import type { ImsgSender } from '../imsg-send.ts';
-import type { LinkedInRead } from '../linkedin-page.ts';
+import type { LinkedInPageSession } from '../linkedin-page-session.ts';
 import type { Account, ProviderError } from './types.ts';
 import type { GwsRunner } from './gws.ts';
 import type { WhatsAgentClient } from './whatsagent.ts';
@@ -16,10 +16,8 @@ export interface RegistryDeps {
   gmail: GwsRunner;
   whatsapp: WhatsAgentClient;
   imsg: ImsgSender;
-  /** One in-page LinkedIn read: the conversation list, or one thread. */
-  readLinkedIn: (read: LinkedInRead) => Promise<unknown>;
-  /** The change probe: the timestamps and counters a refresh compares, with no names or bodies. */
-  probeLinkedIn: (mailbox?: string) => Promise<unknown>;
+  /** One LinkedIn page session: the conversation list, one thread, and the change probe. */
+  linkedInPage: LinkedInPageSession;
   /**
    * One write-side page expression, built by `src/linkedin-write.ts`: arming the
    * recorder, listing what it saw, or replaying a request a real action produced.

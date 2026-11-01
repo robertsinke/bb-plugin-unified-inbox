@@ -8,9 +8,10 @@ import { createSearchIndex, createSearchStore } from './src/search-index';
 import { ImsgClient } from './src/imsg-client';
 import {
   armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
-  openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
+  openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage,
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
+import { createLinkedInPageSession } from './src/linkedin-page-session';
 import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
@@ -115,8 +116,7 @@ export default function plugin(bb: BbPluginApi) {
     gmail: createGwsRunner(),
     whatsapp: createWhatsAgent(),
     imsg,
-    readLinkedIn: readLinkedInInChrome,
-    probeLinkedIn: mailbox => readLinkedInInChrome({ mode: 'probe', mailbox }),
+    linkedInPage: createLinkedInPageSession(expression => evaluateInLinkedInProfile(expression)),
     runLinkedInWrite: evaluateInLinkedInProfile,
     armLinkedInRecorder: armLinkedInWriteRecorder,
     providerError: toProviderError,

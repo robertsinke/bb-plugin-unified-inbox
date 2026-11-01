@@ -7,6 +7,7 @@ import { canChange } from './capability.ts';
 import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
+import type { LinkedInProbePayload } from '../linkedin-page-session.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import {
   clearRecordedWritesExpression,
@@ -33,7 +34,7 @@ import type {
 } from './types.ts';
 
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
-const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
+const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxUrn(payload?.mailboxUrn);
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false };
 
@@ -161,9 +162,9 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
       const keep = (): OpenResult => ({ messages: linkedinMessages({ messages: cache.readThread(ACCOUNT, id) ?? [] }) });
-      let live;
+      let live: LinkedInMessage[];
       try {
-        live = linkedinMessages(await deps.readLinkedIn({ mode: 'thread', id }) as { messages?: unknown });
+        live = linkedinMessages(await deps.linkedInPage.thread(id));
       } catch (error) {
         // A browser that cannot start must not hide messages this plugin already has.
         const cached = keep();
@@ -234,10 +235,10 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
     async sync(force?: boolean): Promise<SyncResult> {
       const cached = (): Conversation[] => cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
       const stored = cache.cursor(ACCOUNT);
-      let payload: unknown = null;
+      let payload: LinkedInProbePayload | null = null;
       let probe: LinkedInProbe | null = null;
       try {
-        payload = await deps.probeLinkedIn(linkedinMarkerMailbox(stored));
+        payload = await deps.linkedInPage.probe(linkedinMarkerMailbox(stored));
         probe = linkedinProbe(payload);
       } catch { probe = null; }
       const decision = linkedinDelta({ stored, probe, force });
@@ -248,11 +249,11 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         return { items: cached(), updatedAt: Date.now(), reason: decision.action };
       }
 
-      const listed = await deps.readLinkedIn({ mode: 'list' }) as { conversations?: unknown; invitations?: unknown };
+      const listed = await deps.linkedInPage.list();
       // The invitation action params are not part of a row, so they are kept beside the cache,
       // replaced wholesale by every read: a stale token cannot outlive the invitation it answered.
       invitationActions.clear();
-      for (const row of Array.isArray(listed.invitations) ? listed.invitations : []) {
+      for (const row of listed.invitations) {
         const params = invitationParams(row);
         const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id : '';
         if (params && isInvitationId(id)) invitationActions.set(id, params);

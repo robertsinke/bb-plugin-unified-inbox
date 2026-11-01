@@ -8,7 +8,6 @@ import {
   chromeStartupError,
   createCdpClient,
   linkedinChromePath,
-  linkedinReadResult,
   parseDevtoolsUrl,
   prewarmLinkedInBrowser,
   stopLinkedInBrowser,
@@ -93,14 +92,6 @@ test('a profile held by the sign-in window is reported as such, not as a crash',
   const stderr = 'Failed to create .../SingletonLock: File exists (17)\nFailed to create a ProcessSingleton for your profile directory.';
   assert.throws(() => { throw chromeStartupError(stderr, 21); }, /Close the LinkedIn sign-in window/);
   assert.throws(() => { throw chromeStartupError('some other failure', 3); }, /\(code 3\): some other failure/);
-});
-
-test('read results map to a payload or to an actionable sign-in message', () => {
-  assert.deepEqual(linkedinReadResult({ ok: true, payload: { conversations: [] } }), { conversations: [] });
-  assert.throws(() => linkedinReadResult({ ok: false, error: 'LinkedIn 401 for /voyager/api/me' }), /sign in again.*linkedin-signin/s);
-  assert.throws(() => linkedinReadResult({ ok: false, error: 'LinkedIn 500 for /voyager/api/me' }), /^Error: LinkedIn 500/);
-  assert.throws(() => linkedinReadResult({ ok: false, error: 'boom' }), /unavailable.*linkedin-signin/s);
-  assert.throws(() => linkedinReadResult(null), /usable response/);
 });
 
 test('prewarming is best effort and stopping an idle browser is safe', async () => {
