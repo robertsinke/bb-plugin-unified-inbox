@@ -7,7 +7,7 @@ import { createInboxCache } from './src/inbox-cache';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { ImsgClient } from './src/imsg-client';
 import {
-  clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
+  armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
   openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
@@ -114,6 +114,7 @@ export default function plugin(bb: BbPluginApi) {
     readLinkedIn: readLinkedInInChrome,
     probeLinkedIn: mailbox => readLinkedInInChrome({ mode: 'probe', mailbox }),
     runLinkedInWrite: evaluateInLinkedInProfile,
+    armLinkedInRecorder: armLinkedInWriteRecorder,
     providerError: toProviderError,
   });
 

@@ -23,6 +23,7 @@ import {
   pageControlsExpression,
   type PageControl,
 } from './linkedin-ui.ts';
+import { writeRecorderExpression } from './linkedin-write.ts';
 import { createAsyncGate } from './async-gate.ts';
 
 /** The signed-in profile is reused by every read; the gate keeps two browser starts apart. */
@@ -274,6 +275,36 @@ export async function evaluateInLinkedInProfile(expression: string): Promise<unk
 }
 
 /** Moves the plugin's LinkedIn tab to one allowlisted path. A refused path throws before navigating. */
+/**
+ * The recorder that survives a page load. A web app captures `fetch` (or XHR) when it boots, so a
+ * wrapper installed afterwards is never called — the recorder has to be in place before the app's
+ * own code runs, which is what `Page.addScriptToEvaluateOnNewDocument` is for. Arming therefore
+ * reloads the page; the returned identifier is remembered so a second arm replaces the first
+ * instead of stacking wrappers.
+ */
+let recorderScriptId: string | null = null;
+
+export async function armLinkedInWriteRecorder(): Promise<{ installed: boolean; recording: boolean }> {
+  return withLinkedInPage(async page => {
+    if (recorderScriptId) {
+      await page.client.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: recorderScriptId }, page.sessionId).catch(() => undefined);
+      recorderScriptId = null;
+    }
+    const added = await page.client.send<{ identifier?: string }>(
+      'Page.addScriptToEvaluateOnNewDocument',
+      { source: writeRecorderExpression() },
+      page.sessionId,
+    );
+    recorderScriptId = added.identifier ?? null;
+    // The current document predates the script, so it has to be loaded again for the app to pick
+    // up the wrapper. The load is awaited so the caller can act on the page it asked for.
+    const loaded = waitForLoad(page.client, page.sessionId);
+    await page.client.send('Page.reload', {}, page.sessionId).catch(() => undefined);
+    await loaded;
+    return { installed: true, recording: true };
+  });
+}
+
 export async function openInLinkedInProfile(path: string): Promise<void> {
   const target = linkedInPath(path);
   if (!target) throw new Error(`Not a LinkedIn path this plugin will open: ${typeof path === 'string' ? path.slice(0, 120) : String(path)}`);

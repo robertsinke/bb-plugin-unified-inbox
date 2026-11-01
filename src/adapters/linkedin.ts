@@ -17,7 +17,6 @@ import {
   recordedWritesExpression,
   replayWriteExpression,
   writeBytes,
-  writeRecorderExpression,
   type RecordedWrite,
 } from '../linkedin-write.ts';
 import type { RegistryDeps } from './deps.ts';
@@ -101,7 +100,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
      */
     async record(op: LinkedInRecordOp): Promise<LinkedInRecordResult> {
       if (op === 'arm') {
-        const armed = await deps.runLinkedInWrite(writeRecorderExpression()) as { installed?: unknown; recording?: unknown };
+        const armed = await deps.armLinkedInRecorder() as { installed?: unknown; recording?: unknown };
         return { installed: armed?.installed === true, recording: armed?.recording === true };
       }
       if (op === 'clear') {

@@ -125,6 +125,10 @@ export function harness(options: HarnessOptions = {}): Harness {
         return method === 'messages.history' && options.imsgHistory ? options.imsgHistory(params) : imsgResponse(method, params);
       },
     },
+    armLinkedInRecorder: async () => {
+      calls.push('linkedin:arm');
+      return { installed: true, recording: true };
+    },
     runLinkedInWrite: async expression => {
       // Compare against the builders so the stub cannot mistake one expression for another.
       const kind = expression === writeRecorderExpression() ? 'arm'

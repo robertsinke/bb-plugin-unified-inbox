@@ -26,6 +26,11 @@ export interface RegistryDeps {
    * Nothing here decides what to send; that is the adapter's job.
    */
   runLinkedInWrite: (expression: string) => Promise<unknown>;
+  /**
+   * Arms the write recorder so it survives a page load. The page reloads, because an app that
+   * captured `fetch` at boot can only be watched by a wrapper that was there first.
+   */
+  armLinkedInRecorder: () => Promise<unknown>;
   /** The provider-error factory: classification and redaction, never raw stderr. */
   providerError: (account: Account, source: ProviderError['source'], cause: unknown) => ProviderError;
 }
