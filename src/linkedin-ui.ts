@@ -161,6 +161,40 @@ export function focusControlExpression(index: number): string {
 })()`;
 }
 
+/** What the control at `index` currently holds, so a caller can see whether typing landed. */
+export function controlTextExpression(index: number): string {
+  const at = controlIndex(index, 'controlTextExpression');
+  return `(() => {${pageBody()}
+  const controls = enumerate();
+  const control = controls[${at}];
+  if (!control) return '';
+  const value = typeof control.value === 'string' ? control.value : '';
+  return String(value || control.innerText || control.textContent || '').slice(0, ${LINKEDIN_TEXT_LIMIT});
+})()`;
+}
+
+/**
+ * A last-resort insertion for editors that ignore a browser-level text insert: the same text,
+ * handed to the focused editable as an editing command, which fires the `beforeinput`/`input`
+ * pair a rich-text editor listens for. The caller verifies the result before believing it.
+ */
+export function insertTextFallbackExpression(text: string): string {
+  if (typeof text !== 'string' || !text) throw new Error('A text insert needs the text to insert.');
+  const literal = JSON.stringify(text.slice(0, LINKEDIN_TEXT_LIMIT));
+  return `(() => {
+  const target = document.activeElement;
+  if (!target || (target.isContentEditable !== true && !/^(input|textarea)$/i.test(String(target.tagName || '')))) {
+    return { inserted: false, reason: 'Nothing editable has focus.' };
+  }
+  try {
+    const inserted = document.execCommand('insertText', false, ${literal});
+    return { inserted: inserted === true };
+  } catch (error) {
+    return { inserted: false, reason: String((error && error.message) || error).slice(0, 120) };
+  }
+})()`;
+}
+
 /** The page's visible text, so the caller can confirm what an action did. */
 export function pageTextExpression(): string {
   return `(() => {

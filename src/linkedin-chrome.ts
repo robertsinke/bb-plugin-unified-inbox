@@ -18,7 +18,9 @@ import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
   controlRectExpression,
+  controlTextExpression,
   focusControlExpression,
+  insertTextFallbackExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
@@ -344,6 +346,17 @@ export async function typeInLinkedInPage(index: number, text: string): Promise<{
         await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
       }
       await page.client.send('Input.insertText', { text: typed }, page.sessionId);
+      // Some editors drop a browser-level insert; ask the editable whether the text arrived, and if it
+      // did not, hand the same text over as an editing command. Believing an unverified insert would
+      // send an empty message.
+      const held = String(await evaluate(page, controlTextExpression(index)) ?? '');
+      if (!held.includes(typed.slice(0, 40))) {
+        await evaluate(page, insertTextFallbackExpression(typed));
+        const after = String(await evaluate(page, controlTextExpression(index)) ?? '');
+        if (!after.includes(typed.slice(0, 40))) {
+          return { typed: false, control, reason: 'LinkedIn did not accept the text; the field still reads empty.' };
+        }
+      }
     }
     // Report where the text landed: an index that pointed at the wrong control is otherwise silent.
     const controls = await page.client.send<unknown>('Runtime.evaluate', { expression: pageControlsExpression(), awaitPromise: true, returnByValue: true }, page.sessionId)
