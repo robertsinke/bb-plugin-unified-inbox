@@ -471,8 +471,10 @@ export function messageSendTemplate(write: RecordedWrite, conversationId: string
  */
 export function invitationKeysExpression(): string {
   return pageExpression(`
-    return fetch('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20', { headers: { accept: 'application/vnd.linkedin.normalized+json+2.1' } })
-      .then(raw => raw.json())
+    const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
+    const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
+    return fetch('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20', { headers, credentials: 'include' })
+      .then(raw => { if (!raw.ok) throw new Error('LinkedIn ' + raw.status); return raw.json(); })
       .then(answer => {
         const elements = answer && answer.elements ? answer.elements : [];
         const first = elements[0] || {};
