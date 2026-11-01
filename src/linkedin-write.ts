@@ -327,3 +327,22 @@ export function messageSendTemplate(write: RecordedWrite, conversationId: string
   setAt(body, fields[0].path, text);
   return { ...write, body: JSON.stringify(body) };
 }
+
+/**
+ * TEMPORARY instrument. Fires one same-origin POST at a `/voyager/api/` path that cannot exist, so
+ * the recorder's whole path is exercised by a request with no effect anywhere. Removed once the
+ * question it answers ("does a write that passes the filters reach the buffer?") is settled.
+ */
+export function recorderProbeExpression(): string {
+  return pageExpression(`
+    const started = window.fetch('/voyager/api/__unifiedInboxProbe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ probe: true, at: Date.now() }),
+    });
+    return started.then(
+      response => ({ status: response.status }),
+      error => ({ error: String(error && error.message ? error.message : error) }),
+    );
+  `);
+}
