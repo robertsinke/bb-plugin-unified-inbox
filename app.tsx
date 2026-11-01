@@ -578,7 +578,7 @@ function useInboxBadge(): ExperimentalBadge | null {
     let alive = true;
     const tick = async () => {
       try {
-        await Promise.all((['whatsapp', 'personal', 'business', 'imessage'] as const).map(account => rpc.call('list_source', { account })));
+        await Promise.all((['whatsapp', 'personal', 'business', 'imessage'] as const).map(account => rpc.call('sync', { account })));
         const cached = await rpc.call('cached', null);
         if (alive) setCount(cached.items.filter(item => item.unread).length);
       } catch { /* a later refresh can still update the count */ }
