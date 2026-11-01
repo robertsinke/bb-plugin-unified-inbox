@@ -2,15 +2,16 @@
 .ui-linkedin .ui-source-icon{background:#0a66c230;color:#5aa9e6}
 .ui-row-meta{display:inline-flex;align-items:center;gap:7px;flex:none}
 .ui-chip{display:inline-block;padding:1px 6px;border:1px solid #8886;border-radius:999px;font-size:10px;font-weight:650;letter-spacing:.02em;vertical-align:middle;white-space:nowrap;opacity:.8}
-/* A pending invitation reveals its answer under the cursor that is already on the chip, and to
-   keyboard focus, so answering never needs a trip to another control. */
-.ui-invite{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
-.ui-invite-actions{display:none;align-items:center}
-.ui-invite:hover .ui-invite-actions,.ui-invite:focus-within .ui-invite-actions{display:inline-flex}
-.ui-invite-action{padding:1px 7px;border:1px solid #8886;background:transparent;color:inherit;font:inherit;font-size:10px;font-weight:650;letter-spacing:.02em;cursor:pointer;line-height:1.6}
-/* The two answers read as one split control: a shared edge, outer corners rounded. */
-.ui-invite-action:first-child{border-radius:999px 0 0 999px;border-right-width:0}
-.ui-invite-action:last-child{border-radius:0 999px 999px 0}
-.ui-invite-action:hover:not(:disabled){background:#8882}
-.ui-invite-action:disabled{opacity:.5;cursor:default}
+/* A pending invitation answers in place: the split pair is drawn over the chip's own box, so the
+   two halves together are exactly as wide and as tall as the label they replace, and the row never
+   moves under the cursor. Kept focusable while hidden so the keyboard reaches it too. */
+.ui-invite{position:relative;display:inline-flex;align-items:center;vertical-align:middle}
+.ui-invite-actions{position:absolute;inset:0;display:flex;border:1px solid #8886;border-radius:999px;overflow:hidden;opacity:0;pointer-events:none}
+.ui-invite:hover .ui-invite-actions,.ui-invite:focus-within .ui-invite-actions{opacity:1;pointer-events:auto}
+.ui-invite:hover .ui-invite-label,.ui-invite:focus-within .ui-invite-label{visibility:hidden}
+.ui-invite-action{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:inherit;cursor:pointer;opacity:.85}
+.ui-invite-action:first-child{border-right:1px solid #8886}
+.ui-invite-action:hover:not(:disabled){background:#8882;opacity:1}
+.ui-invite-action:disabled{opacity:.4;cursor:default}
+.ui-invite-action svg{width:11px;height:11px}
 .ui-message-media{display:block;max-width:340px;margin-top:6px;border-radius:8px}
