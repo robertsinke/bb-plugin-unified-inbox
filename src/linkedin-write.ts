@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 /**
  * LinkedIn writes, recorded rather than guessed.
  *
@@ -269,6 +270,46 @@ export function markReadWrite(conversationId: unknown, read: boolean): RecordedW
     // rather than merely decoding to the same thing.
     url: `/voyager/api/voyagerMessagingDashMessengerConversations?ids=List(${encodeURIComponent(urn).replace(/\(/g, '%28').replace(/\)/g, '%29')})`,
     body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read } } } } }),
+    capturedAt: 0,
+  };
+}
+
+/**
+ * The analytics blob the observed send carried, byte for byte. It is opaque: regenerating it would
+ * mean guessing a serialization the capture does not explain, so every send replays the bytes the
+ * page sent. It identifies analytics, not the message — the message is the text, the conversation,
+ * and a fresh originToken.
+ */
+const SEND_TRACKING_ID = '\u0003\u00ca\u0088\u00de1\u0001Kv\u00b8\u00e2\u00cb\u0013+\u00b3\u0004\b';
+
+/**
+ * The message-send request, built from the shape observed on 2026-11-02: a REST createMessage
+ * whose body carries the text, the conversation urn, and a fresh originToken per message
+ * (`dedupeByClientGeneratedToken` is false, so the token identifies the send, not a dedupe key).
+ *
+ * The mailbox is read out of the conversation urn itself — the observed request's `mailboxUrn`
+ * was the profile component of the conversation urn — so nothing about the account is hard-coded.
+ * `originToken` may be pinned to repeat the same logical send; a fresh one is a new send.
+ */
+export function linkedinSendWrite(conversationUrn: string, text: string, originToken: string = randomUUID()): RecordedWrite | null {
+  if (typeof text !== 'string' || !text) return null;
+  const mailbox = /^urn:li:msg_conversation:\((urn:li:fsd_profile:[^,]+),.+\)$/.exec(conversationUrn);
+  if (!mailbox) return null;
+  if (writeBytes(text) > LINKEDIN_WRITE_LIMIT) return null;
+  return {
+    method: 'POST',
+    url: '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
+    body: JSON.stringify({
+      message: {
+        body: { attributes: [], text },
+        renderContentUnions: [],
+        conversationUrn,
+        originToken,
+      },
+      mailboxUrn: mailbox[1],
+      trackingId: SEND_TRACKING_ID,
+      dedupeByClientGeneratedToken: false,
+    }),
     capturedAt: 0,
   };
 }

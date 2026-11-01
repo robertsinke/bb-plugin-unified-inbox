@@ -1,8 +1,8 @@
 // LinkedIn adapter (Migration state 3). It owns the LinkedIn shapes: the live
 // read behind `linkedin_sync`, the conversation open with its cache fallback,
-// the media answer for a photo or a shared post, and the read mark replayed from
-// the request the page itself sent. A reply and an invitation answer still need
-// their own recorded actions, so they stay refused.
+// the media answer for a photo or a shared post, and the reply and the read mark, each replayed
+// from the requests the page itself sent for the same actions. An invitation answer
+// and an archive still need their own recorded actions, so they stay refused.
 import { canChange } from './capability.ts';
 import { isConversationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
@@ -11,6 +11,7 @@ import { readLinkedInImage } from '../linkedin-media.ts';
 import {
   clearRecordedWritesExpression,
   isMessageSend,
+  linkedinSendWrite,
   markReadWrite,
   markReadTarget,
   sameConversationUrn,
@@ -33,7 +34,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: false, markRead: true, archive: false, media: true, attachments: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, media: true, attachments: false };
 
 /** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
 function recordedWrites(value: unknown): RecordedWrite[] {
@@ -50,7 +51,7 @@ function recordedWrites(value: unknown): RecordedWrite[] {
 
 const ACCOUNT = 'linkedin';
 
-const READ_ONLY = 'LinkedIn is read-only here: nothing can be sent, accepted, or archived. Only a read mark can change.';
+const READ_ONLY = 'LinkedIn here can send a reply and mark a conversation read; an invitation answer and an archive still need their own recorded actions.';
 
 /**
  * The `media` answer for LinkedIn: the image itself, or — for a shared post, whose
@@ -169,10 +170,19 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       return readLinkedInImage(message.media.url);
     },
 
-    async action(kind: ActionKind, id: string, _opts?: ActionOptions): Promise<ActionResult> {
+    async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
       // The one change LinkedIn can make from here: the read mark, replayed from the request the
       // page itself sent for the same menu item. Everything else — a reply, an invitation answer,
       // an archive — still needs its own recorded action first.
+      if (CAPABILITIES.send && kind === 'reply') {
+        const text = typeof opts?.text === 'string' ? opts.text.trim() : '';
+        const write = text ? linkedinSendWrite(id, text) : null;
+        if (!write) throw new Error(id.startsWith('urn:li:msg_conversation:') ? 'A reply needs the text to send.' : 'That LinkedIn conversation cannot receive a reply.');
+        const result = await deps.runLinkedInWrite(replayWriteExpression(write)) as { ok?: unknown; status?: unknown };
+        // A failed answer leaves the send uncertain, exactly as for Messages: it is reported, never retried.
+        if (result?.ok !== true) throw new Error(`LinkedIn did not accept the message (status ${Number(result?.status) || 0}); it may still have been sent — check the thread before trying again.`);
+        return { status: 'Sent.' };
+      }
       if (canChange(CAPABILITIES, kind) && (kind === 'read' || kind === 'unread')) {
         const write = markReadWrite(id, kind === 'read');
         if (!write) throw new Error('That LinkedIn conversation cannot be marked.');

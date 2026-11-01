@@ -8,6 +8,7 @@ import {
   recordedWritesExpression,
   replayWriteExpression,
   recordedSendText,
+  linkedinSendWrite,
   markReadWrite,
   markReadTarget,
   sameConversationUrn,
@@ -338,4 +339,33 @@ test('the built mark-read request is the observed one, byte for byte', () => {
   // The recogniser gates *recorded* mark-read replays, and the observed action set read true; the
   // unread direction is the adapter's own action, so it is correctly not a recorded mark-read.
   assert.equal(markReadTarget(markReadWrite(urn, false)!), null);
+});
+
+
+test('the built send request is the observed one, byte for byte', () => {
+  // Captured 2026-11-02 from a real reply through the visible UI. With the recorded originToken
+  // pinned, the builder must reproduce the request exactly, or the adapter is no longer sending
+  // what was observed.
+  const OBSERVED_URL = "/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage";
+  const OBSERVED_BODY = String.raw`{"message":{"body":{"attributes":[],"text":"test message"},"renderContentUnions":[],"conversationUrn":"urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)","originToken":"03ca88de-3101-4b76-b8e2-cb132bb30408"},"mailboxUrn":"urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001","trackingId":"\u0003ÊÞ1\u0001Kv¸âË\u0013+³\u0004\b","dedupeByClientGeneratedToken":false}`;
+  const write = linkedinSendWrite("urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)", 'test message', '03ca88de-3101-4b76-b8e2-cb132bb30408');
+  assert.ok(write, 'a conversation urn and text are enough to build the observed send');
+  assert.equal(write.method, 'POST');
+  assert.equal(write.url, OBSERVED_URL);
+  assert.equal(write.body, OBSERVED_BODY);
+
+  // A fresh send gets a fresh originToken, the conversation is read from the urn, and anything
+  // that is not a conversation with text is refused rather than built.
+  const fresh = linkedinSendWrite("urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)", 'hello');
+  assert.ok(fresh);
+  assert.notEqual(JSON.parse(fresh!.body).message.originToken, '03ca88de-3101-4b76-b8e2-cb132bb30408');
+  assert.equal(JSON.parse(fresh!.body).mailboxUrn, 'urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001');
+  assert.equal(JSON.parse(fresh!.body).message.body.text, 'hello');
+  assert.equal(linkedinSendWrite('urn:li:msg_conversation:broken', 'hello'), null);
+  assert.equal(linkedinSendWrite("urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)", ''), null);
+
+  // The recogniser accepts the built send as a message send to its own conversation, so the
+  // replay surface and the adapter agree about what a send is.
+  assert.equal(isMessageSend(write!, "urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)"), true);
+  assert.equal(isMessageSend(write!, 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)'), false);
 });

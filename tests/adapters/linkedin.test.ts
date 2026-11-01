@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, refused, IMSG_ID, LINKEDIN_ID, WHATSAPP_ID } from './harness.ts';
 
-const REFUSAL = /read-only here/;
+const REFUSAL = /still need their own recorded actions/;
 const CONVERSATION = LINKEDIN_ID;
 const PHOTO_URN = 'urn:li:msg_message:(urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-YWJj),2-cGhvdG8=)';
 const POST_URN = 'urn:li:msg_message:(urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-YWJj),2-cG9zdA==)';
@@ -41,11 +41,13 @@ test('LinkedIn: declared capabilities match what action and media accept', async
   const h = harness();
   try {
     const adapter = h.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: false, markRead: true, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, media: true, attachments: false });
 
-    // send: false — no generic send method and no reply action.
+    // send: true through the reply action — there is still no generic send method, because a
+    // LinkedIn reply needs its conversation.
     assert.equal(adapter.send, undefined);
-    await refused(h.calls, () => adapter.action('reply', LINKEDIN_ID, { text: 'hi' }), REFUSAL);
+    assert.deepEqual(await adapter.action('reply', LINKEDIN_ID, { text: 'hi' }), { status: 'Sent.' });
+    await refused(h.calls, () => adapter.action('reply', 'not-a-conversation', { text: 'hi' }), /cannot receive a reply/);
 
     // markRead: true — the read mark replays the recorded request the page itself sent for the
     // same menu item. archive: false still refuses, and the refusal names the boundary.
