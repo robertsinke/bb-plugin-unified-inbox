@@ -348,7 +348,10 @@ export async function typeInLinkedInPage(index: number, text: string): Promise<{
     if (!target || typeof target !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
     if (target.editable !== true) return { typed: false, reason: `"${target.name}" has nothing in it a person can type into.` };
     if (isSendControl(target)) return { typed: false, control: target, reason: `"${target.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
-    const control: PageControl = { ...target, index };
+    const control: PageControl = {
+      index, role: target.role, name: target.name, tag: target.tag,
+      x: target.x, y: target.y, width: target.width, height: target.height, focused: true,
+    };
     const landed = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
     // A trusted click puts the caret in the editor. DOM focus alone does not: LinkedIn's composer is
     // a Lexical contenteditable that only opens an editing session on a real pointer event.

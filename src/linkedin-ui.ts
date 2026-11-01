@@ -181,6 +181,7 @@ export function typingTargetExpression(index: number): string {
   return {
     editable: true,
     role: attribute(target, 'role') || String(target.tagName || '').toLowerCase(),
+    tag: String(target.tagName || '').toLowerCase(),
     name: nameOf(target) || nameOf(control),
     x: Number(rect.x != null ? rect.x : rect.left) || 0,
     y: Number(rect.y != null ? rect.y : rect.top) || 0,
