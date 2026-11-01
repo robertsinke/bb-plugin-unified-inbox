@@ -213,7 +213,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: false, markRead: false, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: false, markRead: true, archive: false, media: true, attachments: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;
@@ -238,7 +238,18 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     assert.equal((await adapter.open(LINKEDIN_ID)).messages[0].text, 'Hello from LinkedIn');
     await assert.rejects(adapter.open('not-a-conversation'), /cannot be opened/);
 
-    for (const kind of ['read', 'unread', 'archive', 'reply', 'confirm', 'reject'] as const) {
+    // The read mark is the one LinkedIn write: the adapter replays the request the page itself
+    // sent for the same menu item, and every other action still refuses.
+    f.calls.length = 0;
+    assert.deepEqual(await adapter.action('read', LINKEDIN_ID), { status: 'Updated.' });
+    assert.deepEqual(await adapter.action('unread', LINKEDIN_ID), { status: 'Updated.' });
+    assert.deepEqual(f.calls, ['linkedin:write:replay', 'linkedin:write:replay']);
+    await assert.rejects(adapter.action('read', 'not-a-conversation'), /cannot be marked/);
+    await assert.rejects(adapter.action('archive', LINKEDIN_ID), /read-only/);
+    await assert.rejects(adapter.action('reply', LINKEDIN_ID, { text: 'hi' }), /read-only/);
+
+    // A reply, an invitation answer, and an archive still need their own recorded actions.
+    for (const kind of ['archive', 'reply', 'confirm', 'reject'] as const) {
       await assert.rejects(adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /read-only/);
     }
   } finally { f.done(); }
@@ -258,9 +269,10 @@ test('a refusal comes from capabilities, not from an account check in the transp
       assert.equal(canChange({ ...caps, archive: !caps.archive }, 'archive'), !caps.archive);
     }
 
-    // LinkedIn declares no read state, so a read is refused without asking its source.
+    // A read mark replays the recorded request now, but a conversation id that is not a
+    // conversation urn is refused before the page is asked anything.
     f.calls.length = 0;
-    await assert.rejects(f.registry.linkedin.action('read', LINKEDIN_ID), /read-only/);
+    await assert.rejects(f.registry.linkedin.action('read', 'not-a-conversation'), /cannot be marked/);
     assert.deepEqual(f.calls, []);
 
     // And the transport never picks behaviour from a source name.

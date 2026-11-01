@@ -253,6 +253,26 @@ export function markReadTarget(write: RecordedWrite): string | null {
   return (set as Record<string, unknown>).read === true ? urn : null;
 }
 
+/**
+ * The mark-read request for one conversation, built from the shape observed on 2026-11-02: a REST
+ * patch of a single entity at `/voyagerMessagingDashMessengerConversations?ids=List(<urn>)` whose
+ * body sets exactly `read`. The url percent-encodes the urn the same way the observed request did,
+ * and the body stringifies the patch rather than interpolating it, so a malformed urn is refused by
+ * `isConversationUrn` before anything is built — never escaped into a request.
+ */
+export function markReadWrite(conversationId: unknown, read: boolean): RecordedWrite | null {
+  if (!isConversationUrn(conversationId)) return null;
+  const urn = String(conversationId);
+  return {
+    method: 'POST',
+    // LinkedIn encoded the parentheses too, so the url matches the observed request byte for byte
+    // rather than merely decoding to the same thing.
+    url: `/voyager/api/voyagerMessagingDashMessengerConversations?ids=List(${encodeURIComponent(urn).replace(/\(/g, '%28').replace(/\)/g, '%29')})`,
+    body: JSON.stringify({ entities: { [urn]: { patch: { $set: { read } } } } }),
+    capturedAt: 0,
+  };
+}
+
 export function replayWriteExpression(write: RecordedWrite): string {
   const method = writeMethod(write?.method);
   if (!method) throw new Error(`A recorded write must be one of ${WRITE_METHODS.join(', ')}; got ${String(write?.method)}.`);

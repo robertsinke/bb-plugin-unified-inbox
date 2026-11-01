@@ -1,7 +1,8 @@
-// LinkedIn: every write capability is false, so every write is refused at the
-// adapter boundary — for a LinkedIn id and for ids from other sources alike.
-// Media is the one capability that is true: a photo is fetched from LinkedIn's
-// CDN, and a shared post answers with its link because it has no thumbnail.
+// LinkedIn: the read mark is the one write, replayed from the request the page
+// itself sent for the same menu item; every other write is refused at the adapter
+// boundary — for a LinkedIn id and for ids from other sources alike.
+// Media is true: a photo is fetched from LinkedIn's CDN, and a shared post answers
+// with its link because it has no thumbnail.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, refused, IMSG_ID, LINKEDIN_ID, WHATSAPP_ID } from './harness.ts';
@@ -40,14 +41,17 @@ test('LinkedIn: declared capabilities match what action and media accept', async
   const h = harness();
   try {
     const adapter = h.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: false, markRead: false, archive: false, media: true, attachments: false });
+    assert.deepEqual(adapter.capabilities(), { send: false, markRead: true, archive: false, media: true, attachments: false });
 
     // send: false — no generic send method and no reply action.
     assert.equal(adapter.send, undefined);
     await refused(h.calls, () => adapter.action('reply', LINKEDIN_ID, { text: 'hi' }), REFUSAL);
 
-    // markRead: false and archive: false — refused for every state action.
-    for (const kind of ['read', 'unread', 'archive', 'confirm', 'reject'] as const) {
+    // markRead: true — the read mark replays the recorded request the page itself sent for the
+    // same menu item. archive: false still refuses, and the refusal names the boundary.
+    assert.deepEqual(await adapter.action('read', LINKEDIN_ID), { status: 'Updated.' });
+    assert.deepEqual(await adapter.action('unread', LINKEDIN_ID), { status: 'Updated.' });
+    for (const kind of ['archive', 'confirm', 'reject'] as const) {
       await refused(h.calls, () => adapter.action(kind, LINKEDIN_ID, { text: 'hi', proposalId: 1 }), REFUSAL);
     }
 
@@ -60,10 +64,10 @@ test('LinkedIn: declared capabilities match what action and media accept', async
     assert.equal(adapter.gmailAttachment, undefined);
     assert.equal(adapter.imsgMedia, undefined);
 
-    // The refusal is the capability boundary, not the conversation id: ids from
-    // other sources are refused the same way, and nothing reaches the source.
-    for (const id of [LINKEDIN_ID, WHATSAPP_ID, IMSG_ID, 't1']) {
-      await refused(h.calls, () => adapter.action('read', id), REFUSAL);
+    // The boundary is the conversation id, not the source: a read mark asks the page only for a
+    // conversation urn of LinkedIn's own shape, and every other id is refused without reaching it.
+    for (const id of [WHATSAPP_ID, IMSG_ID, 't1']) {
+      await refused(h.calls, () => adapter.action('read', id), /cannot be marked/);
       await refused(h.calls, () => adapter.action('archive', id), REFUSAL);
     }
   } finally { h.close(); }
