@@ -78,7 +78,9 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 @media(max-width:860px){.ui-workspace{grid-template-columns:1fr}.ui-split{display:none}.ui-workspace-mail{border-top:1px solid color-mix(in srgb, currentColor 16%, transparent)}}
 
 /* Inbox refinement: keep the row metadata and controls on the contact line. */
-.ui-row{position:relative;display:block;width:auto;margin:6px 4px;padding:8px 76px 8px 4px;border:0;border-radius:10px;text-align:left}
+/* The row reserves only the width of its one menu control; the metadata line, and with it the
+   invitation chip, runs right up to that edge instead of stopping 76px short. */
+.ui-row{position:relative;display:block;width:auto;margin:6px 4px;padding:8px 44px 8px 4px;border:0;border-radius:10px;text-align:left}
 .ui-row-open{display:block;width:100%;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
 .ui-row-top{display:flex;width:100%;min-width:0;align-items:center;justify-content:flex-start;gap:9px}
 .ui-row-top .ui-row-time{margin-left:auto;flex:none;font-size:10px;opacity:.6;white-space:nowrap;line-height:16px}
@@ -93,7 +95,21 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-conversation-actions button{position:relative;flex:none}
 .ui-refresh-button{position:relative}
 .ui-refresh-error-dot{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:#e05a47;box-shadow:0 0 0 2px var(--background,#fff)}
+/* The row opens by clicking anywhere on it, but it is no longer itself a button: an invisible hit
+   target lies under the content, so the invitation chip beside the time can be a real control. */
+.ui-row-open{position:relative}
+.ui-row-open-hit{position:absolute;inset:0;z-index:0;padding:0;border:0;background:transparent;cursor:pointer}
+.ui-row-open>:not(.ui-row-open-hit){position:relative;z-index:1;pointer-events:none}
+.ui-row-open .ui-invite{pointer-events:auto}
+.ui-row-open-hit:focus-visible{outline:2px solid #4c8dff;outline-offset:2px;border-radius:10px}
 .ui-row-open{display:flex;align-items:center;gap:9px}
+/* A row's whole vocabulary behind one control, opened by hover or focus. */
+.ui-menu{position:relative;display:inline-flex}
+.ui-menu-list{position:absolute;top:100%;right:0;z-index:20;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid #8883;border-radius:8px;background:var(--background,#fff);box-shadow:0 8px 24px #0002;opacity:0;pointer-events:none}
+.ui-menu:hover .ui-menu-list,.ui-menu:focus-within .ui-menu-list{opacity:1;pointer-events:auto}
+.ui-menu-item{padding:6px 10px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12px;text-align:left;white-space:nowrap;cursor:pointer}
+.ui-menu-item:hover:not(:disabled){background:#8882}
+.ui-menu-item:disabled{opacity:.45;cursor:default}
 .ui-row-copy{flex:1;min-width:0}
 .ui-row-top{align-items:baseline;gap:8px}
 .ui-row-name{flex:0 1 auto}
