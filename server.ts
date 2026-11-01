@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { ImsgClient } from './src/imsg-client';
-import { evaluateInLinkedInProfile, linkedinProfileDir, openLinkedInSignIn, prewarmLinkedInBrowser, readLinkedInInChrome, stopLinkedInBrowser } from './src/linkedin-chrome';
+import {
+  clickInLinkedInPage, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
+  openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
+  stopLinkedInBrowser, typeInLinkedInPage,
+} from './src/linkedin-chrome';
+import { pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { ATTACHMENT_LIMIT } from './src/adapters/gmail';
 import { createGwsRunner } from './src/adapters/gws';
@@ -25,6 +30,7 @@ const item = z.object({ account, id: z.string(), title: z.string(), preview: z.s
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(['image','sticker','video']), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
 const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
 const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), media: z.boolean(), attachments: z.boolean(), search: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
@@ -37,6 +43,16 @@ export const rpcContract = defineRpcContract({
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   list_source: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item) }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
+  // The page driver behind slice D's recording procedure: one call, one step, one control by index.
+  // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
+  linkedin_ui: { input: z.object({
+    op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press']),
+    path: z.string().max(512).optional(),
+    index: z.number().int().min(0).max(199).optional(),
+    text: z.string().max(20_000).optional(),
+    key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
+    allow: z.literal('send').optional(),
+  }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
@@ -141,6 +157,24 @@ export default function plugin(bb: BbPluginApi) {
     },
     // Slice D, observation first: arming watches the page's own fetch, and `writes` reports only
     // what a real action produced. Nothing here sends anything.
+    async linkedin_ui(step) {
+      if (step.op === 'goto') {
+        if (!step.path) throw new Error('LinkedIn navigation needs a path.');
+        await openInLinkedInProfile(step.path);
+        return { url: step.path };
+      }
+      if (step.op === 'snapshot') return { controls: await inspectLinkedInPage() };
+      if (step.op === 'text') return { text: String(await evaluateInLinkedInProfile(pageTextExpression()) ?? '') };
+      if (step.op === 'press') {
+        if (!step.key) throw new Error('A key press needs a key.');
+        await pressKeyInLinkedInPage(step.key);
+        return { clicked: true };
+      }
+      if (typeof step.index !== 'number') throw new Error('A LinkedIn page click or typing step needs a control index.');
+      if (step.op === 'click') return clickInLinkedInPage(step.index, step.allow ? { allow: step.allow } : undefined);
+      if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
+      return typeInLinkedInPage(step.index, step.text);
+    },
     async linkedin_record({ op }) { return registry.linkedin.record!(op); },
     async linkedin_writes() { return { writes: (await registry.linkedin.record!('dump')).writes ?? [] }; },
     // The one RPC that can change the account: the adapter refuses unless the action is a
