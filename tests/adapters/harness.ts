@@ -147,17 +147,23 @@ export function harness(options: HarnessOptions = {}): Harness {
       if (kind === 'replay') return { ok: true, status: 200, body: null };
       return { installed: true, recording: true };
     },
-    probeLinkedIn: async () => {
-      calls.push('linkedin:probe');
-      return { newestActivityAt: 1_700_000_000_000, unreadTotal: 1, conversationCount: 1, newestInvitationAt: 0, invitationCount: 0, unreadInvitations: 0 };
-    },
-    readLinkedIn: async read => {
-      calls.push(`linkedin:${read.mode}`);
-      if (read.mode === 'thread') return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
-      return {
-        conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }],
-        invitations: [{ id: LINKEDIN_INVITE, title: 'Grace Hopper', preview: 'A note with the invitation', date: 1_700_000_000_000, unread: true, sender: 'Grace Hopper', token: 'tok123', inviterProfileId: 'ACoAAAGRACE', firstName: 'Grace' }],
-      };
+    // The adapter receives the page seam; this stub answers the typed reads directly.
+    linkedInPage: {
+      list: async () => {
+        calls.push('linkedin:list');
+        return {
+          conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }],
+          invitations: [{ id: LINKEDIN_INVITE, title: 'Grace Hopper', preview: 'A note with the invitation', date: 1_700_000_000_000, unread: true, sender: 'Grace Hopper', token: 'tok123', inviterProfileId: 'ACoAAAGRACE', firstName: 'Grace' }],
+        };
+      },
+      thread: async () => {
+        calls.push('linkedin:thread');
+        return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
+      },
+      probe: async mailbox => {
+        calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');
+        return { conversations: [{ at: 1_700_000_000_000, unread: 1 }], invitations: [] };
+      },
     },
     providerError: toProviderError,
   };

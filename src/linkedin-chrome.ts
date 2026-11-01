@@ -13,8 +13,6 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
-import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
   findControlExpression,
@@ -37,7 +35,6 @@ const START_URL = 'https://www.linkedin.com/feed/';
 const START_TIMEOUT = 20_000;
 const READ_TIMEOUT = 60_000;
 const NAVIGATE_TIMEOUT = 30_000;
-const SIGN_IN_HINT = 'Run `bb unified-inbox linkedin-signin` to sign in to LinkedIn once.';
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
 
 export type CdpTransport = {
@@ -174,17 +171,6 @@ export function webSocketTransport(url: string): Promise<CdpTransport> {
   });
 }
 
-/** Maps the page script's envelope to a payload, or to a message a person can act on. */
-export function linkedinReadResult(value: unknown): unknown {
-  if (!value || typeof value !== 'object') throw new Error(`LinkedIn did not return a usable response. ${SIGN_IN_HINT}`);
-  const result = value as { ok?: unknown; payload?: unknown; error?: unknown };
-  if (result.ok === true) return result.payload;
-  const reason = typeof result.error === 'string' ? result.error.slice(0, 200) : '';
-  if (/LinkedIn (401|403)/.test(reason) || /not signed in/i.test(reason)) throw new Error(`LinkedIn needs you to sign in again. ${SIGN_IN_HINT}`);
-  if (/LinkedIn \d+/.test(reason)) throw new Error(reason);
-  throw new Error(`LinkedIn is unavailable in its browser. ${SIGN_IN_HINT}`);
-}
-
 /** Chrome aborts when another process holds the profile; that abort is the sign-in window still being open. */
 export function chromeStartupError(stderr: string, code: number | null): Error {
   if (/ProcessSingleton|SingletonLock|File exists \(17\)/.test(stderr)) return new Error(SIGN_IN_WINDOW_HINT);
@@ -230,15 +216,6 @@ async function startBrowser(profile: string): Promise<Browser> {
   });
   browser.wsUrl = wsUrl;
   return browser;
-}
-
-/** Runs one in-page read. Rejects rather than returning a partial result. */
-export async function readLinkedInInChrome(read: LinkedInRead): Promise<unknown> {
-  // The probe is its own expression, but it answers through the same envelope as the other two
-  // reads: a page that failed must throw here, not hand back a half-empty payload.
-  if (read.mode === 'probe') return linkedinReadResult(await evaluateInLinkedInProfile(linkedinProbeExpression(read.mailbox)));
-  if (read.mode === 'thread' && !/^urn:li:msg_conversation:.+/.test(read.id)) throw new Error('That LinkedIn conversation cannot be opened.');
-  return linkedinReadResult(await evaluateInLinkedInProfile(linkedinPageExpression(read)));
 }
 
 /**
