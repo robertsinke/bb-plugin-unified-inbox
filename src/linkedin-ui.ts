@@ -133,63 +133,30 @@ export function pageControlsExpression(): string {
 })()`;
 }
 
+
+
 /**
- * The control at `index` with its rect, or an error string naming how many controls the page has —
- * the rect is re-read from the live enumeration, so a click never lands on a stale one.
+ * The control whose accessible name is `name` (and role is `role`, when given), as a live element
+ * rather than a value, so the caller can hold a node handle to it. Indexes go stale here:
+ * LinkedIn's messenger re-renders continuously, and a button resolved one call ago can be a
+ * different button by the next call.
  */
-export function controlRectExpression(index: number): string {
-  const at = controlIndex(index, 'controlRectExpression');
+export function findControlExpression(name: string, role?: string): string {
+  const wanted = String(name ?? '').trim();
+  if (!wanted || wanted.length > LINKEDIN_NAME_LIMIT) throw new Error('A LinkedIn lookup needs a control name of 1 to 120 characters.');
+  const wantedRole = typeof role === 'string' && role.trim() ? role.trim().toLowerCase() : '';
   return `(() => {${pageBody()}
   const controls = enumerate();
-  const control = controls[${at}];
-  if (!control) return 'LinkedIn shows ' + controls.length + ' usable controls; index ${at} is out of range.';
-  return describe(control, ${at});
+  const wanted = ${JSON.stringify(wanted)}.toLowerCase();
+  const wantedRole = ${JSON.stringify(wantedRole)};
+  const roleOf = control => (attribute(control, 'role') || String(control.tagName || '').toLowerCase()).toLowerCase();
+  const matches = control => !wantedRole || roleOf(control) === wantedRole;
+  return controls.find(control => matches(control) && nameOf(control).toLowerCase() === wanted)
+    || controls.find(control => matches(control) && nameOf(control).toLowerCase().includes(wanted))
+    || null;
 })()`;
 }
 
-/** Focuses the control at `index`, so a following `Input.insertText` lands in that field. */
-export function focusControlExpression(index: number): string {
-  const at = controlIndex(index, 'focusControlExpression');
-  return `(() => {${pageBody()}
-  const controls = enumerate();
-  const control = controls[${at}];
-  if (!control) return { focused: false, reason: 'LinkedIn shows ' + controls.length + ' usable controls; index ${at} is out of range.' };
-  try { control.focus(); } catch (error) { /* reported below */ }
-  const name = nameOf(control);
-  if (document.activeElement !== control) return { focused: false, reason: 'LinkedIn did not keep focus on ' + (name || 'that control') + '.' };
-  return { focused: true, name };
-})()`;
-}
-
-/**
- * Where typing actually goes for the control at `index`: the control itself when it is editable,
- * otherwise the first editable inside it. LinkedIn's composer is a `role="textbox"` wrapper that
- * takes focus while the caret lives in a contenteditable child, so clicking the wrapper focuses
- * nothing anyone can type into.
- */
-export function typingTargetExpression(index: number): string {
-  const at = controlIndex(index, 'typingTargetExpression');
-  return `(() => {${pageBody()}
-  const controls = enumerate();
-  const control = controls[${at}];
-  if (!control) return 'LinkedIn shows ' + controls.length + ' usable controls; index ${at} is out of range.';
-  const EDITABLE = '[contenteditable="true"], textarea, input:not([type]), input[type="text"], input[type="search"]';
-  const isEditable = node => !!node && ((node.isContentEditable === true) || /^(input|textarea)$/i.test(String(node.tagName || '')));
-  const target = isEditable(control) ? control : (control.querySelector ? control.querySelector(EDITABLE) : null);
-  if (!target || !isEditable(target)) return { editable: false, name: nameOf(control) };
-  const rect = target.getBoundingClientRect();
-  return {
-    editable: true,
-    role: attribute(target, 'role') || String(target.tagName || '').toLowerCase(),
-    tag: String(target.tagName || '').toLowerCase(),
-    name: nameOf(target) || nameOf(control),
-    x: Number(rect.x != null ? rect.x : rect.left) || 0,
-    y: Number(rect.y != null ? rect.y : rect.top) || 0,
-    width: Number(rect.width) || 0,
-    height: Number(rect.height) || 0,
-  };
-})()`;
-}
 
 /**
  * A structural description of the control at `index`: what it is, whether it or anything inside it
@@ -224,17 +191,6 @@ export function describeControlExpression(index: number): string {
 })()`;
 }
 
-/** What the control at `index` currently holds, so a caller can see whether typing landed. */
-export function controlTextExpression(index: number): string {
-  const at = controlIndex(index, 'controlTextExpression');
-  return `(() => {${pageBody()}
-  const controls = enumerate();
-  const control = controls[${at}];
-  if (!control) return '';
-  const value = typeof control.value === 'string' ? control.value : '';
-  return String(value || control.innerText || control.textContent || '').slice(0, ${LINKEDIN_TEXT_LIMIT});
-})()`;
-}
 
 /** The page's visible text, so the caller can confirm what an action did. */
 export function pageTextExpression(): string {

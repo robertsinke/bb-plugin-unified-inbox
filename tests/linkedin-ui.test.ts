@@ -4,15 +4,12 @@ import {
   LINKEDIN_CONTROL_LIMIT,
   LINKEDIN_NAME_LIMIT,
   LINKEDIN_TEXT_LIMIT,
-  controlRectExpression,
-  focusControlExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
   pageTextExpression,
   type PageControl,
-  controlTextExpression,
-  typingTargetExpression,
+  findControlExpression,
 } from '../src/linkedin-ui.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
@@ -158,37 +155,8 @@ test('a name falls back through aria-label, title, text, placeholder, and label,
   ]);
 });
 
-test('the focused control says so, so a caller can see where input will land', async () => {
-  const page = fakePage([{ text: 'Search' }, { tag: 'textarea', placeholder: 'Write a message…' }]);
-  const focused = await page.evaluate(focusControlExpression(1)) as { focused: boolean; name?: string };
-  assert.deepEqual(focused, { focused: true, name: 'Write a message…' });
-  assert.equal(page.document.activeElement, page.elements[1]);
-  const controls = await page.evaluate(pageControlsExpression()) as PageControl[];
-  assert.deepEqual(controls.map(control => control.focused), [false, true]);
-});
 
-test('a control rect re-reads the live page and names the count when the index is gone', async () => {
-  const page = fakePage([{ text: 'Search', x: 40, y: 50, width: 20, height: 10 }, { text: 'Send' }]);
-  const found = await page.evaluate(controlRectExpression(0)) as PageControl;
-  assert.equal(found.name, 'Search');
-  assert.deepEqual({ x: found.x, y: found.y, width: found.width, height: found.height }, { x: 40, y: 50, width: 20, height: 10 });
 
-  const missing = await page.evaluate(controlRectExpression(5));
-  assert.equal(missing, 'LinkedIn shows 2 usable controls; index 5 is out of range.');
-
-  const unfocusable = await page.evaluate(focusControlExpression(5)) as { focused: boolean; reason: string };
-  assert.equal(unfocusable.focused, false);
-  assert.match(unfocusable.reason, /2 usable controls; index 5 is out of range/);
-});
-
-test('a control index that is negative or fractional is refused before any page work', () => {
-  for (const hostile of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.throws(() => controlRectExpression(hostile), /whole, non-negative control index/);
-    assert.throws(() => focusControlExpression(hostile), /whole, non-negative control index/);
-  }
-  // @ts-expect-error a string index from an untyped RPC is refused too.
-  assert.throws(() => controlRectExpression('0'), /whole, non-negative control index/);
-});
 
 test('the page text is capped, so a long page cannot travel whole', async () => {
   const long = 'x'.repeat(LINKEDIN_TEXT_LIMIT + 5_000);
@@ -248,26 +216,23 @@ test('a crowded page stops at the cap rather than returning everything', async (
   assert.equal(controls.length, LINKEDIN_CONTROL_LIMIT);
 });
 
-test('a field can be read back, so a caller sees whether typing landed', async () => {
-  const page = fakePage([{ tag: 'div', text: '' }]);
-  const element = page.elements[0];
-  assert.equal(await page.evaluate(controlTextExpression(0)), '');
-  element.innerText = 'Note to self';
-  assert.equal(await page.evaluate(controlTextExpression(0)), 'Note to self');
-  assert.equal(await page.evaluate(controlTextExpression(9)), '');
-});
 
-test('typing targets the editable inside a wrapper, because a role=textbox div takes focus and nothing else', async () => {
-  const inner = { tagName: 'DIV', isContentEditable: true, innerText: '', getAttribute: () => null, getBoundingClientRect: () => ({ x: 5, y: 6, width: 200, height: 40 }), querySelector: () => null, style: {} };
-  const page = fakePage([{ tag: 'div', role: 'textbox', text: 'Write a message…' }]);
-  const wrapper = page.elements[0];
-  wrapper.isContentEditable = false;
-  wrapper.querySelector = (selector: string) => (/contenteditable/.test(selector) ? inner : null);
-  const target = await page.evaluate(typingTargetExpression(0));
-  assert.equal(target.editable, true);
-  assert.deepEqual([target.x, target.y, target.width, target.height], [5, 6, 200, 40]);
-
-  // A wrapper with nothing editable inside says so instead of pretending to type.
-  wrapper.querySelector = () => null;
-  assert.deepEqual(await page.evaluate(typingTargetExpression(0)), { editable: false, name: 'Write a message…' });
+test('a control is found by name, because an index goes stale between calls', async () => {
+  const page = fakePage([
+    { text: 'Compose a new message' },
+    { text: 'Andrea Sophie Stave Lepsøe', role: 'option' },
+    { text: 'Compose message' },
+  ]);
+  // The finder returns the element itself, so its identity is what matters, not its serialization.
+  const matches = async (name: string, role?: string) => {
+    const expression = findControlExpression(name, role);
+    const run = new Function('document', 'getComputedStyle', `return (${expression});`);
+    return await run(page.document, (element: any) => element.style);
+  };
+  assert.equal(await matches('Compose message'), page.elements[2]);
+  assert.equal(await matches('andrea sophie', 'option'), page.elements[1]);
+  assert.equal(await matches('Compose message', 'option'), null);
+  assert.equal(await matches('nothing like this'), null);
+  assert.throws(() => findControlExpression(''), /needs a control name/);
+  assert.throws(() => findControlExpression('x'.repeat(200)), /needs a control name/);
 });
