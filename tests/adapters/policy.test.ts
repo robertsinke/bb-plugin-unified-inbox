@@ -2,7 +2,7 @@
 // it refuses, what it allows, and what it writes down — never the message text.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { APPROVAL_WINDOW_MS, SEND_POLICY, createSendGate } from '../../src/adapters/policy.ts';
+import { APPROVAL_WINDOW_MS, SEND_POLICY, approvalFor, createSendGate } from '../../src/adapters/policy.ts';
 import { accounts } from '../../src/adapters/types.ts';
 import { harness, IMSG_ID, LINKEDIN_ID } from './harness.ts';
 import type { Account } from '../../src/adapters/types.ts';
@@ -185,6 +185,45 @@ test('a refusal stops before every adapter, and an approved WhatsApp send reache
     );
     assert.equal(rows.at(-1)!.decision, 'allowed');
     assert.ok(!JSON.stringify(rows).includes('On my way'), 'the allowed row still carries no text');
+  } finally {
+    globalThis.fetch = originalFetch;
+    h.close();
+  }
+});
+
+// A reply the caller never marked as a send is not approved by being sent. The
+// transport's one chat-send line composes this test: allow: 'send' earns the
+// approval, and its absence hands the gate none, so the gate refuses and records
+// it — the adapter is not reached either way.
+test('a reply without allow: send is refused and audited, and with it delivers once', async () => {
+  const h = harness();
+  const originalFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    return new Response(JSON.stringify({ id: 41, status: 'pending' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  try {
+    const { rows, send } = gate();
+    const reply = (allow: 'send' | undefined) => send(
+      { account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'On my way' },
+      approvalFor(allow, WHATSAPP_ID, T0),
+      () => h.registry.whatsapp.action('reply', WHATSAPP_ID, { text: 'On my way' }),
+    );
+
+    await assert.rejects(reply(undefined), /approv/i);
+    assert.deepEqual(h.calls, [], 'a reply with no send statement never reaches the adapter');
+    assert.equal(fetched.length, 0, 'and makes no provider call');
+    assert.equal(rows.at(-1)!.decision, 'refused');
+    assert.match(String(rows.at(-1)!.reason), /approv/i);
+
+    assert.deepEqual(await reply('send'), { status: 'Sending.' });
+    assert.deepEqual(
+      fetched.map(url => url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '')),
+      [`/api/chats/${encodeURIComponent(WHATSAPP_ID)}/messages`],
+      'the owner statement reaches the composer once',
+    );
+    assert.equal(rows.at(-1)!.decision, 'allowed');
   } finally {
     globalThis.fetch = originalFetch;
     h.close();

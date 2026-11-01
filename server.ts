@@ -1,6 +1,5 @@
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +21,7 @@ import { accounts, createRegistry, registryCapabilities } from './src/adapters/i
 import { capabilitiesSchema } from './src/adapters/capability';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './src/adapters/media';
 import { toProviderError } from './src/adapters/provider-error';
-import { createSendGate, type SendApproval } from './src/adapters/policy';
+import { approvalFor, createSendGate } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import type { Account, Conversation } from './src/adapters/types';
 
@@ -79,7 +78,9 @@ export const rpcContract = defineRpcContract({
     ]),
     output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().max(255).optional(), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT).optional(), url: z.string().optional() }),
   },
-  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
+  // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
+  // refuses and records the attempt: a send is never approved by merely happening.
+  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header, subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional() }).strict(), output: z.object({ status: z.string() }) },
   capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
 });
@@ -109,17 +110,6 @@ const MENTION_ICON: Record<Account, string> = {
 function listError(account: Account, cause: unknown): string {
   const message = cause instanceof Error ? cause.message : '';
   return DESCRIBED_FAILURE.test(message) ? message : `${SOURCE_LABEL[account]} unavailable. Check its connection.`;
-}
-
-/**
- * The approval the transport can honestly state: this conversation, this moment, one call.
- * The RPC layer validates the send itself (the adapter's own write builder, the composer
- * path) and carries no approval token, so the gate's rules here are a choke point and a
- * record, not proof of identity — a host-issued token is containment, which OQ-1 owns. When
- * one arrives, it replaces this value and the gate is unchanged.
- */
-function approvalFor(conversationId: string): SendApproval {
-  return { id: randomUUID(), conversationId, issuedAt: Date.now() };
 }
 
 export default function plugin(bb: BbPluginApi) {
@@ -232,13 +222,14 @@ export default function plugin(bb: BbPluginApi) {
     async media({ account: source, ...request }) {
       return registry[source].media(request);
     },
-    async action({ account: source, id, action, text }) {
+    async action({ account: source, id, action, text, allow }) {
       if (action !== 'reply') return registry[source].action(action, id, { text });
       // A send is the gate's call: it refuses before the adapter, records either way, and
-      // hands delivery back so the adapter still validates the send it was given.
+      // hands delivery back so the adapter still validates the send it was given. The approval
+      // exists only when the caller said `allow: 'send'`; otherwise the gate gets none.
       return sendGate(
         { account: source, conversationId: id, text: text ?? '' },
-        approvalFor(id),
+        approvalFor(allow, id, Date.now()),
         () => registry[source].action(action, id, { text }),
       );
     },
