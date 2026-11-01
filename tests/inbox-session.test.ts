@@ -155,9 +155,9 @@ test('a draft is written after its debounce and restored from the same storage',
 
   session.setDraft('See you at six');
   assert.equal(storage.getItem(key), null, 'nothing is written before the debounce elapses');
-  session.tick(5_000 + 599);
+  session.tick(5_000 + 249);
   assert.equal(storage.getItem(key), null, 'still nothing one millisecond short');
-  session.tick(5_000 + 600);
+  session.tick(5_000 + 250);
   assert.equal(storage.getItem(key), 'See you at six');
 
   const restored = createInboxSession({
@@ -187,7 +187,7 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   await session.open(target);
   const key = inboxDraftKey({ account: 'whatsapp', id: 'chat-1' });
   session.setDraft('On my way');
-  session.tick(10 + 600);
+  session.tick(10 + 250);
   assert.equal(readInboxDraft(storage, key), 'On my way', 'the draft was on disk before sending');
 
   const before = rpc.calls.length;
