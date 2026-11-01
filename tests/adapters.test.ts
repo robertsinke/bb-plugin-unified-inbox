@@ -131,7 +131,7 @@ test('personal Gmail lists, opens and updates through its adapter', async () => 
   const f = fixture();
   try {
     const adapter = f.registry.personal;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, confirmSend: false, followsList: true });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.errors, []);
@@ -181,7 +181,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   try {
     const adapter = f.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, confirmSend: true, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['whatsapp', '15551234567@s.whatsapp.net', 'Ada', true]]);
@@ -198,7 +198,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
   try {
     const adapter = f.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, confirmSend: false, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['imessage', '50', 'Ada', true]]);
@@ -217,7 +217,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, confirmSend: false, followsList: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;
@@ -258,7 +258,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
     assert.deepEqual(f.calls, ['linkedin:write:replay']);
     await assert.rejects(adapter.action('reply', LINKEDIN_ID, { text: '  ' }), /needs the text to send/);
     await assert.rejects(adapter.action('reply', 'not-a-conversation', { text: 'hi' }), /cannot receive a reply/);
-    await assert.rejects(adapter.action('archive', LINKEDIN_ID, { text: 'hi', proposalId: 1 }), /still need their own recorded actions/);
+    await assert.rejects(adapter.action('archive', LINKEDIN_ID, { text: 'hi' }), /still need their own recorded actions/);
     // An invitation answer is the page's own request, built from what the read carried; a
     // conversation id is not an invitation, and an invitation the read never saw asks for a refresh.
     assert.deepEqual(await adapter.action('confirm', LINKEDIN_INVITE), { status: 'Accepted.' });

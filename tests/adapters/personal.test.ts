@@ -9,7 +9,7 @@ test('personal Gmail: declared capabilities match what action and send accept', 
   try {
     const adapter = h.registry.personal;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, confirmSend: false, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true });
 
     // send: true — the adapter accepts a personal draft and the stub runner gets it.
     const receipt = await adapter.send!({ kind: 'gmail', account: 'personal', to: 'ada@example.com', subject: 'Dinner', text: 'Six works.' }, {});
@@ -43,8 +43,8 @@ test('personal Gmail: declared capabilities match what action and send accept', 
 
     // Actions the declaration does not cover are refused at the boundary too.
     await refused(h.calls, () => adapter.action('reply', 't1', { text: 'hi' }), /not supported/);
-    await refused(h.calls, () => adapter.action('confirm', 't1', { proposalId: 1, text: 'hi' }), /not supported/);
-    await refused(h.calls, () => adapter.action('reject', 't1', { proposalId: 1 }), /not supported/);
+    await refused(h.calls, () => adapter.action('confirm', 't1', { text: 'hi' }), /not supported/);
+    await refused(h.calls, () => adapter.action('reject', 't1', {}), /not supported/);
 
     // Every call carried the personal credential directory.
     assert.ok(h.calls.every(call => call.startsWith('gmail:personal:')));

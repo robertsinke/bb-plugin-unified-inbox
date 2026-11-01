@@ -31,7 +31,7 @@ test('Messages: declared capabilities match what action and its attachment entry
   try {
     const adapter = h.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, confirmSend: false, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true });
 
     // send: true — a reply reaches the stubbed imsg send method.
     h.calls.length = 0;
@@ -59,8 +59,8 @@ test('Messages: declared capabilities match what action and its attachment entry
     assert.equal(image.dataUrl, `data:image/png;base64,${PNG.toString('base64')}`);
 
     // Actions outside the declaration are refused.
-    await refused(h.calls, () => adapter.action('confirm', IMSG_ID, { proposalId: 1, text: 'hi' }), /not supported for Messages/);
-    await refused(h.calls, () => adapter.action('reject', IMSG_ID, { proposalId: 1 }), /not supported for Messages/);
+    await refused(h.calls, () => adapter.action('confirm', IMSG_ID, { text: 'hi' }), /not supported for Messages/);
+    await refused(h.calls, () => adapter.action('reject', IMSG_ID, {}), /not supported for Messages/);
   } finally {
     process.env.HOME = previousHome;
     h.close();

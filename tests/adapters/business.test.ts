@@ -9,7 +9,7 @@ test('business Gmail: declared capabilities match what action and send accept', 
   try {
     const adapter = h.registry.business;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, confirmSend: false, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true });
 
     // send: true, through the business account only.
     assert.deepEqual(
@@ -45,8 +45,8 @@ test('business Gmail: declared capabilities match what action and send accept', 
 
     // Actions outside the declaration are refused.
     await refused(h.calls, () => adapter.action('reply', 't1', { text: 'hi' }), /not supported/);
-    await refused(h.calls, () => adapter.action('confirm', 't1', { proposalId: 1, text: 'hi' }), /not supported/);
-    await refused(h.calls, () => adapter.action('reject', 't1', { proposalId: 1 }), /not supported/);
+    await refused(h.calls, () => adapter.action('confirm', 't1', { text: 'hi' }), /not supported/);
+    await refused(h.calls, () => adapter.action('reject', 't1', {}), /not supported/);
 
     // No call in this test used the personal credential directory.
     assert.ok(h.calls.every(call => call.startsWith('gmail:business:')));

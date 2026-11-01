@@ -35,7 +35,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: unknown) => linkedinMailboxUrn((payload as { mailboxUrn?: unknown } | null)?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, confirmSend: false, followsList: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false };
 
 /** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
 function recordedWrites(value: unknown): RecordedWrite[] {
