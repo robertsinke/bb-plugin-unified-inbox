@@ -10,22 +10,15 @@ import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linked
 import type { LinkedInProbePayload } from '../linkedin-page-session.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import {
-  clearRecordedWritesExpression,
   isMessageSend,
   linkedinInvitationWrite,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
   sameConversationUrn,
-  LINKEDIN_WRITE_KEEP,
-  LINKEDIN_WRITE_LIMIT,
   messageSendTemplate,
   recordedSendText,
-  recordedWritesExpression,
-  recorderStatsExpression,
   replayWriteExpression,
-  writeBytes,
-  type RecordedWrite,
 } from '../linkedin-write.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -37,19 +30,6 @@ import type {
 const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxUrn(payload?.mailboxUrn);
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false };
-
-/** The page hands back whatever it stored; only well-formed, bounded writes leave the adapter. */
-function recordedWrites(value: unknown): RecordedWrite[] {
-  const rows = Array.isArray(value) ? value : [];
-  return rows.flatMap(row => {
-    if (!row || typeof row !== 'object') return [];
-    const write = row as Partial<RecordedWrite>;
-    if (typeof write.method !== 'string' || typeof write.url !== 'string' || typeof write.body !== 'string') return [];
-    if (!/^[A-Z]{3,7}$/.test(write.method)) return [];
-    if (writeBytes(write.body) > LINKEDIN_WRITE_LIMIT) return [];
-    return [{ method: write.method, url: write.url.slice(0, 2048), body: write.body, capturedAt: Number(write.capturedAt) || 0 }];
-  }).slice(-LINKEDIN_WRITE_KEEP);
-}
 
 const ACCOUNT = 'linkedin';
 
@@ -124,12 +104,12 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         return { installed: armed?.installed === true, recording: armed?.recording === true };
       }
       if (op === 'clear') {
-        await deps.runLinkedInWrite(clearRecordedWritesExpression());
+        await deps.linkedInPage.clearRecorded();
         return { installed: true, recording: true, writes: [] };
       }
-      const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
-      const seen = await deps.runLinkedInWrite(recorderStatsExpression()) as LinkedInRecordResult['seen'];
-      return { writes: recordedWrites(dumped?.writes), seen: seen ?? null };
+      // A dump also says whether the wrappers were called at all: "nothing recorded" and "never
+      // watched" are different answers, and the page session parses both.
+      return deps.linkedInPage.recorded();
     },
 
     /**

@@ -9,7 +9,7 @@ import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
 import type { Account, Adapter } from '../../src/adapters/types.ts';
-import { clearRecordedWritesExpression, recordedWritesExpression, recorderStatsExpression, writeRecorderExpression } from '../../src/linkedin-write.ts';
+
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
 
@@ -134,18 +134,11 @@ export function harness(options: HarnessOptions = {}): Harness {
       calls.push('linkedin:arm');
       return { installed: true, recording: true };
     },
-    runLinkedInWrite: async expression => {
-      // Compare against the builders so the stub cannot mistake one expression for another.
-      const kind = expression === writeRecorderExpression() ? 'arm'
-        : expression === recordedWritesExpression() ? 'writes'
-          : expression === clearRecordedWritesExpression() ? 'clear'
-          : expression === recorderStatsExpression() ? 'stats'
-            : 'replay';
-      calls.push(`linkedin:write:${kind}`);
-      if (kind === 'writes' || kind === 'clear') return { writes: [] };
-      if (kind === 'stats') return { fetch: 0, xhr: 0, considered: 0, skipped: {} };
-      if (kind === 'replay') return { ok: true, status: 200, body: null };
-      return { installed: true, recording: true };
+    // The recorder's dump and clear reach the page session now, so the only expression the
+    // adapter still asks this stub for is a replay.
+    runLinkedInWrite: async () => {
+      calls.push('linkedin:write:replay');
+      return { ok: true, status: 200, body: null };
     },
     // The adapter receives the page seam; this stub answers the typed reads directly.
     linkedInPage: {
