@@ -40,8 +40,10 @@ function AppIcon({account}:{account:Account}) {
 }
 function RefreshButton({refreshing,errors,title,onRefresh}:{refreshing:boolean;errors:string[];title:string;onRefresh:()=>void}) {
   const label=refreshing?'Refreshing inbox':errors.length?`Refresh inbox. Some sources could not refresh: ${errors.join(' ')}`:'Refresh inbox';
-  return <button type="button" className={`ui-icon-button ui-refresh-button ${errors.length?'has-errors':''}`} onClick={onRefresh} aria-label={label} aria-busy={refreshing} title={refreshing?'Refreshing inbox…':errors.length?`Some messages couldn't load: ${errors.join(' ')}`:title}>
-    <span className={refreshing?'ui-spin':''}><Icon name="RotateCcw" aria-hidden="true"/></span>
+  // A refresh in flight says so with its own quietness, never with movement: the list below is
+  // already updating, and a spinning control beside it reads as work the owner must wait for.
+  return <button type="button" className={`ui-icon-button ui-refresh-button ${errors.length?'has-errors':''} ${refreshing?'is-refreshing':''}`} onClick={onRefresh} aria-label={label} aria-busy={refreshing} title={refreshing?'Refreshing inbox…':errors.length?`Some messages couldn't load: ${errors.join(' ')}`:title}>
+    <Icon name="RotateCcw" aria-hidden="true"/>
     {errors.length>0&&<span className="ui-refresh-error-dot" aria-hidden="true"/>}
   </button>;
 }
@@ -263,7 +265,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const [selected,setSelected]=useState<Item|null>(null); const [messages,setMessages]=useState<Message[]>([]);
   const [status,setStatus]=useState(''); const [text,setText]=useState(''); const [busy,setBusy]=useState(false);
   const [opening,setOpening]=useState(false);
-  const [filter,setFilter]=useState<'all'|'unread'|Account>('all'); const [compose,setCompose]=useState(false); const [mail,setMail]=useState<MailDraft|null>(null); const [mailStatus,setMailStatus]=useState('');
+  const [filter,setFilter]=useState<InboxFilter>('all'); const [compose,setCompose]=useState(false); const [mail,setMail]=useState<MailDraft|null>(null); const [mailStatus,setMailStatus]=useState('');
   const [query,setQuery]=useState(''); const [hits,setHits]=useState<{account:Account; id:string}[]|null>(null);
   const [refreshedAt,setRefreshedAt]=useState<Partial<Record<Account, number>>>({}); const [refreshingInbox,setRefreshingInbox]=useState(false);
   const [proposal,setProposal]=useState<{id:number; text:string; chatId:string}|null>(null);
@@ -532,11 +534,11 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const threaded=chat||selected?.account==='linkedin';
   const sendable=!!selected&&canSend(capabilities,selected.account);
   return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
-    {!selected && <header className="ui-mail-bar"><button type="button" aria-pressed={filter==='all'} onClick={()=>setFilter('all')}>All</button><button type="button" className="ui-icon-button" aria-pressed={filter==='unread'} aria-label="Unread" title="Unread" onClick={()=>setFilter('unread')}><Icon name="Mail" aria-hidden="true"/></button>{(['whatsapp','personal','business','imessage','linkedin'] as const).map(key=><button type="button" key={key} className="ui-icon-button ui-filter-source" aria-pressed={filter===key} aria-label={accounts[key].label} title={accounts[key].label} onClick={()=>setFilter(key)}><AppIcon account={key}/></button>)}<input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" /><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
+    {!selected && <header className="ui-mail-bar"><FilterMenu value={filter} onChange={setFilter} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="X" aria-hidden="true"/></button>}</span><button type="button" className="ui-icon-button" onClick={()=>setCompose(!compose)} aria-expanded={compose} aria-label="New message" title="New message"><Icon name="Plus" aria-hidden="true"/></button><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /></header>}
     {compose && <div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>startMail('new','personal')}>Personal Gmail</button><button onClick={()=>startMail('new','business')}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>}
     {mail && !mail.threadId && <section className="ui-reply"><h3>New email · {accounts[mail.account].label}</h3><p>Sending is not enabled yet. This draft is a preview; attachments and rich formatting are not included.</p><label>To<input value={mail.to} onChange={e=>setMail({...mail,to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>setMail({...mail,cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>setMail({...mail,subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>setMail({...mail,text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>void sendMail()}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))setMail(null);}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}
 
-    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={back} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={answer}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><RefreshButton refreshing={refreshingInbox} errors={errors} title={refreshTitle} onRefresh={refreshManually} /><ItemMenu label={selected.title||'this conversation'} busy={busy} actions={[
+    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={back} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={answer}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} busy={busy} actions={[
           { label: 'Add to chat', run: () => tag(selected) },
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void mark(selected, selected.unread?'read':'unread') }]:[]),
           ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => void mark(selected,'archive') }]:[]),
@@ -560,6 +562,26 @@ function Inbox({ threadId }: { threadId: string | null }) {
  * LinkedIn carries two kinds of row, and only one is a conversation: an invitation has no read
  * state to change and no thread to open, so the inbox stops offering controls that can only fail.
  */
+/**
+ * The inbox is filtered by one control rather than five. The sources stack under it on hover or
+ * focus, each with its own icon, so the filter keeps its shape whichever source is chosen and the
+ * bar stops carrying a row of buttons that only one of them can be.
+ */
+function FilterMenu({value,onChange}:{value:InboxFilter; onChange:(next:InboxFilter)=>void}) {
+  const sources = ['whatsapp','personal','business','imessage','linkedin'] as const;
+  return <span className="ui-menu ui-menu-start">
+    <button type="button" className="ui-icon-button" aria-haspopup="menu" aria-label={`Filter: ${value==='all'?'all conversations':value==='unread'?'unread':accounts[value].label}`} title="Filter this inbox"><Icon name="Funnel" aria-hidden="true"/></button>
+    <span className="ui-menu-list" role="menu">
+      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='all'} onClick={()=>onChange('all')}><Icon name="Inbox" aria-hidden="true"/>All</button>
+      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='unread'} onClick={()=>onChange('unread')}><Icon name="Mail" aria-hidden="true"/>Unread</button>
+      {sources.map(key=><button type="button" key={key} role="menuitem" className="ui-menu-item" aria-pressed={value===key} onClick={()=>onChange(key)}><AppIcon account={key}/>{accounts[key].label}</button>)}
+    </span>
+  </span>;
+}
+
+/** What the list is narrowed to: everything, the unread, or one source. */
+type InboxFilter = 'all' | 'unread' | Account;
+
 type MenuAction = { label: string; run: () => void };
 
 /**
