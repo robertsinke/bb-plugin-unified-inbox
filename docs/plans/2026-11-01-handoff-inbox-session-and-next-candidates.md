@@ -164,6 +164,16 @@ WhatsApp uses, and a LinkedIn reply replays the page's recorded send (send once 
 if nothing is recorded). Gmail stays read-only. `send_gmail`'s `cc` is optional now, so a minimal
 caller reaches the policy refusal instead of an `invalid_input` ahead of it.
 
+**Contract as a module** (`e700f7d`): `src/rpc-contract.ts` owns the RPC shapes, so a schema edit
+is proved by `tests/rpc-contract.test.ts` rather than only by a live call — that gap is what let the
+`cc` papercut reach production. `send_gmail` carries the same `allow: 'send'` statement a chat reply
+does and mints its approval, so enabling Gmail later is a `SEND_POLICY` line, not a new approval
+path.
+
+**The decision log is visible in the panel**: `send_audit` (read-only RPC) feeds `state.audit`, read
+on start and after every send attempt, rendered as a collapsed "N send decisions" list above the
+rows — time, decision, source, reason. Live: five rows, the newest a Gmail refusal with its reason.
+
 ## Test work
 
 Both were written and proven by breaking the guard and watching them fail (`tests/inbox-session.test.ts`):
