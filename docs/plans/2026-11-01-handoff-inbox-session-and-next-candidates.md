@@ -104,6 +104,17 @@ adapter literals and the two test fixtures, and nowhere in the derived places.
 Left for later: the per-adapter `assert.deepEqual(capabilities(), {...})` literals are untyped,
 so a ninth key fails them at runtime rather than at build. Cheap to tighten.
 
+### Candidate 3 (done) — one media primitive
+
+**Done** (`56e7270`, 251 tests). `src/adapters/media.ts` owns `MediaRequest` — a union naming how
+the file is addressed: a `message` slot, an `imsg` attachment slot, or an `attachment` name — plus
+its strict schema (`index` defaults to 0 for a message slot). `Adapter.media(request)` answers it;
+`gmailAttachment` and `imsgMedia` are gone, `attachment` and `imsg_media` answer `unknown_method`
+live, and `MediaPayload` describes both answers with an optional `size`. Proven live: each kind
+routes to its own adapter wording ("This source has no media to open here.", "A Messages
+attachment opens through its conversation, not by message id."), a missing `filename` is refused
+as invalid input, and a cached WhatsApp image came back as 265 KB through the one path.
+
 ### Candidate 5 (done) — one refresh primitive
 
 **Badge folded too** (`b5a2b90`, live-proven). `useInboxBadge` no longer runs its own 20 s
@@ -122,15 +133,17 @@ carries its reason (Messages keeps its own guidance). Proven live: one RPC answe
 accounts (LinkedIn 21 rows, `reason: 'read'`, through the probe; the live lists unchanged);
 `list` cache still 131 rows.
 
-## Unfinished test work, in the order I would take it
+## Test work
 
-1. **Stale-response guard.** Two `open()` calls where the *first* resolves last; the
-   snapshot must show the second thread and never the first's messages. The guard exists
-   (`request.current`) and nothing pins it.
-2. **`mark` rollback.** Optimistic update, RPC rejects, row restored — this path was
-   changed to a full-snapshot restore during the move, and only the happy path is tested.
-3. **Single heartbeat across two mounts.** Count `list_source` with the nav panel and the
-   tab both open; assert one round per due time.
+Both were written and proven by breaking the guard and watching them fail (`tests/inbox-session.test.ts`):
+
+1. **Stale-response guard** — two `open()` calls, the first answering last; the panel keeps the
+   second thread and the late answer is dropped.
+2. **`mark` rollback** — an archive that hides the row and closes the thread, then a refusal that
+   puts every row back in order and restores the open thread with the reason on screen.
+
+Still unmeasured: **one heartbeat across two mounts** (this BB build reuses the same surface, so
+`.ui-inbox` count cannot reach 2; the argument rests on `listDue`/`lastTick` being session state).
 
 Also queued: the badge hook's 20 s `setInterval` — folded onto the session's tick (`b5a2b90`).
 
