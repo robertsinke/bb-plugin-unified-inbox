@@ -23,6 +23,12 @@ export function createSendAudit(db: Database.Database) {
     approval_id TEXT,
     reason TEXT
   )`);
+  // The table on a machine that ran an earlier build predates `approval_id`, and
+  // CREATE TABLE IF NOT EXISTS will not add a column to it. Add it in place, once.
+  const columns = db.prepare('PRAGMA table_info(inbox_send_audit)').all() as { name: string }[];
+  if (!columns.some(column => column.name === 'approval_id')) {
+    db.exec('ALTER TABLE inbox_send_audit ADD COLUMN approval_id TEXT');
+  }
   const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason)');
   const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
   const spentRow = db.prepare("SELECT 1 FROM inbox_send_audit WHERE approval_id = ? AND decision = 'allowed' LIMIT 1");

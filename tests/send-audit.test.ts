@@ -69,3 +69,39 @@ test('the audit survives a reload and never holds message text', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A machine that ran the earlier build has the table without `approval_id`, and
+// CREATE TABLE IF NOT EXISTS silently leaves it that way — so opening the audit
+// must migrate it in place rather than fail on the first insert.
+test('an audit table from the earlier build gains the approval column in place', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'inbox-send-audit-old-'));
+  const file = join(dir, 'plugin.db');
+  try {
+    const old = new Database(file);
+    old.exec(`CREATE TABLE inbox_send_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      operation TEXT NOT NULL,
+      account TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      reason TEXT
+    )`);
+    old.prepare("INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, reason) VALUES (1,'send','whatsapp','c','refused','old row')").run();
+    old.close();
+
+    const reopened = new Database(file);
+    const audit = createSendAudit(reopened);
+    assert.equal(audit.list().length, 1, 'the row written before the migration is still there');
+    const gate = createSendGate({ now: () => T0, store: audit });
+    await gate(
+      { account: 'whatsapp', conversationId: 'c', text: 'hi' },
+      { id: 'post-migration', conversationId: 'c', issuedAt: T0 },
+      async () => ({ status: 'Sent.' }),
+    );
+    assert.equal(audit.hasSpent('post-migration'), true, 'and the migrated table records spend');
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
