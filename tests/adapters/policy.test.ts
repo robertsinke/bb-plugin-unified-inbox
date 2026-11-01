@@ -2,7 +2,7 @@
 // it refuses, what it allows, and what it writes down — never the message text.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createSendGate } from '../../src/adapters/policy.ts';
+import { APPROVAL_WINDOW_MS, createSendGate } from '../../src/adapters/policy.ts';
 import type { Account } from '../../src/adapters/types.ts';
 
 type AuditRow = {
@@ -41,4 +41,21 @@ test('an approval for one conversation cannot send to another', async () => {
     !/not approved/i.test(String(rows[0].reason)),
     'the refusal names the conversation the approval covers, not a blanket "not approved"',
   );
+});
+
+// An approval is good for a window, not forever: one kept from this morning must
+// not send tonight. The window is one constant where the gate lives, so no call
+// site can widen it.
+test('an approval older than the gate window is refused', async () => {
+  const { rows, send } = gate(T0 + APPROVAL_WINDOW_MS + 1);
+  let delivered = 0;
+  const approval = { id: 'a2', conversationId: WHATSAPP_ID, issuedAt: T0 };
+  await assert.rejects(
+    send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'see you at six' }, approval, async () => { delivered += 1; return { status: 'Sent' }; }),
+    /expired/,
+  );
+  assert.equal(delivered, 0);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].decision, 'refused');
+  assert.match(String(rows[0].reason), /expired/);
 });
