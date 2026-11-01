@@ -545,16 +545,16 @@ function Inbox({ threadId }: { threadId: string | null }) {
   </div>;
 }
 /**
- * The pending-invitation chip. Its answer stays out of the way until the chip is hovered or its
- * buttons are focused, so the inbox does not grow two buttons per invitation; the split keeps
- * accept and ignore the same distance from the cursor as the thing they answer.
+ * The pending-invitation chip. Hovering it — or tabbing to it — swaps the label for a split pair of
+ * icons drawn over the same pill, so the answer occupies exactly the space the chip already held and
+ * the row never shifts under the cursor.
  */
 function InvitationChip({item,busy,onAnswer}:{item:Item; busy:boolean; onAnswer:(item:Item,action:'confirm'|'reject')=>void}) {
-  return <span className="ui-invite" title="Pending invitation awaiting your response">
-    <span className="ui-chip">Invitation</span>
+  return <span className="ui-invite">
+    <span className="ui-chip ui-invite-label" title="Pending invitation awaiting your response">Invitation</span>
     <span className="ui-invite-actions">
-      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'confirm');}} aria-label={`Accept ${item.title}'s invitation`} title="Accept this invitation">Accept</button>
-      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'reject');}} aria-label={`Ignore ${item.title}'s invitation`} title="Ignore this invitation">Ignore</button>
+      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'confirm');}} aria-label={`Accept ${item.title}'s invitation`} title="Accept"><Icon name="Check" aria-hidden="true"/></button>
+      <button type="button" className="ui-invite-action" disabled={busy} onClick={event=>{event.stopPropagation();onAnswer(item,'reject');}} aria-label={`Ignore ${item.title}'s invitation`} title="Ignore"><Icon name="X" aria-hidden="true"/></button>
     </span>
   </span>;
 }
