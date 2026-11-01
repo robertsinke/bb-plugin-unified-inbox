@@ -82,6 +82,10 @@ function fixture(sendReply: unknown = { id: 'm-sent' }) {
       runtime: async () => { calls.push('whatsapp:runtime'); throw new Error('WhatsAgent loopback is not running in this test.'); },
     },
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
+    armLinkedInRecorder: async () => {
+      calls.push('linkedin:arm');
+      return { installed: true, recording: true };
+    },
     runLinkedInWrite: async expression => {
       // Compare against the builders so the stub cannot mistake one expression for another.
       const kind = expression === writeRecorderExpression() ? 'arm'

@@ -44,9 +44,12 @@ export type ReplayResult = { ok: boolean; status: number; body: unknown };
 const pageExpression = (body: string) => `(() => {${body}})()`;
 
 /**
- * Arms the recorder: wraps `window.fetch` once, keeps at most `LINKEDIN_WRITE_KEEP` same-origin
- * writes to `/voyager/api/`, and never changes what the page's own call does — the wrapper calls
- * through first and its bookkeeping is swallowed.
+ * Arms the recorder: wraps `window.fetch` and `XMLHttpRequest.send` once, keeps at most
+ * `LINKEDIN_WRITE_KEEP` same-origin writes to `/voyager/api/`, and never changes what the page's own
+ * call does — the wrapper calls through first and its bookkeeping is swallowed.
+ *
+ * Both transports are wrapped because a web app may capture either one at boot, and this must work
+ * whether it is installed before the app starts or after.
  */
 export function writeRecorderExpression(): string {
   return pageExpression(`
@@ -82,6 +85,23 @@ export function writeRecorderExpression(): string {
       try { capture(input, init); } catch (error) { /* the page's own call is not the recorder's to break */ }
       return original.apply(this, arguments);
     };
+    // XHR carries no init object, so the method and url are remembered at open() and the body at send().
+    const XHR = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+    if (XHR && typeof XHR.send === 'function') {
+      const open = XHR.open;
+      const send = XHR.send;
+      XHR.open = function (method, url) {
+        try { this.__unifiedInboxOpen = { method, url }; } catch (error) { /* recorded below as absent */ }
+        return open.apply(this, arguments);
+      };
+      XHR.send = function (body) {
+        try {
+          const opened = this.__unifiedInboxOpen;
+          if (opened) capture(opened.url, { method: opened.method, body });
+        } catch (error) { /* same rule: never break the page's call */ }
+        return send.apply(this, arguments);
+      };
+    }
     Object.defineProperty(window, INSTALLED, { value: true });
     return { installed: true, recording: true };
   `);
