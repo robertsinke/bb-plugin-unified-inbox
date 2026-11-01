@@ -59,3 +59,21 @@ test('an approval older than the gate window is refused', async () => {
   assert.equal(rows[0].decision, 'refused');
   assert.match(String(rows[0].reason), /expired/);
 });
+
+// One approval, one send. A retry that reuses the same approval is how a second
+// message lands in a conversation nobody meant to write twice.
+test('the same approval cannot send twice', async () => {
+  const { rows, send } = gate();
+  const approval = { id: 'a3', conversationId: WHATSAPP_ID, issuedAt: T0 };
+  let delivered = 0;
+  const deliver = async () => { delivered += 1; return { status: 'Sent' }; };
+  await send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'on my way' }, approval, deliver);
+  await assert.rejects(
+    send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'on my way' }, approval, deliver),
+    /already been used/,
+  );
+  assert.equal(delivered, 1, 'the replayed send never reaches the adapter');
+  const last = rows.at(-1)!;
+  assert.equal(last.decision, 'refused');
+  assert.match(String(last.reason), /already been used/);
+});
