@@ -7,9 +7,9 @@ import { createInboxCache } from './src/inbox-cache';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { ImsgClient } from './src/imsg-client';
 import {
-  clickInLinkedInPage, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
+  clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
   openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readLinkedInInChrome,
-  stopLinkedInBrowser, typeInLinkedInPage,
+  stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
@@ -48,8 +48,10 @@ export const rpcContract = defineRpcContract({
   linkedin_ui: { input: z.object({
     op: z.enum(['goto', 'snapshot', 'text', 'click', 'type', 'press', 'describe']),
     path: z.string().max(512).optional(),
+    role: z.string().max(32).optional(),
     index: z.number().int().min(0).max(599).optional(),
     text: z.string().max(20_000).optional(),
+    control: z.string().min(1).max(120).optional(),
     key: z.enum(['Enter', 'Escape', 'Tab', 'Backspace', 'ArrowDown']).optional(),
     allow: z.literal('send').optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional() }) },
@@ -174,11 +176,16 @@ export default function plugin(bb: BbPluginApi) {
         await pressKeyInLinkedInPage(step.key);
         return { clicked: true };
       }
-      if (typeof step.index !== 'number') throw new Error('A LinkedIn page click or typing step needs a control index.');
-      if (step.op === 'click') return clickInLinkedInPage(step.index, step.allow ? { allow: step.allow } : undefined);
+      // A control is named, not numbered: an index resolved one call ago can be a different control by
+      // the next, because this page re-renders continuously.
+      const target = step.control;
+      if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
+      if (step.op === 'click') {
+        const answered = await clickNamedControl(target, step.role, step.allow ? { allow: step.allow } : undefined);
+        return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}) };
+      }
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
-      const landed = await typeInLinkedInPage(step.index, step.text);
-      return { typed: landed.typed, ...(landed.reason ? { reason: landed.reason } : {}), ...(landed.control ? { focus: landed.control } : {}) };
+      return typeIntoNamedControl(target, step.text, step.role);
     },
     async linkedin_record({ op }) { return registry.linkedin.record!(op); },
     async linkedin_writes() { return { writes: (await registry.linkedin.record!('dump')).writes ?? [] }; },

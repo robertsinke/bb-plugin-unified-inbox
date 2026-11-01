@@ -17,10 +17,7 @@ import { linkedinPageExpression, type LinkedInRead } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   LINKEDIN_TEXT_LIMIT,
-  controlRectExpression,
-  controlTextExpression,
-  focusControlExpression,
-  typingTargetExpression,
+  findControlExpression,
   isSendControl,
   linkedInPath,
   pageControlsExpression,
@@ -299,27 +296,48 @@ export async function inspectLinkedInPage(): Promise<PageControl[]> {
  * or publishes is refused — before a single event is dispatched — unless the caller passes
  * `{ allow: 'send' }`, because that click changes real state on the owner's LinkedIn account.
  */
-export async function clickInLinkedInPage(
-  index: number,
-  approval?: { allow: 'send' },
-): Promise<{ clicked: boolean; control?: PageControl; reason?: string }> {
-  // Built before the page opens, so a bad index never starts a browser.
-  const expression = controlRectExpression(index);
-  return withLinkedInPage(async page => {
-    const found = await evaluate(page, expression);
-    if (typeof found === 'string') return { clicked: false, reason: found };
-    const control = found as PageControl | null | undefined;
-    if (!control || typeof control !== 'object') return { clicked: false, reason: 'LinkedIn did not answer with that control.' };
-    if (isSendControl(control) && approval?.allow !== 'send') {
-      return { clicked: false, control, reason: `"${control.name}" sends to LinkedIn; pass { allow: 'send' } to approve this one click.` };
-    }
-    const x = Math.round(control.x + control.width / 2);
-    const y = Math.round(control.y + control.height / 2);
-    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
-      await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
-    }
-    return { clicked: true, control };
-  });
+/**
+ * Finds the named control once and holds a node handle to it, so every later question — where is it,
+ * what does it say — is asked of that same element rather than of an index the next re-render may
+ * have moved. The handle is released before returning.
+ */
+async function withControl<T>(
+  page: Page,
+  name: string,
+  role: string | undefined,
+  use: (control: { objectId: string; x: number; y: number }) => Promise<T>,
+): Promise<T | null> {
+  const found = await page.client.send<{ result?: { objectId?: string } }>(
+    'Runtime.evaluate',
+    { expression: findControlExpression(name, role), returnByValue: false, awaitPromise: false },
+    page.sessionId,
+  );
+  const objectId = found.result?.objectId;
+  if (!objectId) return null;
+  try {
+    const model = await page.client.send<{ model?: { content?: number[] } }>('DOM.getBoxModel', { objectId }, page.sessionId);
+    const content = model.model?.content;
+    if (!content || content.length < 8) return null;
+    const xs = [content[0], content[2], content[4], content[6]];
+    const ys = [content[1], content[3], content[5], content[7]];
+    return await use({
+      objectId,
+      x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2),
+      y: Math.round((Math.min(...ys) + Math.max(...ys)) / 2),
+    });
+  } finally {
+    await page.client.send('Runtime.releaseObject', { objectId }, page.sessionId).catch(() => undefined);
+  }
+}
+
+/** What that held element says right now, read from the same node the action used. */
+async function controlText(page: Page, objectId: string): Promise<string> {
+  const answer = await page.client.send<{ result?: { value?: unknown } }>(
+    'Runtime.callFunctionOn',
+    { objectId, functionDeclaration: 'function () { return String(this.value != null ? this.value : (this.innerText || this.textContent || "")); }', returnByValue: true },
+    page.sessionId,
+  );
+  return String(answer.result?.value ?? '');
 }
 
 /** One character at a time, the way a keyboard delivers it: some editors only listen to keys. */
@@ -332,46 +350,30 @@ async function typeAsKeys(page: Page, text: string): Promise<void> {
   }
 }
 
-/**
- * Focuses the control at `index` and inserts `text` as trusted input. `el.value = …` and
- * `textContent = …` are ignored by Lexical and React, so the text has to arrive as a real editing
- * command.
- */
-export async function typeInLinkedInPage(index: number, text: string): Promise<{ typed: boolean; control?: PageControl; reason?: string }> {
-  if (typeof text !== 'string') throw new Error('LinkedIn typing needs the text to type.');
-  const expression = typingTargetExpression(index);
-  const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
-  return withLinkedInPage(async page => {
-    const found = await evaluate(page, expression);
-    if (typeof found === 'string') return { typed: false, reason: found };
-    const target = found as (PageControl & { editable?: boolean }) | null;
-    if (!target || typeof target !== 'object') return { typed: false, reason: 'LinkedIn did not answer with that control.' };
-    if (target.editable !== true) return { typed: false, reason: `"${target.name}" has nothing in it a person can type into.` };
-    if (isSendControl(target)) return { typed: false, control: target, reason: `"${target.name}" sends to LinkedIn; typing into it is not a step this plugin takes.` };
-    const control: PageControl = {
-      index, role: target.role, name: target.name, tag: target.tag,
-      x: target.x, y: target.y, width: target.width, height: target.height, focused: true,
-    };
-    const landed = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
-    // A trusted click puts the caret in the editor. DOM focus alone does not: LinkedIn's composer is
-    // a Lexical contenteditable that only opens an editing session on a real pointer event.
-    const x = Math.round(control.x + control.width / 2);
-    const y = Math.round(control.y + control.height / 2);
-    const textLanded = async () => String(await evaluate(page, controlTextExpression(index)) ?? '').includes(typed.slice(0, 40));
-    if (typed) {
-      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
-        await page.client.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, page.sessionId);
-      }
-      await page.client.send('Input.insertText', { text: typed }, page.sessionId);
-      // LinkedIn's composer drops a browser-level insert, so the text arrives the way a person's does:
-      // one key at a time. Both are verified below, because believing an unverified insert would send
-      // an empty message.
-      if (!(await textLanded())) await typeAsKeys(page, typed);
-      if (!(await textLanded())) return { typed: false, control, reason: 'LinkedIn did not accept the text; the field still reads empty.' };
+export async function clickNamedControl(name: string, role?: string, approval?: { allow: 'send' }): Promise<{ clicked: boolean; name?: string; reason?: string }> {
+  return (await withLinkedInPage(page => withControl(page, name, role, async control => {
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
+      await page.client.send('Input.dispatchMouseEvent', { type, x: control.x, y: control.y, button: 'left', clickCount: 1 }, page.sessionId);
     }
-    // Report the control that took the text, so a wrong index is visible instead of silent.
-    return { typed: true, control };
-  });
+    return { clicked: true };
+  }))) ?? { clicked: false, reason: `LinkedIn shows no control named "${name}".` };
+}
+
+export async function typeIntoNamedControl(name: string, text: string, role?: string): Promise<{ typed: boolean; reason?: string }> {
+  if (typeof text !== 'string' || !text) throw new Error('LinkedIn typing needs the text to type.');
+  const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
+  return (await withLinkedInPage(page => withControl(page, name, role, async control => {
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
+      await page.client.send('Input.dispatchMouseEvent', { type, x: control.x, y: control.y, button: 'left', clickCount: 1 }, page.sessionId);
+    }
+    await page.client.send('Input.insertText', { text: typed }, page.sessionId);
+    if (await controlText(page, control.objectId).then(held => held.includes(typed.slice(0, 20)))) return { typed: true };
+    await typeAsKeys(page, typed);
+    const after = await controlText(page, control.objectId);
+    return after.includes(typed.slice(0, 20))
+      ? { typed: true }
+      : { typed: false, reason: `LinkedIn's "${name}" still reads ${JSON.stringify(after.slice(0, 40))} after typing.` };
+  }))) ?? { typed: false, reason: `LinkedIn shows no control named "${name}".` };
 }
 
 /**
