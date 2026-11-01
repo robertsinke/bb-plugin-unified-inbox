@@ -217,3 +217,18 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   assert.equal(refusing.calls.length, boundary, 'nothing crosses the RPC boundary');
   assert.equal(quiet.snapshot().text, 'a draft only', 'the text stays a draft');
 });
+
+test('the snapshot keeps its identity until something changes', () => {
+  // The panel reads this through useSyncExternalStore, which compares identity between
+  // renders: a fresh object per call would loop forever.
+  const session = createInboxSession({ rpc: fakeRpc(), storage: memoryStorage(), now: () => 1_000 });
+  const first = session.snapshot();
+  assert.equal(session.snapshot(), first, 'two reads with no change are the same object');
+
+  session.setFilter('unread');
+  const second = session.snapshot();
+  assert.notEqual(second, first, 'a change publishes a new object');
+  assert.equal(session.snapshot(), second, 'and exactly one new object per change');
+  assert.equal(second.filter, 'unread');
+  assert.equal(first.filter, 'all', 'the published snapshot is not mutated in place');
+});

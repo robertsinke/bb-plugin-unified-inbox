@@ -140,7 +140,14 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   };
 
   const listeners = new Set<() => void>();
+  /**
+   * The snapshot the panel renders. A store read through `useSyncExternalStore` compares
+   * snapshot identity between renders, so this must be the same object until something
+   * actually changed; publishing a fresh object every call would re-render forever.
+   */
+  let published: InboxSnapshot | null = null;
   function notify(): void {
+    published = null;
     for (const listener of listeners) listener();
   }
 
@@ -552,7 +559,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
 
   return {
     snapshot() {
-      return {
+      if (published) return published;
+      published = {
         ...state,
         items: [...state.items],
         errors: [...state.errors],
@@ -561,6 +569,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         refreshedAt: { ...state.refreshedAt },
         mail: state.mail ? { ...state.mail } : null,
       };
+      return published;
     },
     subscribe(fn) {
       listeners.add(fn);
