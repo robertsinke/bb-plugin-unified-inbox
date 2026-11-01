@@ -35,6 +35,23 @@ export interface SendRequest {
   text: string;
 }
 
+/** Whether a source may send at all, and why not when it may not. */
+export type SendPolicy = { state: 'enabled' } | { state: 'disabled'; reason: string };
+
+/**
+ * The owner's decisions as rules the gate reads, so a handler holds no flag of its own.
+ * Chat sending was enabled on 2026-11-02 — Messages by explicit request, WhatsApp through
+ * the owner's own composer, LinkedIn replies. Gmail stays off until its boundary is
+ * verified, and a disabled reason is the caller-facing refusal text.
+ */
+export const SEND_POLICY: Record<Account, SendPolicy> = {
+  personal: { state: 'disabled', reason: 'Gmail sending is not enabled yet. Your draft has not been sent.' },
+  business: { state: 'disabled', reason: 'Gmail sending is not enabled yet. Your draft has not been sent.' },
+  whatsapp: { state: 'enabled' },
+  imessage: { state: 'enabled' },
+  linkedin: { state: 'enabled' },
+};
+
 export interface SendGateDeps {
   now: () => number;
   audit: (row: AuditRow) => void;
@@ -52,6 +69,8 @@ export function createSendGate({ now, audit }: SendGateDeps) {
 
   /** Deliver through `deliver` only when this attempt is allowed; the row is written either way. */
   return async function send(request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt> {
+    const policy = SEND_POLICY[request.account];
+    if (policy.state === 'disabled') refuse(request, policy.reason);
     if (!approval) refuse(request, 'A send needs an approval for the conversation it goes to; nothing was sent.');
     if (approval.conversationId !== request.conversationId) {
       refuse(request, `The approval does not cover this conversation: it was issued for ${approval.conversationId}, and this send names ${request.conversationId}. Nothing was sent.`);
