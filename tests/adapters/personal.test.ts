@@ -9,7 +9,7 @@ test('personal Gmail: declared capabilities match what action and send accept', 
   try {
     const adapter = h.registry.personal;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: true, media: false, attachments: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true });
 
     // send: true — the adapter accepts a personal draft and the stub runner gets it.
     const receipt = await adapter.send!({ kind: 'gmail', account: 'personal', to: 'ada@example.com', subject: 'Dinner', text: 'Six works.' }, {});

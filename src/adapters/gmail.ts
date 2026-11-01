@@ -31,7 +31,7 @@ const SELF: Record<GmailAccount, string> = {
 
 // `send` is declared because this adapter implements it; the transport's send
 // policy (server.ts `send_gmail`) is what keeps mail sending off in this build.
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, media: false, attachments: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true };
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */
 const cachedMessage = z.object({ sender: z.string(), text: z.string(), date: z.number() }).loose();

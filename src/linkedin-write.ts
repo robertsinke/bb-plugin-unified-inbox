@@ -184,16 +184,17 @@ export function clearRecordedWritesExpression(): string {
 }
 
 /**
- * A same-origin `/voyager/api/...` path, or null. Anything else is refused rather than escaped:
- * this value is interpolated into page code, and a template that does not look like a LinkedIn
- * API path has no business being replayed.
+ * A same-origin path, or null. Anything else is refused rather than escaped: this value is
+ * interpolated into page code, and a template that carries a host has no business being replayed.
+ * The boundary is the origin, not a path prefix — LinkedIn answers invitations through the
+ * server-driven-UI endpoint, not voyager.
  */
-export function voyagerWritePath(value: unknown): string | null {
+export function linkedinWritePath(value: unknown): string | null {
   if (typeof value !== 'string' || !value || value.length > 2048) return null;
-  // A scheme, an absolute URL, or any control character is not a path on this origin.
+  // A scheme, a protocol-relative URL, or any control character is not a path on this origin.
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null;
+  if (value.startsWith('//')) return null;
   if (/[\\\u0000-\u001f\u007f]/.test(value)) return null;
-  if (!value.startsWith('/voyager/api/')) return null;
   // `%2e` would decode to a traversal segment at the transport layer; refuse it whole.
   if (/%2e/i.test(value)) return null;
   const path = value.split('?')[0].split('#')[0].split('/');
@@ -327,11 +328,97 @@ export function linkedinSendWrite(conversationUrn: string, text: string, originT
   };
 }
 
+/** Which way an invitation is answered. LinkedIn's own names for the two actions. */
+export type InvitationAction = 'accept' | 'ignore';
+
+/** The RSC-serialization debris the observed toasts carried; replayed as recorded because only its
+ * position was ever observed, and it is the client's own failure-toast spec the server returns. */
+const TOAST_REASON = { _moduleLoading: null, _chunks: {}, _stringDecoder: {}, _closed: true, _closedReason: {}, _allowPartialStream: false };
+
+/**
+ * The invitation accept or ignore request, built from the shape observed twice on 2026-11-02 (one
+ * real accept, one real ignore, through the page's own buttons on /mynetwork/). LinkedIn answers
+ * invitations through the server-driven-UI action endpoint, not voyager, and the per-invitation
+ * token it calls `validationToken` is the `sharedSecret` from the received-invitations payload the
+ * read path already fetches — so the inbox can act on any invitation it can show, not only one
+ * that was recorded.
+ *
+ * `toastKey` and `spanId` are per-request randomness the page generates; they default to fresh ones
+ * and may be pinned to repeat a capture byte for byte.
+ */
+export function linkedinInvitationWrite(input: {
+  invitationId: string;
+  token: string;
+  inviterProfileId: string;
+  firstName: string;
+  action: InvitationAction;
+  toastKey?: string;
+  spanId?: string;
+}): RecordedWrite | null {
+  if (!input || typeof input.invitationId !== 'string' || !/^\d{1,32}$/.test(input.invitationId)) return null;
+  if (typeof input.token !== 'string' || !input.token || input.token.length > 64) return null;
+  if (typeof input.inviterProfileId !== 'string' || !input.inviterProfileId || input.inviterProfileId.length > 80) return null;
+  if (typeof input.firstName !== 'string' || !input.firstName || input.firstName.length > 60) return null;
+  if (input.action !== 'accept' && input.action !== 'ignore') return null;
+  const verb = input.action === 'accept' ? 'accepted' : 'ignored';
+  const payload = {
+    inviteeActionType: input.action === 'accept' ? 'InviteeActionType_ACCEPT' : 'InviteeActionType_IGNORE',
+    invitationType: 'GenericInvitationType_CONNECTION',
+    invitationUrn: { invitationId: input.invitationId },
+    validationToken: input.token,
+    origin: 'InvitationOrigin_INVITATION_PREVIEW',
+    restoreOnServerFailure: false,
+    postActionSentConfigs: [],
+    profileUrn: { profileId: input.inviterProfileId },
+  };
+  const requestedArguments = {
+    $type: 'proto.sdui.actions.requests.RequestedArguments',
+    requestedStateKeys: [],
+    payload,
+    requestMetadata: { $type: 'proto.sdui.common.RequestMetadata' },
+  };
+  const toast = (input.toastKey ?? randomUUID());
+  const span = input.spanId ?? randomUUID().replace(/-/g, '').slice(0, 12);
+  return {
+    method: 'POST',
+    url: `/flagship-web/rsc-action/actions/server-request?sduiid=com.linkedin.sdui.requests.mynetwork.addaInvitationAction&parentSpanId=${encodeURIComponent(span + '=')}`,
+    body: JSON.stringify({
+      requestId: 'com.linkedin.sdui.requests.mynetwork.addaInvitationAction',
+      serverRequest: {
+        requestId: 'com.linkedin.sdui.requests.mynetwork.addaInvitationAction',
+        requestedArguments,
+        onClientRequestFailureAction: {
+          actions: [
+            {
+              $type: 'proto.sdui.actions.core.SetState',
+              value: { state: { key: { key: { value: { $case: 'id', id: `invitation_action_state_${input.invitationId}` } } }, value: { $case: 'stringValue', stringValue: 'Pending' } } },
+            },
+            {
+              $type: 'proto.sdui.actions.core.ShowToast',
+              value: {
+                duration: 'ToastDuration_UNKNOWN',
+                key: toast,
+                presetToast: { category: 'ToastPresetCategory_ERROR', text: { _payload: { status: 'resolved_model', value: JSON.stringify([`Sorry, invitation from ${input.firstName} not ${verb}. Please try again.`]), reason: TOAST_REASON } } },
+              },
+            },
+          ],
+        },
+        isApfcEnabled: false,
+        isStreaming: false,
+        rumPageKey: '',
+      },
+      states: [],
+      requestedArguments: { ...requestedArguments, states: [], screenId: 'com.linkedin.sdui.flagshipnav.mynetwork.Grow', knownTemplateIds: [] },
+    }),
+    capturedAt: 0,
+  };
+}
+
 export function replayWriteExpression(write: RecordedWrite): string {
   const method = writeMethod(write?.method);
   if (!method) throw new Error(`A recorded write must be one of ${WRITE_METHODS.join(', ')}; got ${String(write?.method)}.`);
-  const url = voyagerWritePath(write.url);
-  if (!url) throw new Error(`A recorded write must replay a same-origin /voyager/api/ path; got ${String(write?.url)}.`);
+  const url = linkedinWritePath(write.url);
+  if (!url) throw new Error(`A recorded write must replay a same-origin path; got ${String(write?.url)}.`);
   if (typeof write.body !== 'string') throw new Error('A recorded write must carry the body string LinkedIn sent.');
   if (writeBytes(write.body) > LINKEDIN_WRITE_LIMIT) throw new Error(`A recorded write body must be at most ${LINKEDIN_WRITE_LIMIT} bytes.`);
   try {
@@ -417,7 +504,7 @@ const pathLabel = (path: Path) => path.join('.');
  * this module can reason about.
  */
 export function isMessageSend(write: RecordedWrite, conversationId: string): boolean {
-  if (!write || !writeMethod(write.method) || !voyagerWritePath(write.url)) return false;
+  if (!write || !writeMethod(write.method) || !linkedinWritePath(write.url)) return false;
   if (!isConversationUrn(conversationId)) return false;
   const body = parsedBody(write);
   if (!body) return false;
@@ -460,29 +547,4 @@ export function messageSendTemplate(write: RecordedWrite, conversationId: string
   }
   setAt(body, fields[0].path, text);
   return { ...write, body: JSON.stringify(body) };
-}
-
-/**
- * TEMPORARY instrument. Reads the received-invitations payload and reports, for the first
- * invitation only: its field names, and whether any field looks like it carries the per-invitation
- * token the mynetwork accept click needed. Nothing else - no names, no notes, no token values.
- * Removed once the question it answers ("where does the invitation action's token come from?") is
- * settled.
- */
-export function invitationKeysExpression(): string {
-  return pageExpression(`
-    const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
-    const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
-    return fetch('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20', { headers, credentials: 'include' })
-      .then(raw => { if (!raw.ok) throw new Error('LinkedIn ' + raw.status); return raw.json(); })
-      .then(answer => {
-        const included = answer && answer.included ? answer.included : [];
-        const rows = included.filter(e => /relationships\.invitation\.Invitation$/.test(String(e && e.$type ? e.$type : '')));
-        const first = rows[0] || {};
-        const keys = Object.keys(first).sort();
-        const tokenish = keys.filter(key => /token|valid/i.test(key));
-        return { count: rows.length, keys, tokenish: tokenish.map(key => [key, typeof first[key] === 'string' ? String(first[key]).length : String(first[key])]) };
-      })
-      .catch(error => ({ error: String(error && error.message ? error.message : error) }));
-  `);
 }

@@ -9,7 +9,7 @@ test('business Gmail: declared capabilities match what action and send accept', 
   try {
     const adapter = h.registry.business;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: true, media: false, attachments: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true });
 
     // send: true, through the business account only.
     assert.deepEqual(

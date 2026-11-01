@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canArchive, canSend, canMarkRead, type CapabilityMap } from '../src/ui-capabilities.ts';
+import { canAnswerInvitation, canArchive, canSend, canMarkRead, type CapabilityMap } from '../src/ui-capabilities.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Capabilities } from '../src/adapters/types.ts';
 
-const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, media: true, attachments: true };
-const NOTHING: Capabilities = { send: false, markRead: false, archive: false, media: false, attachments: false };
+const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true };
+const NOTHING: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false };
 
 const everySource = (declaration: Capabilities): CapabilityMap =>
   Object.fromEntries(accounts.map(account => [account, { ...declaration }])) as CapabilityMap;
@@ -87,4 +87,16 @@ test('a source that cannot send still keeps a draft locally', () => {
   for (const account of accounts) assert.equal(canSend(capabilities, account), false);
   assert.equal(canSend({ ...capabilities, linkedin: { ...NOTHING, send: false } }, 'linkedin'), false);
   assert.equal(canSend({ ...capabilities, linkedin: { ...NOTHING, send: true } }, 'linkedin'), true);
+});
+
+test('answering invitations is offered only where the source declares it', () => {
+  const capabilities = everySource(EVERYTHING);
+  assert.equal(canAnswerInvitation(capabilities, 'linkedin'), true);
+  assert.equal(canAnswerInvitation(everySource(NOTHING), 'linkedin'), false);
+  assert.equal(canAnswerInvitation(null, 'linkedin'), false);
+  // No other source answers invitations even with everything else turned on.
+  const withoutInvitations = everySource({ ...EVERYTHING, invitations: false });
+  for (const account of ['personal', 'business', 'whatsapp', 'imessage'] as const) {
+    assert.equal(canAnswerInvitation(withoutInvitations, account), false, account);
+  }
 });

@@ -32,7 +32,7 @@ const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z
 const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
 const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
-const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), media: z.boolean(), attachments: z.boolean(), search: z.boolean().optional() });
+const capabilities = z.object({ send: z.boolean(), markRead: z.boolean(), archive: z.boolean(), invitations: z.boolean(), media: z.boolean(), attachments: z.boolean(), search: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
@@ -59,7 +59,7 @@ export const rpcContract = defineRpcContract({
     invitation: z.string().min(1).max(120).optional(),
     replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
-  linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump', 'probe']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional(), probe: z.unknown().optional() }) },
+  linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
   linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative(), body: z.unknown() }) },
   linkedin_sync: { input: z.null(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
