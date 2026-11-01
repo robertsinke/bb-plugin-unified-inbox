@@ -101,7 +101,8 @@ const WATCH_INTERVAL: Partial<Record<Account, number>> = { whatsapp: 5_000, imes
 
 /** Search waits for the typing to pause; the draft waits for the writer to. */
 const SEARCH_DEBOUNCE_MS = 150;
-const DRAFT_DEBOUNCE_MS = 600;
+/** The panel's own debounce was 250ms; the session keeps it, now driven by `tick`. */
+const DRAFT_DEBOUNCE_MS = 250;
 
 /** Failure text names the source the way the person knows it. */
 const SOURCE_LABEL: Record<Account, string> = {
