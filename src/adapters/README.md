@@ -35,7 +35,7 @@ Behaviour is chosen by asking the registry or reading `capabilities()`, not by
 testing the account name. A capability set to `false` means the adapter refuses
 the operation **before** it touches the source. `canChange()` in
 `capability.ts` is the shared mapping for `read`, `unread`, and `archive`;
-`send`, `media`, and attachment entry points are implemented only where their
+`send`, `media`, and attachment addressing are implemented only where their
 flag is true.
 
 Declaration meanings:
@@ -72,11 +72,10 @@ approved but the owner's own sentence.
   adapter; the policy narrows it at the RPC boundary.
 - **Messages read state is local.** Messages exposes no read state to sync, so
   `read`/`unread` update `inbox-cache` only and never call `imsg`.
-- **Media and attachment entry points are not unified yet.** WhatsApp uses
-  `media()`, Gmail uses `gmailAttachment()`, and Messages uses `imsgMedia()`.
-  `media: true` for Messages means the source can serve media through its own
-  shipped entry point, not that the generic `media()` accepts it. Unifying these
-  under `media()` is T9 in `specs/001-unified-inbox-gateway/tasks.md`.
+- **One media entry point.** WhatsApp, Gmail and Messages answer `media()` with a
+  request that says how the file is addressed: a `message` slot, an `imsg` slot,
+  or an `attachment` name. A source refuses a kind it cannot serve, so a caller
+  never picks a source by asking for a separate RPC.
 
 ## Tests
 
