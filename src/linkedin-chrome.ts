@@ -417,15 +417,22 @@ export async function clickNamedControl(
   }))) ?? { clicked: false, reason: `LinkedIn shows no control named "${name}".` };
 }
 
-export async function typeIntoNamedControl(name: string, text: string, role?: string): Promise<{ typed: boolean; reason?: string }> {
+export async function typeIntoNamedControl(name: string, text: string, role?: string, replace?: boolean): Promise<{ typed: boolean; reason?: string }> {
   if (typeof text !== 'string' || !text) throw new Error('LinkedIn typing needs the text to type.');
   const typed = text.slice(0, LINKEDIN_TEXT_LIMIT);
   return (await withLinkedInPage(page => withControl(page, name, role, async control => {
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
       await page.client.send('Input.dispatchMouseEvent', { type, x: control.x, y: control.y, button: 'left', clickCount: 1 }, page.sessionId);
     }
+    if (replace) {
+      // Select what is there, so the text replaces it instead of appending to a draft nobody meant.
+      const selectAll = { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65, modifiers: 4 };
+      await page.client.send('Input.dispatchKeyEvent', { type: 'keyDown', ...selectAll }, page.sessionId);
+      await page.client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...selectAll }, page.sessionId);
+    }
     await page.client.send('Input.insertText', { text: typed }, page.sessionId);
-    if (await controlText(page, control.objectId).then(held => held.includes(typed.slice(0, 20)))) return { typed: true };
+    const heldNow = await controlText(page, control.objectId);
+    if (heldNow.includes(typed) && (!replace || heldNow.trim() === typed.trim())) return { typed: true };
     await typeAsKeys(page, typed);
     const after = await controlText(page, control.objectId);
     return after.includes(typed.slice(0, 20))
