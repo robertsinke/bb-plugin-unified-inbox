@@ -162,7 +162,7 @@ function useMediaSource(media: WhatsAppMedia) {
     if (src || state === 'loading') return;
     setState('loading'); setError('');
     try {
-      const result = await rpc.call('media', { messageId: media.messageId });
+      const result = await rpc.call('media', { account: 'whatsapp', kind: 'message', id: media.messageId });
       if (media.kind !== 'video') mediaCache.set(media.messageId, result.dataUrl);
       setSrc(result.dataUrl);
       setState('idle');
@@ -182,10 +182,10 @@ function AttachmentChips({ account, gmailId, names }: { account: 'personal'|'bus
     if (busy || !gmailId) return;
     setBusy(name); setError('');
     try {
-      const result = await rpc.call('attachment', { account, gmailId, filename: name });
+      const result = await rpc.call('media', { account, kind: 'attachment', id: gmailId, filename: name });
       const link = document.createElement('a');
       link.href = result.dataUrl;
-      link.download = result.filename;
+      link.download = result.filename ?? name;
       link.rel = 'noopener';
       document.body.append(link);
       link.click();
@@ -240,7 +240,7 @@ function MessagesAttachment({ chatId, messageId, attachment }: { chatId: string;
   const [state, setState] = useState<'idle'|'loading'|'error'>('idle');
   async function load() {
     setState('loading');
-    try { const result = await rpc.call('imsg_media', { chatId, messageId, index: attachment.index }); setSrc(result.dataUrl); setState('idle'); }
+    try { const result = await rpc.call('media', { account: 'imessage', kind: 'imsg', chatId, messageId, index: attachment.index }); setSrc(result.dataUrl); setState('idle'); }
     catch { setState('error'); }
   }
   if (src) return <div className="ui-bubble-media"><img className="ui-bubble-image" src={src} alt={attachment.name} /></div>;
@@ -356,7 +356,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
           ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => { if(window.confirm('Archive this Gmail conversation?')) void session.mark(selected,'archive'); } }]:[]),
         ]}/></div></header>{mail && mail.threadId===selected.id && <section className="ui-reply ui-reply-inline"><h3>{mail.subject||'Reply'}</h3><label>To<input value={mail.to} onChange={e=>session.setMail({to:e.target.value})}/></label><label>Cc<input value={mail.cc} onChange={e=>session.setMail({cc:e.target.value})}/></label><label>Subject<input value={mail.subject} onChange={e=>session.setMail({subject:e.target.value})}/></label><label>Message<textarea rows={6} value={mail.text} onChange={e=>session.setMail({text:e.target.value})}/></label><div className="ui-mail-actions"><button className="ui-text-button" disabled={true} onClick={()=>{const label=accounts[mail.account].label;if(window.confirm(`Send from ${label} to ${mail.to}?`))void session.sendMail();}}>Sending unavailable</button><button className="ui-text-button" disabled={busy} onClick={()=>{if(!mail.text.trim()||window.confirm('Discard this draft?'))session.discardMail();}}>Discard</button></div>{mailStatus&&<p role="status">{mailStatus}</p>}</section>}<div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
-      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={selected.account==='imessage'?'Messages conversation':'WhatsApp messages'}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
+      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={selected.account==='imessage'?'Messages conversation':'WhatsApp messages'}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
       {threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}

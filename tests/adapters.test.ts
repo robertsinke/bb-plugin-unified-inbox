@@ -194,7 +194,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
     assert.deepEqual(await adapter.action('read', '15551234567@s.whatsapp.net'), { status: 'Marked read in WhatsAgent (no WhatsApp read receipt).' });
     assert.equal(canChange(caps, 'archive'), false);
     await assert.rejects(adapter.action('archive', '15551234567@s.whatsapp.net'), /not supported by WhatsAgent/);
-    await assert.rejects(adapter.media('whatsapp', 'm1', 0), /no image or video/);
+    await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no image or video/);
   } finally { f.done(); }
 });
 
@@ -214,7 +214,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
 
     assert.equal(canChange(caps, 'archive'), false);
     await assert.rejects(adapter.action('archive', '50'), /not supported for Messages/);
-    await assert.rejects(adapter.imsgMedia!('50', '1', 0), /unavailable/);
+    await assert.rejects(adapter.media({ kind: 'imsg', chatId: '50', messageId: '1', index: 0 }), /unavailable/);
   } finally { f.done(); }
 });
 
