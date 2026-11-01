@@ -20,6 +20,7 @@ import {
   messageSendTemplate,
   recordedSendText,
   recordedWritesExpression,
+  invitationKeysExpression,
   recorderStatsExpression,
   replayWriteExpression,
   writeBytes,
@@ -112,6 +113,10 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       if (op === 'clear') {
         await deps.runLinkedInWrite(clearRecordedWritesExpression());
         return { installed: true, recording: true, writes: [] };
+      }
+      if (op === 'probe') {
+        const answer = await deps.runLinkedInWrite(invitationKeysExpression());
+        return { writes: [], seen: null, ...(answer && typeof answer === 'object' ? { probe: answer } : {}) } as LinkedInRecordResult;
       }
       const dumped = await deps.runLinkedInWrite(recordedWritesExpression()) as { writes?: unknown };
       const seen = await deps.runLinkedInWrite(recorderStatsExpression()) as LinkedInRecordResult['seen'];
