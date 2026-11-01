@@ -91,9 +91,17 @@ const pageBody = () => `
     // querySelectorAll answers in document order and never twice for one element, and nothing here
     // sorts or filters by name: the index is the array position, so the same page yields the same
     // indexes on two consecutive runs.
+    // A modal covers the page, so when one is open it *is* the page: enumerating the surface
+    // behind it would bury the dialog's own controls past the cap and invite a click on the
+    // wrong row.
+    const surface = () => {
+      const dialogs = document.querySelectorAll('[role="dialog"], dialog[open], .artdeco-modal');
+      const open = dialogs.length ? dialogs[dialogs.length - 1] : null;
+      return open || document;
+    };
     const enumerate = () => {
       const controls = [];
-      for (const control of document.querySelectorAll(SELECTOR)) {
+      for (const control of surface().querySelectorAll(SELECTOR)) {
         if (controls.length >= LIMIT) break;
         if (usable(control)) controls.push(control);
       }
