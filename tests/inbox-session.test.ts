@@ -81,6 +81,7 @@ test('open shows the cached thread, then the source thread, then marks it read',
     open: () => ({ messages: [liveMessage] }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
   await settle();
 
   await session.open(target);
@@ -183,6 +184,7 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   });
   const storage = memoryStorage();
   const session = createInboxSession({ rpc, storage, now: () => 10 });
+  session.start();
   await settle();
   await session.open(target);
   const key = inboxDraftKey({ account: 'whatsapp', id: 'chat-1' });
@@ -231,4 +233,21 @@ test('the snapshot keeps its identity until something changes', () => {
   assert.equal(session.snapshot(), second, 'and exactly one new object per change');
   assert.equal(second.filter, 'unread');
   assert.equal(first.filter, 'all', 'the published snapshot is not mutated in place');
+});
+
+test('constructing a session calls nothing; start() runs the first load once', async () => {
+  // The panel builds the session while rendering, so the constructor must stay side-effect
+  // free; the first load belongs to an effect, and running it twice must change nothing.
+  const rpc = fakeRpc({ cached: () => ({ items: [row()] }) });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  assert.equal(rpc.calls.length, 0, 'building the session issues no call');
+
+  session.start();
+  await settle();
+  const afterStart = rpc.calls.map((call: { name: string }) => call.name);
+  assert.ok(afterStart.includes('capabilities') && afterStart.includes('cached'), 'start loads the declarations and the cache');
+
+  session.start();
+  await settle();
+  assert.equal(rpc.calls.filter((call: { name: string }) => call.name === 'cached').length, 1, 'a second start is a no-op');
 });

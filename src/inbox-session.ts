@@ -60,6 +60,8 @@ export interface InboxSessionDeps {
 
 export interface InboxSession {
   snapshot(): InboxSnapshot;
+  /** Run the first load once. Call from an effect; constructing the session calls nothing. */
+  start(): void;
   subscribe(fn: () => void): () => void;
   /** The one heartbeat: every due policy runs here. Same `now` twice is a no-op. */
   tick(now: number): void;
@@ -230,19 +232,27 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
 
   // Capabilities are asked once. A failure leaves the declaration null, which
   // `ui-capabilities` reads as "offer nothing" rather than guessing.
-  void deps.rpc.call('capabilities', null)
-    .then((declared: CapabilityMap) => { state.capabilities = declared; notify(); })
-    .catch(() => { /* the sources stay offerless */ });
-
-  // The initial load: what the cache already holds, then everything refreshed.
-  void (async () => {
-    try {
-      const cached = await deps.rpc.call('cached', null);
-      setItems(cached.items);
-      notify();
-    } catch { /* the next sync still fills the list */ }
-    void refresh();
-  })();
+  /**
+   * The first load: the declarations, what the cache already holds, then every source
+   * refreshed. Idempotent, and never run from the constructor — the panel builds the
+   * session while rendering, and an RPC must not start there.
+   */
+  let started = false;
+  function start(): void {
+    if (started) return;
+    started = true;
+    void deps.rpc.call('capabilities', null)
+      .then((declared: CapabilityMap) => { state.capabilities = declared; notify(); })
+      .catch(() => { /* the sources stay offerless */ });
+    void (async () => {
+      try {
+        const cached = await deps.rpc.call('cached', null);
+        setItems(cached.items);
+        notify();
+      } catch { /* the next sync still fills the list */ }
+      void refresh();
+    })();
+  }
 
   async function refresh(sources: Account[] = DEFAULT_SOURCES): Promise<void> {
     const pending = sources.filter(account => !refreshing.has(account));
@@ -575,6 +585,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       listeners.add(fn);
       return () => { listeners.delete(fn); };
     },
+    start,
     tick,
     flush,
     open,
