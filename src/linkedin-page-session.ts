@@ -1,18 +1,33 @@
 /**
- * The one seam between the LinkedIn adapter and the page: a typed read in, one expression out.
+ * The one seam between the LinkedIn adapter and the page: typed reads and writes in, one expression
+ * out.
  *
- * This module owns both halves that used to be scattered: the expression each read builds
- * (`linkedinPageExpression`, `linkedinProbeExpression`) and the envelope the page answers
- * (`linkedinReadResult`). Evaluation stays outside — `evaluateInLinkedInProfile` and the Chrome
- * lifecycle are not this module's business — so the seam is testable without a browser.
+ * This module owns the expressions and the envelopes that used to be scattered through the adapter:
+ * the expression each read builds (`linkedinPageExpression`, `linkedinProbeExpression`), the write a
+ * recording replays (`replayWriteExpression`), the recorder's dump and clear, and every answer each
+ * of them returns. Evaluation stays outside — `evaluateInLinkedInProfile` and the Chrome lifecycle
+ * are not this module's business — so the seam is testable without a browser.
  *
  * The page answers every read with `{ok, payload}` and the payload is always an object, never a
  * bare array. A page that failed throws here instead of handing back a half-empty payload, and a
  * conversation read refuses a non-conversation urn before the page is asked.
+ *
+ * A write is answered with `{ok, status, body}` or with nothing this module recognizes; an answer it
+ * cannot read is refused here rather than cast into "not accepted, status 0".
  */
 import { isConversationId } from './linkedin-inbox.ts';
 import { linkedinPageExpression } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
+import {
+  clearRecordedWritesExpression,
+  recordedWritesExpression,
+  recorderStatsExpression,
+  replayWriteExpression,
+  writeBytes,
+  LINKEDIN_WRITE_KEEP,
+  LINKEDIN_WRITE_LIMIT,
+  type RecordedWrite,
+} from './linkedin-write.ts';
 
 const SIGN_IN_HINT = 'Run `bb unified-inbox linkedin-signin` to sign in to LinkedIn once.';
 
@@ -34,10 +49,37 @@ export type LinkedInThreadPayload = { messages: unknown[] };
 /** The probe answers a thinner version of the list payload under the same envelope. */
 export type LinkedInProbePayload = LinkedInListPayload;
 
+/**
+ * What a replayed write came back as: whether it landed, with the status the page reported. A
+ * refusal is an outcome, not a throw — the caller phrases the reason in its own words.
+ */
+export type ReplayOutcome = { accepted: true; status: number } | { accepted: false; status: number };
+
+/** How often the recorder's wrappers were called, and why they rejected anything they saw. */
+export type LinkedInRecorderStats = {
+  fetch: number;
+  xhr: number;
+  considered: number;
+  skipped: Record<string, number>;
+  pushed?: number;
+  stored?: number;
+  last?: string;
+  same?: boolean;
+};
+
+/** What the recorder kept, newest first, and what its wrappers saw. */
+export type LinkedInRecorder = { writes: RecordedWrite[]; seen: LinkedInRecorderStats | null };
+
 export interface LinkedInPageSession {
   list(): Promise<LinkedInListPayload>;
   thread(id: string): Promise<LinkedInThreadPayload>;
   probe(mailbox?: string): Promise<LinkedInProbePayload>;
+  /** Replays one recorded write once; a refusal is an outcome, an unreadable answer an error. */
+  replay(write: RecordedWrite): Promise<ReplayOutcome>;
+  /** What the recorder kept, and whether it was watching at all. */
+  recorded(): Promise<LinkedInRecorder>;
+  /** Empties the recorder, so the page keeps no log of what it watched. */
+  clearRecorded(): Promise<void>;
 }
 
 /** Maps the page script's envelope to a payload, or to a message a person can act on. */
@@ -75,8 +117,61 @@ function threadPayload(value: unknown): LinkedInThreadPayload {
 }
 
 /**
- * One session over whatever evaluates expression strings in the signed-in LinkedIn page. Each
- * read is one expression and one round trip; the caller never sees the envelope or the script.
+ * The outcome behind a replay's answer, refused unless the page said both what it did and with which
+ * status. `true`, `null`, `{}`, `{ok: 'yes'}` and `{ok: true, status: 'HTTP 200'}` are broken
+ * answers, not refusals: reading them as "not accepted, status 0" invents a reason for a failure
+ * that may never have happened.
+ */
+function replayOutcome(value: unknown): ReplayOutcome {
+  const answer = value && typeof value === 'object' && !Array.isArray(value) ? value as { ok?: unknown; status?: unknown } : null;
+  const status = answer?.status;
+  if (typeof answer?.ok !== 'boolean' || typeof status !== 'number' || !Number.isInteger(status) || status < 0) {
+    throw new Error('LinkedIn did not return a usable answer to that write, so whether it landed is unknown; check the conversation before trying again.');
+  }
+  return answer.ok ? { accepted: true, status } : { accepted: false, status };
+}
+
+/** A page's count, or zero: the recorder's bookkeeping is diagnostic, never load-bearing. */
+const counted = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
+
+/** The recorder's own report, refused only when it is not an object at all. */
+function recorderStats(value: unknown): LinkedInRecorderStats | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const seen = value as Record<string, unknown>;
+  const skipped: Record<string, number> = {};
+  if (seen.skipped && typeof seen.skipped === 'object' && !Array.isArray(seen.skipped)) {
+    for (const [reason, times] of Object.entries(seen.skipped as Record<string, unknown>)) if (typeof times === 'number') skipped[reason] = counted(times);
+  }
+  const stats: LinkedInRecorderStats = { fetch: counted(seen.fetch), xhr: counted(seen.xhr), considered: counted(seen.considered), skipped };
+  if (typeof seen.pushed === 'number') stats.pushed = counted(seen.pushed);
+  if (typeof seen.stored === 'number') stats.stored = counted(seen.stored);
+  if (typeof seen.last === 'string') stats.last = seen.last.slice(0, 512);
+  if (typeof seen.same === 'boolean') stats.same = seen.same;
+  return stats;
+}
+
+/** The page hands back whatever it stored; only well-formed, bounded writes leave this module. */
+function recordedWrites(value: unknown): RecordedWrite[] {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.flatMap(row => {
+    if (!row || typeof row !== 'object') return [];
+    const write = row as Partial<RecordedWrite>;
+    if (typeof write.method !== 'string' || typeof write.url !== 'string' || typeof write.body !== 'string') return [];
+    if (!/^[A-Z]{3,7}$/.test(write.method)) return [];
+    if (writeBytes(write.body) > LINKEDIN_WRITE_LIMIT) return [];
+    return [{ method: write.method, url: write.url.slice(0, 2048), body: write.body, capturedAt: Number(write.capturedAt) || 0 }];
+  }).slice(-LINKEDIN_WRITE_KEEP);
+}
+
+/** The writes behind a dump's answer; a bare array is not one, so it reads as nothing recorded. */
+function dumpedWrites(value: unknown): RecordedWrite[] {
+  const answer = value && typeof value === 'object' && !Array.isArray(value) ? value as { writes?: unknown } : {};
+  return recordedWrites(answer.writes);
+}
+
+/**
+ * One session over whatever evaluates expression strings in the signed-in LinkedIn page. Each call
+ * is one expression and one round trip; the caller never sees the envelope or the script.
  */
 export function createLinkedInPageSession(evaluate: (expression: string) => Promise<unknown>): LinkedInPageSession {
   return {
@@ -90,6 +185,18 @@ export function createLinkedInPageSession(evaluate: (expression: string) => Prom
     },
     async probe(mailbox?: string) {
       return listPayload(await evaluate(linkedinProbeExpression(mailbox)));
+    },
+    async replay(write: RecordedWrite) {
+      // The expression is built first, so a write that cannot be replayed never reaches the page.
+      return replayOutcome(await evaluate(replayWriteExpression(write)));
+    },
+    async recorded() {
+      const writes = dumpedWrites(await evaluate(recordedWritesExpression()));
+      return { writes, seen: recorderStats(await evaluate(recorderStatsExpression())) };
+    },
+    async clearRecorded() {
+      // The answer names how many writes went; nothing reads it, so only the page is asked.
+      await evaluate(clearRecordedWritesExpression());
     },
   };
 }
