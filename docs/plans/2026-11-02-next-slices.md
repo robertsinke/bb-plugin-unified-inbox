@@ -268,3 +268,18 @@ the panel was open (`e7d87e7`). What I had twice written off as a flaky test har
 menu opened, the item existed, and the item was `disabled`. The menu now stays openable and the
 actions that must not run mid-flight guard themselves — the session refuses `mark` while busy, and
 `refresh` skips a source it is already reading.
+
+**Attachments in the draft** (`15990d6`). Two ways in, one of them the existing primitive: a file the
+owner picks lives only in the page (base64, never through the server until a send), and a file
+already in the conversation is pulled through `media` — the same RPC the message renderer uses — so a
+forward stops silently dropping what it forwards. The session owns the limit (20 files, 10 MB per
+draft) and refuses with a reason in the composer instead of a silent no-op. A draft with a file and
+no words is worth sending, so `sendMail` now requires words *or* an attachment. The bytes travel
+`MailDraft` → `send_gmail` → the gmail adapter → the MIME builder as multipart parts; the contract
+bounds the array and refuses a filename with a line break. A stored draft keeps the words and never
+the bytes, which a test states outright.
+
+Two things fell out of it: forward starts a draft with no thread id, and the composer only accepted
+a draft whose thread id matched the open conversation — so **Forward opened nothing at all** from
+inside a thread (`c9d…` → `fix(inbox): a forward is written in the conversation it came from`). And
+`formatBytes` called a five-byte file "1 KB".
