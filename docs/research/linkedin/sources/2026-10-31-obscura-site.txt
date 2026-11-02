@@ -1,0 +1,78 @@
+# https://www.obscura.sh/ fetched 2026-10-31 (text extraction)
+
+Obscura · Give every agent its own browser 
+ Obscura
+ How it works 
+ Open source 
+ Docs 
+ Star 
+ 16.2k 
+ Book a demo 
+ How it works 
+ Open source 
+ Docs 
+ Book a demo 
+ Give every agent its own browser. 
+ Clean, isolated browser sessions in milliseconds. We run the infrastructure and the automation, sized to your job. Tell us what you need and we deliver the data. 
+ Book a demo 
+ See how it works 
+ <50ms Session start time 
+ 10× leaner Memory vs. Chrome 
+ Zero state Fully isolated sessions 
+ Chrome is the bottleneck. 
+ It was built for people browsing one page at a time, not software running thousands of sessions at once. That mismatch shows up as cost, latency, and flaky results. 
+ 01 
+ Heavy at scale 
+ Every Chrome instance eats memory and CPU. Run thousands of them and your bill climbs fast, all for features no agent ever touches. 
+ 02 
+ Slow to start 
+ Cold starts take whole seconds. Multiply that across every task in a pipeline and your throughput grinds to a crawl. 
+ 03 
+ State bleeds between tasks 
+ Cookies, logins, and cached data carry over from one run to the next. That leaks data and makes results impossible to reproduce. 
+ A browser, redefined. 
+ Obscura keeps only what machines need. Faster, cheaper, and safer than Chrome, with none of the rewrites. 
+ <50ms 
+ Boot on demand 
+ Sessions boot in under 50 milliseconds, not seconds. Spin up when you need them, tear down when you're done. 
+ Zero state 
+ Clean every time 
+ Every session is a fresh sandbox with nothing shared. No leaked cookies, no contamination, fully reproducible runs. 
+ 10× leaner 
+ More per machine 
+ A fraction of Chrome's memory footprint, so you pack far more concurrent sessions onto every machine you run. 
+ CDP 
+ Keep your stack 
+ Works with Playwright and the Chrome DevTools Protocol. Point your existing scripts at Obscura and go. 
+ From zero to a browser in one call. 
+ Keep the Playwright or Puppeteer code you already have. Point it at Obscura over CDP and connect, drive, and scale, no rewrites. 
+ Python 
+ Node.js 
+ Playwright 
+ Selenium 
+ Rust 
+ 01 
+ Connect One API key spins up an isolated browser in milliseconds. No servers to run. 
+ 02 
+ Drive Navigate, click, type, and extract data with Playwright or CDP. No rewrites. 
+ 03 
+ Scale Run thousands of sessions in parallel, with capacity sized to the job and operated for you. 
+ Run it our way, or yours. 
+ Obscura is open source and fully yours. Use our managed cloud, or self-host the engine in a single Docker container. No lock-in, ever. 
+ View on GitHub
+ Read the docs 
+ Give your agents a better browser. 
+ Book a short call. Tell us the job, and we will show you exactly how Obscura runs it and what it delivers. 
+ Book a demo 
+ See how it works 
+ Obscura 
+ The open source headless browser engine for AI agents and web scraping. 
+ Book a demo 
+ { 
+ copyright : "© 2026 Obscura. All rights reserved." , 
+ github : "/h4ckf0r0day/obscura" , 
+ docs : "docs.obscura.sh" , 
+ privacyPolicy : "/privacy-policy" , 
+ termsOfService : "/terms-of-service" , 
+ contact : "hello@obscura.sh" 
+ }

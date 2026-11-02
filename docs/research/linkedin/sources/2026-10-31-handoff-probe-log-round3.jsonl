@@ -1,0 +1,10 @@
+{"at":"2026-10-31T16:04:49.826Z","event":"waiting-for-signin","hint":"sign in to the burner again in the window that just opened"}
+{"at":"2026-10-31T16:05:00.627Z","event":"signin","signedIn":true}
+{"at":"2026-10-31T16:05:24.654Z","event":"read","arm":"C3-baseline","ms":1821,"url":"https://www.linkedin.com/connect-services/?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":true,"conversations":1,"unread":1}
+{"at":"2026-10-31T16:05:25.353Z","event":"C3-baseline-cookies","li_at":true}
+{"at":"2026-10-31T16:05:27.979Z","event":"c3","ok":true}
+{"at":"2026-10-31T16:05:49.453Z","event":"read","arm":"A3-obscura-only","ms":11779,"url":"https://www.linkedin.com/connect-services/?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":true,"conversations":1,"unread":1}
+{"at":"2026-10-31T16:07:19.240Z","event":"read","arm":"C3b-after-obscura-only","ms":1029,"url":"https://www.linkedin.com/uas/login?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":false,"error":"LinkedIn 401 for /voyager/api/me"}
+{"at":"2026-10-31T16:07:19.347Z","event":"C3b-after-obscura-only-cookies","li_at":false}
+{"at":"2026-10-31T16:07:21.850Z","event":"verdict","baseline_ok":true,"birth_profile_alive_after_obscura_only":false,"li_at_changed_or_lost":"same-in-file"}
+{"at":"2026-10-31T16:07:21.850Z","event":"done"}

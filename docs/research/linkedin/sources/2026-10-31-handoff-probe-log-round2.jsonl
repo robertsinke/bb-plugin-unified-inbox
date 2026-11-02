@@ -1,0 +1,9 @@
+{"at":"2026-10-31T16:03:56.898Z","event":"C2b-tab","url":"https://www.linkedin.com/feed/"}
+{"at":"2026-10-31T16:04:05.057Z","event":"read","arm":"C2b-birth-profile","ms":163,"url":"https://www.linkedin.com/uas/login?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":false,"error":"LinkedIn 401 for /voyager/api/me"}
+{"at":"2026-10-31T16:04:05.061Z","event":"C2b-session","li_at_present":false,"li_at_unchanged":false}
+{"at":"2026-10-31T16:04:09.050Z","event":"B2-seeded","sent":13,"present":["JSESSIONID","bcookie","bscookie","li_gc","__cf_bm","timezone","g_state","li_at","liap","sdui_ver","lang","li_mc","lidc"],"li_at":true}
+{"at":"2026-10-31T16:04:17.390Z","event":"B2-sent-on-request","names":["li_gc","g_state","lidc","timezone","lang","sdui_ver","bcookie","JSESSIONID","bscookie","__cf_bm","li_mc"],"li_at":false}
+{"at":"2026-10-31T16:04:17.536Z","event":"read","arm":"B2-fresh-chrome","ms":144,"url":"https://www.linkedin.com/uas/login?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":false,"error":"LinkedIn 401 for /voyager/api/me"}
+{"at":"2026-10-31T16:04:19.631Z","event":"A2-seeded","sent":13}
+{"at":"2026-10-31T16:04:22.899Z","event":"read","arm":"A2-obscura-again","ms":196,"url":"https://www.linkedin.com/uas/login?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ok":false,"error":"LinkedIn 401 for /voyager/api/me"}
+{"at":"2026-10-31T16:04:24.901Z","event":"done"}

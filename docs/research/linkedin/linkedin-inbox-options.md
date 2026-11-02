@@ -138,4 +138,5 @@ The honest caveat, stated once: any authenticated path violates LinkedIn's User 
 - [hiQ v. LinkedIn summary](./sources/2026-10-28-hiq-v-linkedin.md)
 - [Unipile docs index](./sources/2026-10-28-unipile-docs-index.txt)
 - [Candidate repo metadata](./sources/2026-10-28-github-candidate-metadata.csv)
+- Browser choice for the reads we already do: [Obscura as the LinkedIn browser](./obscura-as-linkedin-browser.md) (no-go: headless-only, no sign-in window)
 - Existing plugin plan: [reliable unified inbox plan](../../plans/2026-10-28-001-feat-reliable-unified-inbox-plan.md)
