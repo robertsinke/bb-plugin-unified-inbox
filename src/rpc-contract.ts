@@ -25,7 +25,10 @@ export const mailAttachment = z.object({
 
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
-  list: { input: z.null(), output: z.object({ items: z.array(item), errors: z.array(z.string()) }) },
+  // `null` is the call every existing consumer makes (the panel's poll, the CLI, the mention
+  // provider) and it keeps answering exactly what it always did. `{ older: true }` asks every
+  // source that has one for the page after the newest one; `more` says whether any is left.
+  list: { input: z.object({ older: z.boolean().optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
   cached: { input: z.null(), output: z.object({ items: z.array(item) }) },
   search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
@@ -33,7 +36,7 @@ export const rpcContract = defineRpcContract({
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   // One refresh primitive for every source: the adapter for the account decides
   // whether the answer comes from its cache, a probe, or a live read.
-  sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional() }) },
+  sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
