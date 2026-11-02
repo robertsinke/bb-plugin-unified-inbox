@@ -25,6 +25,7 @@ import {
   threadKeyExpression,
   type PageControl,
   type SendApproval,
+  type SendTarget,
 } from './linkedin-ui.ts';
 import { writeRecorderExpression } from './linkedin-write.ts';
 import { createAsyncGate } from './async-gate.ts';
@@ -364,14 +365,31 @@ async function typeAsKeys(page: Page, text: string): Promise<void> {
 }
 
 /**
+ * What the page itself says a send is addressed to, in one read: the compose box's recipient chips,
+ * or — when there are no chips to read, as in a reply box — the conversation key the open thread's
+ * URL names. The caller makes the send decision on this answer and names the send-log row for it,
+ * so the two cannot be about different readers of a page that re-renders.
+ */
+export async function readSendTarget(): Promise<SendTarget> {
+  const chips = await evaluateInLinkedInProfile(recipientsExpression());
+  const recipients = Array.isArray(chips) ? chips.map(chip => String(chip)) : [];
+  const threadKey = recipients.length ? '' : String(await evaluateInLinkedInProfile(threadKeyExpression()) ?? '');
+  return { recipients, threadKey };
+}
+
+/**
  * A send click is only allowed when it names an allowlisted recipient *and* the compose box is
  * addressed to exactly that one person. Reading the chips is the whole point: a name search offers
  * whoever matches, and the first suggestion is not necessarily who was asked for.
+ *
+ * `target` is the page read a caller already made (`readSendTarget`) so its send-log row and this
+ * decision share one answer; without it, this call reads the page itself.
  */
 export async function clickNamedControl(
   name: string,
   role?: string,
   approval?: SendApproval,
+  target?: SendTarget,
 ): Promise<{ clicked: boolean; name?: string; reason?: string; recipients?: string[] }> {
   // An invitation button answers or makes a connection, so it is gated even though its label names
   // a person rather than the action — LinkedIn's send pattern cannot see it.
@@ -379,11 +397,9 @@ export async function clickNamedControl(
   if (sending) {
     // What the page says about the addressee: chips in a compose box, the open thread's own urn
     // in a reply. The policy decision is one pure function, so it is tested without a browser.
-    const chips = await evaluateInLinkedInProfile(recipientsExpression());
-    const recipients = Array.isArray(chips) ? chips.map(chip => String(chip)) : [];
-    const threadKey = recipients.length ? '' : String(await evaluateInLinkedInProfile(threadKeyExpression()) ?? '');
-    const decision = sendApprovalDecision(approval, name, { recipients, threadKey });
-    if (!decision.ok) return { clicked: false, recipients, reason: decision.reason };
+    const observed = target ?? await readSendTarget();
+    const decision = sendApprovalDecision(approval, name, observed);
+    if (!decision.ok) return { clicked: false, recipients: observed.recipients, reason: decision.reason };
   }
   return (await withLinkedInPage(page => withControl(page, name, role, async control => {
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {

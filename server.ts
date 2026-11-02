@@ -9,11 +9,11 @@ import { createSendAudit } from './src/send-audit';
 import { ImsgClient } from './src/imsg-client';
 import {
   armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
-  openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage,
+  openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readSendTarget,
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { describeControlExpression, pageTextExpression, sendClickRecord } from './src/linkedin-ui';
+import { describeControlExpression, pageTextExpression, sendClickRecord, type SendTarget } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { item, message, rpcContract } from './src/rpc-contract';
 import { createGwsRunner } from './src/adapters/gws';
@@ -173,14 +173,17 @@ export default function plugin(bb: BbPluginApi) {
       if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
       if (step.op === 'click') {
         const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}), ...(step.conversation ? { conversation: step.conversation } : {}), ...(step.invitation ? { invitation: step.invitation } : {}) } : undefined;
-        const click = () => clickNamedControl(target, step.role, allowed);
+        const click = (page?: SendTarget) => clickNamedControl(target, step.role, allowed, page);
         // One click can deliver a message and every other step cannot: that one goes through the
         // gate so the send log sees it, with no approval minted — the page-confirmed target and the
-        // caller's own `allow: 'send'` are what authorise it. The row lands before the click.
-        const record = sendClickRecord(step);
+        // caller's own `allow: 'send'` are what authorise it. So the page is read once, before the
+        // row is written: the row is named for what that read confirmed, and the driver decides on
+        // the same answer. A delivery that throws still leaves its row, because the row is first.
+        const page = sendClickRecord(step) ? await readSendTarget() : undefined;
+        const record = sendClickRecord(step, page);
         const answered = record
-          ? await sendGate.observe({ account: 'linkedin', ...record }, click)
-          : await click();
+          ? await sendGate.observe({ account: 'linkedin', ...record }, () => click(page))
+          : await click(page);
         return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
