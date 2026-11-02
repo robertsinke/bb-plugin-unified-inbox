@@ -343,6 +343,29 @@ export const LINKEDIN_SEND_CONTROL = /^(send|send message|send now|compose messa
 
 /** Matches that pattern against the control's trimmed, lowercased accessible name. */
 export function isSendControl(control: PageControl): boolean {
-  const name = typeof control?.name === 'string' ? control.name.trim().toLowerCase() : '';
-  return name !== '' && LINKEDIN_SEND_CONTROL.test(name);
+  return isSendControlNamed(control?.name);
+}
+
+/** The same rule for a caller that holds a name rather than a described control. */
+export function isSendControlNamed(name: unknown): boolean {
+  const trimmed = typeof name === 'string' ? name.trim().toLowerCase() : '';
+  return trimmed !== '' && LINKEDIN_SEND_CONTROL.test(trimmed);
+}
+
+/**
+ * What a `linkedin_ui` click owes the send log, or null when it cannot deliver a message.
+ *
+ * The click only delivers when the caller said `allow: 'send'`, the control is LinkedIn's own send
+ * control, and the step names the target the page must confirm — the same three things the driver
+ * needs before it clicks anything. A refused click therefore leaves no row, and an open, navigate,
+ * snapshot or typing step never had a row to leave.
+ */
+export function sendClickRecord(step: { op?: string; control?: string; allow?: string; conversation?: string; recipient?: string; [key: string]: unknown }): { conversationId: string; reason: string } | null {
+  if (step.op !== 'click' || step.allow !== 'send' || !step.control || !isSendControlNamed(step.control)) return null;
+  const conversationId = step.conversation ?? step.recipient;
+  if (!conversationId) return null;
+  return {
+    conversationId,
+    reason: 'Delivered by a LinkedIn page click with no approval minted for it: the page confirmed the target, and the caller stated allow: send for this exact click.',
+  };
 }

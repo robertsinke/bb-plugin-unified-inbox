@@ -6,6 +6,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, refused, IMSG_ID, LINKEDIN_ID, WHATSAPP_ID } from './harness.ts';
+import { createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
+import { isMessageSend, linkedinSendWrite, markReadWrite } from '../../src/linkedin-write.ts';
 
 const REFUSAL = /still need their own recorded actions/;
 const CONVERSATION = LINKEDIN_ID;
@@ -108,4 +110,39 @@ test('LinkedIn: a message with no picture and no post has no media to serve', as
     await assert.rejects(h.registry.linkedin.media({ kind: 'message', id: TEXT_URN, index: 0 }), /carries no media/);
     assert.deepEqual(stub.urls, []);
   } finally { stub.restore(); h.close(); }
+});
+
+// A recorded send is a delivery no approval authorised: the page confirmed the conversation and
+// the caller confirmed the exact action. The gate records it — before delivering, with no
+// approval id — so an agent-driven LinkedIn send is in the send log while a panel send is.
+// server.ts composes exactly this: message sends go through `observe`, read marks do not.
+test('LinkedIn: a replayed message send leaves one allowed row with no approval, before it delivers', async () => {
+  const h = harness();
+  const rows: AuditRow[] = [];
+  const store = {
+    spendChecks: 0,
+    record(row: AuditRow) { rows.push(row); },
+    hasSpent() { store.spendChecks += 1; return false; },
+  };
+  let delivered = 0;
+  const replay = (write: ReturnType<typeof linkedinSendWrite>) => createSendGate({ now: () => 1_700_000_000_000, store }).observe(
+    { account: 'linkedin', conversationId: CONVERSATION, reason: 'Delivered by a LinkedIn replay: the page confirmed the conversation and the caller confirmed it with confirm: true.' },
+    async () => { delivered += 1; return h.registry.linkedin.replay!({ write: write!, conversationId: CONVERSATION, confirm: true }); },
+  );
+  try {
+    const write = linkedinSendWrite(CONVERSATION, 'On my way');
+    assert.ok(write && isMessageSend(write, CONVERSATION), 'the write the transport records is the message send it reads');
+    assert.deepEqual(await replay(write), { ok: true, status: 200 });
+    assert.equal(delivered, 1);
+    assert.ok(h.calls.includes('linkedin:write:replay'), 'the adapter really replayed it');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].decision, 'allowed');
+    assert.equal(rows[0].approvalId, undefined, 'a replay is delivered, never approved');
+    assert.match(String(rows[0].reason), /confirm: true/);
+    assert.equal(store.spendChecks, 0, 'and it never reads spend, so it cannot use an approval up');
+    // A read mark is the other write `linkedin_replay` accepts, and it delivers no message: the
+    // transport records only what `isMessageSend` claims, which is why this one leaves no row.
+    const marking = markReadWrite(CONVERSATION, true);
+    assert.ok(marking && !isMessageSend(marking, CONVERSATION), 'a read mark is not a send');
+  } finally { h.close(); }
 });
