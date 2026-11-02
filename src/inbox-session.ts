@@ -11,7 +11,7 @@
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
 import { messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
-import type { Account, Conversation, GmailAccount, Message } from './adapters/types.ts';
+import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
 // The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
 // method or a reshaped input is a compile error here, where the session calls it, and
 // again at every fake that claims to be a gateway. Type-only, so a unit test never
@@ -58,10 +58,28 @@ export interface MailDraft {
 
 export type MailMode = 'new' | 'reply' | 'replyAll' | 'forward';
 
+/**
+ * One failure the panel is holding. The account is the identity: it is what clears the line, and
+ * what names the source in words. It used to be a prefix of `message`, which meant a label doubled
+ * as a join key and editing a label orphaned every line already on screen.
+ *
+ * A line with an account carries the verb phrase that follows the source's name ("could not
+ * refresh. …"), because the panel writes "{source} {message}". A failure no single source owns
+ * (`timeout`) is a whole sentence.
+ */
+export interface InboxError {
+  account?: Account;
+  /** Which policy produced it: a source's refresh, or a page older than the one on screen. */
+  kind: 'refresh' | 'older';
+  message: string;
+}
+
 export interface InboxSnapshot {
   items: InboxItem[];
-  errors: string[];
+  errors: InboxError[];
   capabilities: CapabilityMap | null;
+  /** What each source says it is, and how it is paced; null until the gateway has answered. */
+  sources: SourceMap | null;
   selected: InboxItem | null;
   messages: Message[];
   status: string;
@@ -135,22 +153,12 @@ export interface InboxSession {
   notify(text: string): void;
 }
 
-/** The sources the initial load and the heartbeat refresh; LinkedIn is manual only. */
-const DEFAULT_SOURCES: Account[] = ['whatsapp', 'personal', 'business', 'imessage'];
-
-/** How often each source's list is re-read by `tick`. */
-const LIST_INTERVAL: Partial<Record<Account, number>> = {
-  whatsapp: 8_000,
-  imessage: 8_000,
-  personal: 45_000,
-  business: 45_000,
-};
-
 /**
- * How often the open thread is re-read. The component had two copies of this
- * loop (WhatsApp 5s, Messages 8s); one watch in `tick` now serves both.
+ * The sources the initial load and the heartbeat refresh; LinkedIn is refreshed only when the
+ * owner asks, because one of its reads drives a browser. Which interval each one is polled at,
+ * and which ones are watched while open, is the source's own declaration (`sources`).
  */
-const WATCH_INTERVAL: Partial<Record<Account, number>> = { whatsapp: 5_000, imessage: 8_000 };
+const DEFAULT_SOURCES: Account[] = ['whatsapp', 'personal', 'business', 'imessage'];
 
 /** Search waits for the typing to pause; the draft waits for the writer to. */
 const SEARCH_DEBOUNCE_MS = 150;
@@ -165,20 +173,14 @@ const DRAFT_DEBOUNCE_MS = 250;
  */
 const OLDER_TIMEOUT_MS = 15_000;
 
-/** Failure text names the source the way the person knows it. */
-const SOURCE_LABEL: Record<Account, string> = {
-  personal: 'Personal Gmail',
-  business: 'Inhouse Gmail',
-  whatsapp: 'WhatsApp',
-  imessage: 'Messages',
-  linkedin: 'LinkedIn',
-};
+/** Messages' own guidance: it is the one source whose fix is outside the plugin. */
+const MESSAGES_REFRESH_HINT = ' Check that imsg is installed and BB has Full Disk Access.';
 
-/** Messages' own failure line: it is the one source whose fix is outside the plugin. */
-const MESSAGES_REFRESH_FAILURE = 'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.';
+/** The suffix every refresh failure ends with, so no line claims stale data is fresh. */
+const REFRESH_SUFFIX = ' Previously loaded messages may be stale.';
 
-/** The one failure line "show older" adds, so a later success can clear it by name. */
-const OLDER_FAILURE = 'Older conversations could not load';
+/** A round no source answered in time. No account owns it, so it is a whole sentence. */
+const OLDER_TIMEOUT = `Older conversations could not load in time: nothing answered within ${OLDER_TIMEOUT_MS / 1000} seconds, so the wait was given up. The rows already shown are unchanged.`;
 
 /** A row's identity across sources; the same thread can arrive from a refresh and from a page. */
 function rowKey(item: InboxItem): string {
@@ -193,6 +195,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     items: [],
     errors: [],
     capabilities: null,
+    sources: null,
     selected: null,
     messages: [],
     status: '',
@@ -252,11 +255,11 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   /** Bumped when a round is given up, so the answers it was still waiting for are dropped. */
   let olderSeq = 0;
 
-  const createdAt = clock();
+  /** When each polled source is next due. Armed on the first tick whose declaration has arrived. */
   const listDue = new Map<Account, number>();
-  for (const account of DEFAULT_SOURCES) {
-    const interval = LIST_INTERVAL[account];
-    if (interval !== undefined) listDue.set(account, createdAt + interval);
+  /** How often a source is polled, as that source declared; null until the gateway has answered. */
+  function pollInterval(account: Account): number | null {
+    return state.sources?.[account]?.pollIntervalMs ?? null;
   }
   let watchDue: number | null = null;
   let watchRunning = false;
@@ -327,6 +330,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
    * The first load: the declarations, what the cache already holds, then every source
    * refreshed. Idempotent, and never run from the constructor — the panel builds the
    * session while rendering, and an RPC must not start there.
+   *
+   * The two declarations are asked before the rows, so the first row the panel paints already
+   * carries the name its source gave it rather than a placeholder.
    */
   let started = false;
   function start(): void {
@@ -336,6 +342,10 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       .then((declared: CapabilityMap) => { state.capabilities = declared; notify(); })
       .catch(() => { /* the sources stay offerless */ });
     void (async () => {
+      try {
+        state.sources = await deps.rpc.call('sources', null);
+        notify();
+      } catch { /* a source with no declaration is named by its account key and polled not at all */ }
       try {
         const cached = await deps.rpc.call('cached', null);
         setItems(cached.items);
@@ -370,6 +380,12 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     notify();
   }
 
+  /** Forget every failure the predicate names; the one way a line leaves the list. */
+  function dropErrors(matches: (error: InboxError) => boolean): void {
+    const kept = state.errors.filter(error => !matches(error));
+    if (kept.length !== state.errors.length) state.errors = kept;
+  }
+
   async function refresh(sources: Account[] = DEFAULT_SOURCES): Promise<void> {
     const pending = sources.filter(account => !refreshing.has(account));
     if (!pending.length) return;
@@ -382,17 +398,17 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           const listed = await deps.rpc.call('sync', { account });
           mergeSource(account, listed.items);
           state.refreshedAt = { ...state.refreshedAt, [account]: clock() };
-          state.errors = state.errors.filter(error => !error.startsWith(SOURCE_LABEL[account]));
+          // Clearing is a lookup on the account, not a match on the text: a failure line and the
+          // source that owns it are the same pair whoever phrased it.
+          dropErrors(error => error.account === account && error.kind === 'refresh');
           olderLeft.set(account, listed.more === true);
           state.hasOlder = [...olderLeft.values()].some(Boolean);
           notify();
         } catch (error) {
-          const detail = error instanceof Error ? ` ${error.message}` : '';
-          const message = account === 'imessage'
-            ? MESSAGES_REFRESH_FAILURE
-            : `${SOURCE_LABEL[account]} could not refresh.${detail} Previously loaded messages may be stale.`;
-          if (!state.errors.some(error => error.startsWith(SOURCE_LABEL[account]))) {
-            state.errors = [...state.errors, message];
+          const detail = account === 'imessage' ? MESSAGES_REFRESH_HINT : error instanceof Error ? ` ${error.message}` : '';
+          const message = `could not refresh.${detail}${REFRESH_SUFFIX}`;
+          if (!state.errors.some(line => line.account === account && line.kind === 'refresh')) {
+            state.errors = [...state.errors, { account, kind: 'refresh', message }];
           }
           notify();
         }
@@ -436,8 +452,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           // from a broken one.
           if (!fresh.length && page.more === true) {
             failed = true;
-            const message = `${OLDER_FAILURE} from ${SOURCE_LABEL[account]}: it answered with rows already on screen, so there was nothing new to add.`;
-            if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+            // One older line at a time: the control the owner is looking at is the one that failed.
+            dropErrors(line => line.kind === 'older');
+            state.errors = [...state.errors, { account, kind: 'older', message: 'could not load older conversations: it answered with rows already on screen, so there was nothing new to add.' }];
           }
           setItems([...state.items, ...fresh].sort((a, b) => b.date - a.date));
           olderLeft.set(account, page.more === true);
@@ -447,14 +464,14 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           if (seq !== olderSeq) return;
           failed = true;
           const detail = error instanceof Error ? ` ${error.message}` : '';
-          const message = `${OLDER_FAILURE} from ${SOURCE_LABEL[account]}.${detail} The rows already shown are unchanged.`;
-          if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+          dropErrors(line => line.kind === 'older');
+          state.errors = [...state.errors, { account, kind: 'older', message: `could not load older conversations.${detail} The rows already shown are unchanged.` }];
           notify();
         }
       }));
     } finally {
       if (seq === olderSeq) {
-        if (!failed) state.errors = state.errors.filter(line => !line.startsWith(OLDER_FAILURE));
+        if (!failed) dropErrors(line => line.kind === 'older');
         state.loadingOlder = false;
         olderDue = null;
         notify();
@@ -715,13 +732,18 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     // List refresh: each scheduled source has its own due time, and a source
     // already in flight is skipped by `refresh` itself.
     const dueSources = DEFAULT_SOURCES.filter(account => {
+      const interval = pollInterval(account);
+      if (interval === null) return false;
       const due = listDue.get(account);
-      return due !== undefined && now >= due;
+      // A source with no due time yet is armed here rather than at construction: the interval is
+      // the source's to declare, and the declaration arrives over RPC after the session exists.
+      if (due === undefined) { listDue.set(account, now + interval); return false; }
+      return now >= due;
     });
     if (dueSources.length) {
       for (const account of dueSources) {
-        const interval = LIST_INTERVAL[account];
-        if (interval !== undefined) listDue.set(account, now + interval);
+        const interval = pollInterval(account);
+        if (interval !== null) listDue.set(account, now + interval);
       }
       void refresh(dueSources);
     }
@@ -729,7 +751,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     // Thread watch: one loop for every source that has one, keyed by its own
     // interval. The due time is armed on the first tick after a selection, so
     // the first read lands one interval later, as the component's interval did.
-    const interval = state.selected ? WATCH_INTERVAL[state.selected.account] ?? null : null;
+    const interval = state.selected ? state.sources?.[state.selected.account]?.watchIntervalMs ?? null : null;
     if (interval === null) {
       watchDue = null;
     } else if (watchDue === null) {
@@ -757,8 +779,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       olderDue = null;
       olderSeq += 1;
       state.loadingOlder = false;
-      const message = `${OLDER_FAILURE} in time: nothing answered within ${OLDER_TIMEOUT_MS / 1000} seconds, so the wait was given up. The rows already shown are unchanged.`;
-      if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+      // No account owns a round that never answered, so this one line is a sentence of its own.
+      dropErrors(line => line.kind === 'older');
+      state.errors = [...state.errors, { kind: 'older', message: OLDER_TIMEOUT }];
       notify();
     }
 

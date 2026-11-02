@@ -8,13 +8,16 @@ import { sendImsgText } from '../imsg-send.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
-  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, Message, OpenOptions, OpenResult, SyncResult,
+  ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult, MediaPayload, Message, OpenOptions, OpenResult, SourceDeclaration, SyncResult,
 } from './types.ts';
 import type { MediaRequest } from './media.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true };
 
 const ACCOUNT = 'imessage';
+
+/** What a person knows Messages by, and how the panel paces it: a local read, so it is watched too. */
+const SOURCE: SourceDeclaration = { label: 'Messages', icon: 'MessageCircle', pollIntervalMs: 8_000, watchIntervalMs: 8_000 };
 
 export function createIMessageAdapter(deps: RegistryDeps): Adapter {
   const { cache } = deps;
@@ -31,6 +34,7 @@ export function createIMessageAdapter(deps: RegistryDeps): Adapter {
   }
 
   return {
+    source: SOURCE,
     capabilities: () => CAPABILITIES,
 
     async list(_cursor?: string, opts?: OpenOptions): Promise<ListResult> {

@@ -22,7 +22,7 @@ import {
 import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, LinkedInRecordOp, LinkedInRecordResult,
-  LinkedInReplayInput, LinkedInReplayResult, ListResult, MediaPayload, OpenOptions, OpenResult, SyncResult,
+  LinkedInReplayInput, LinkedInReplayResult, ListResult, MediaPayload, OpenOptions, OpenResult, SourceDeclaration, SyncResult,
 } from './types.ts';
 
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
@@ -31,6 +31,13 @@ const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxU
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false };
 
 const ACCOUNT = 'linkedin';
+
+/**
+ * What a person knows LinkedIn by, and how the panel paces it. A LinkedIn read drives a browser,
+ * so the panel refreshes it when the owner asks; the interval is the one a polled read would use,
+ * and there is no page size because the walk never advances past the newest conversations.
+ */
+const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 };
 
 /** What an invitation answer needs, kept from the last read: the sharedSecret the page sends as its
  * validationToken, the inviter's profile id, and the person's first name for the toast. */
@@ -77,6 +84,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
   }
 
   return {
+    source: SOURCE,
     capabilities: () => CAPABILITIES,
 
     /** Cached rows only: the live read is `sync`, which the gateway calls on its own. */

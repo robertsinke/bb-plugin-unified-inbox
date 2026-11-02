@@ -13,14 +13,6 @@ export function isSourceAccount(value: string): value is MentionAccount {
 
 export const MENTION_PROVIDER = 'inbox';
 
-export const mentionLabels: Record<MentionAccount, string> = {
-  personal: 'Personal Gmail',
-  business: 'Inhouse Gmail',
-  whatsapp: 'WhatsApp',
-  imessage: 'Messages',
-  linkedin: 'LinkedIn',
-};
-
 const MAX_MESSAGES = 12;
 const MAX_MESSAGE_CHARS = 400;
 const MAX_CONTEXT_CHARS = 4000;
@@ -68,13 +60,15 @@ function line(message: MentionMessage) {
 /** What the agent needs to answer one tagged conversation. */
 export function inboxMentionContext(input: {
   account: MentionAccount;
+  /** The name the source declares for itself; the caller that owns the registry supplies it. */
+  label: string;
   id: string;
   title?: string;
   preview?: string;
   messages: MentionMessage[];
 }) {
   const name = input.title?.trim() || input.preview?.trim() || 'Untitled conversation';
-  const head = [`Inbox conversation: ${name} (${mentionLabels[input.account]})`, `Conversation id: ${input.id}`, 'Latest messages, oldest first:'];
+  const head = [`Inbox conversation: ${name} (${input.label})`, `Conversation id: ${input.id}`, 'Latest messages, oldest first:'];
   const footer = input.account === 'whatsapp'
     ? [
         'Reply with an explicit send; it goes out as you, without a second confirmation in the page:',

@@ -1,4 +1,4 @@
-// Business Gmail: the same declaration as personal Gmail, proven against the
+// Inhouse Gmail: the same declaration as personal Gmail, proven against the
 // business adapter and its own credential directory. Every source is stubbed.
 import assert from 'node:assert/strict';
 import test from 'node:test';

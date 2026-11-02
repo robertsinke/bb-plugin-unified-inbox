@@ -6,7 +6,7 @@
 import type { PluginRpcHandlers } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import type { InboxCache } from './adapters/deps.ts';
-import { registryCapabilities } from './adapters/index.ts';
+import { registryCapabilities, registrySources } from './adapters/index.ts';
 import { approvalFor, type SendGate } from './adapters/policy.ts';
 import { accounts } from './adapters/types.ts';
 import type { Account, Adapter, Conversation } from './adapters/types.ts';
@@ -18,22 +18,16 @@ import { message, rpcContract } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
 import type { createSendAudit } from './send-audit.ts';
 
-/** The name a person knows a source by, used only when a failure has nothing specific to say. */
-const SOURCE_LABEL: Record<Account, string> = {
-  personal: 'Personal Gmail',
-  business: 'Business Gmail',
-  whatsapp: 'WhatsApp',
-  imessage: 'Messages',
-  linkedin: 'LinkedIn',
-};
-
 /** Failure text a source already phrased for a person, or one the provider-error factory scrubbed. */
 const DESCRIBED_FAILURE = /^(?:WhatsAgent backend is unavailable\.|LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \w+ request failed \()/;
 
-/** One failed source never hides the others: it becomes one line in `list`'s `errors`. */
-function listError(account: Account, cause: unknown): string {
+/**
+ * One failed source never hides the others: it becomes one line in `list`'s `errors`. The fallback
+ * names the source the way the source declares itself, so there is no second spelling to drift.
+ */
+function listError(registry: Record<Account, Adapter>, account: Account, cause: unknown): string {
   const message = cause instanceof Error ? cause.message : '';
-  return DESCRIBED_FAILURE.test(message) ? message : `${SOURCE_LABEL[account]} unavailable. Check its connection.`;
+  return DESCRIBED_FAILURE.test(message) ? message : `${registry[account].source.label} unavailable. Check its connection.`;
 }
 
 /**
@@ -92,19 +86,12 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   /** Whether any source still holds rows older than the newest page it showed. */
   const hasOlder = () => accounts.some(name => typeof olderCursor[name] === 'string');
 
-  /**
-   * How many rows one older page asks a source for. A Gmail row costs one CLI read of its thread
-   * (a listing carries only an id and a snippet), and twenty of those per account — forty in a
-   * round, sharing the runner's pool with the periodic refreshes — measured 11–20s and lost the
-   * panel's 15-second ceiling, so the owner saw the WhatsApp page and no mail. Ten fits: the same
-   * page lands in about five seconds, and a press that is quick is worth two that never arrive.
-   * WhatsApp pages by offset and answers fifty chats in a second, so it keeps its fifty.
-   */
-  const OLDER_PAGE: Partial<Record<Account, number>> = { personal: 10, business: 10 };
-
   return {
     capabilities() {
       return registryCapabilities(registry);
+    },
+    sources() {
+      return registrySources(registry);
     },
     cached() {
       return { items: decorated(cachedRows()) };
@@ -237,7 +224,9 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       const scope = options?.account ? [options.account] : accounts;
       // A source that already answered "nothing older" is not asked again.
       const names = older ? scope.filter(name => typeof olderCursor[name] === 'string') : scope;
-      const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined, older ? { limit: OLDER_PAGE[name] ?? undefined } : undefined)));
+      // How many rows one older page is worth is the source's own declaration: it is the one that
+      // knows what a row costs to read.
+      const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined, older ? { limit: registry[name].source.pageSize } : undefined)));
       const errors: string[] = [];
       const items: Conversation[] = [];
       results.forEach((result, index) => {
@@ -251,7 +240,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
         // A page that failed may be a token the source has since dropped: forget it so the next
         // refresh reseeds the walk from the newest page instead of retrying a dead one forever.
         if (older) olderCursor[name] = undefined;
-        errors.push(listError(name, result.reason));
+        errors.push(listError(registry, name, result.reason));
       });
       search.warm();
       // A call that named one source answers for that source; the whole-inbox call answers for all.

@@ -13,14 +13,13 @@ import {
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
+import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { message, rpcContract } from './src/rpc-contract';
 import { createGwsRunner } from './src/adapters/gws';
 import { createRegistry } from './src/adapters/index';
 import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
-import type { Account } from './src/adapters/types';
 import { createGateway } from './src/gateway';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
@@ -28,15 +27,6 @@ import { createGateway } from './src/gateway';
 // handler table itself is that module, so a test calls a handler without a host API or a browser.
 // How a source lists, opens, serves media and acts lives in src/adapters/ — never here.
 
-
-/** The mention picker's icon per source: mail reads as mail, every conversation source as chat. */
-const MENTION_ICON: Record<Account, string> = {
-  personal: 'Mail',
-  business: 'Mail',
-  whatsapp: 'MessageCircle',
-  imessage: 'MessageCircle',
-  linkedin: 'MessageCircle',
-};
 
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
@@ -114,7 +104,8 @@ export default function plugin(bb: BbPluginApi) {
         .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
         .sort((a, b) => b.date - a.date)
         .slice(0, 20)
-        .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${mentionLabels[item.account]} · ${item.preview}`.slice(0, 140), icon: MENTION_ICON[item.account] }));
+        // The name and the icon are the source's own declaration, not a table kept here.
+        .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${registry[item.account].source.label} · ${item.preview}`.slice(0, 140), icon: registry[item.account].source.icon }));
     },
     async resolve(mention) {
       const { account, id } = parseMentionId(mention);
@@ -124,7 +115,7 @@ export default function plugin(bb: BbPluginApi) {
       if (!messages.length) {
         try { messages = (await registry[account].open(id)).messages; } catch { /* the mention still names the conversation */ }
       }
-      return { context: inboxMentionContext({ account, id, title: listed?.title, preview: listed?.preview, messages }) };
+      return { context: inboxMentionContext({ account, label: registry[account].source.label, id, title: listed?.title, preview: listed?.preview, messages }) };
     },
   });
 }
