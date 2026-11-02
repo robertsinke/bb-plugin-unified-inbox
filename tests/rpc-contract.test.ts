@@ -62,6 +62,13 @@ test('a send decision that was allowed has no reason, and the contract says so',
   const copying = { rows: [{ ...allowed.rows[0], bcc: 'quiet@example.com' }] };
   assert.equal(rpcContract.send_audit.output.safeParse(copying).success, true, 'a row remembers the blind copy');
   assert.equal(rpcContract.send_audit.output.safeParse({ rows: [{ ...allowed.rows[0], bcc: null }] }).success, true, 'and a send without one reads as null');
+  // `safeParse` success proves nothing on its own: an object schema strips a key it does not know,
+  // so a row could parse "fine" and lose the very field this log exists to keep. Pin the values.
+  const kept = rpcContract.send_audit.output.parse({ rows: [{ ...allowed.rows[0], bcc: 'quiet@example.com', approvalId: 'a-1' }] });
+  assert.equal(kept.rows[0].bcc, 'quiet@example.com', 'the blind copy survives the contract');
+  assert.equal(kept.rows[0].approvalId, 'a-1', 'and so does the approval id, which says whether one was spent');
+  const observed = rpcContract.send_audit.output.parse({ rows: [{ ...allowed.rows[0], reason: 'page-confirmed replay', approvalId: null }] });
+  assert.equal(observed.rows[0].approvalId, null, 'a delivery with no approval reads as null, not as absent');
 });
 
 test('a Gmail draft can carry a blind copy', () => {
