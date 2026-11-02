@@ -6,16 +6,8 @@ import { APPROVAL_WINDOW_MS, SEND_POLICY, approvalFor, createSendGate } from '..
 import { accounts } from '../../src/adapters/types.ts';
 import { harness, IMSG_ID, LINKEDIN_ID } from './harness.ts';
 import type { Account } from '../../src/adapters/types.ts';
-
-type AuditRow = {
-  at: number;
-  account: Account;
-  conversationId: string;
-  decision: 'allowed' | 'refused';
-  /** Which approval this attempt spent, so spend survives a reload. Never the text. */
-  approvalId?: string;
-  reason?: string;
-};
+// The row shape is the gate's, not a copy: a duplicate here silently missed a new column.
+import type { AuditRow } from '../../src/adapters/policy.ts';
 
 const T0 = 1_700_000_000_000;
 const WHATSAPP_ID = '15550000001@s.whatsapp.net';
@@ -162,6 +154,26 @@ test('every source declares its policy, and every enabled source still needs an 
     assert.equal(delivered, 1, `${account}: an approval lets the one send through`);
     assert.equal(rows.at(-1)!.decision, 'allowed');
   }
+});
+
+// A blind copy is the one recipient the conversation id cannot explain — a send to yourself with a
+// bcc carries the same conversation id as a send to yourself alone. The log says who, never what.
+test('a blind copy is written down, and a send without one leaves the column empty', async () => {
+  const { rows, send } = gate();
+  await send(
+    { account: 'personal', conversationId: 'thread-1', text: 'for your eyes', bcc: 'quiet@example.com' },
+    { id: 'bcc-1', conversationId: 'thread-1', issuedAt: T0 },
+    async () => ({ status: 'Sent.' }),
+  );
+  assert.equal(rows.at(-1)!.bcc, 'quiet@example.com', 'the log names the blind copy');
+  assert.ok(!JSON.stringify(rows).includes('for your eyes'), 'and still carries no message text');
+
+  await send(
+    { account: 'personal', conversationId: 'thread-1', text: 'no copy this time' },
+    { id: 'bcc-2', conversationId: 'thread-1', issuedAt: T0 },
+    async () => ({ status: 'Sent.' }),
+  );
+  assert.ok(!rows.at(-1)!.bcc, 'no blind copy is an empty column, not a guess');
 });
 
 // The composition the spec asks for: the gate in front of the real registry. Every

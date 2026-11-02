@@ -189,7 +189,7 @@ export default function plugin(bb: BbPluginApi) {
       // Gmail is enabled by SEND_POLICY; the approval is what makes this send one the owner asked
       // for, and the gate writes its row before the adapter is reached.
       return sendGate(
-        { account: input.account, conversationId: input.threadId ?? input.to, text: input.text },
+        { account: input.account, conversationId: input.threadId ?? input.to, text: input.text, bcc: input.bcc },
         approvalFor(input.allow, input.threadId ?? input.to, Date.now()),
         () => deliver({ kind: 'gmail', ...input }, {}),
       );
@@ -222,7 +222,7 @@ export default function plugin(bb: BbPluginApi) {
       if (argv[0] === 'send-audit') {
         const rows = sendAudit.list(Number(argv[1] ?? 20));
         if (!rows.length) return { exitCode: 0, stdout: 'No send attempts recorded yet.\n' };
-        return { exitCode: 0, stdout: rows.map(row => `${new Date(row.at).toISOString()} ${row.decision.padEnd(7)} ${row.account} ${row.conversationId}${row.reason ? ` — ${row.reason}` : ''}\n`).join('') };
+        return { exitCode: 0, stdout: rows.map(row => `${new Date(row.at).toISOString()} ${row.decision.padEnd(7)} ${row.account} ${row.conversationId}${row.bcc ? ` bcc ${row.bcc}` : ''}${row.reason ? ` — ${row.reason}` : ''}\n`).join('') };
       }
       return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|send-audit>' };
     },
