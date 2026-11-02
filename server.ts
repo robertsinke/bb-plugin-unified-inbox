@@ -186,8 +186,8 @@ export default function plugin(bb: BbPluginApi) {
     async send_gmail(input) {
       const deliver = registry[input.account].send;
       if (!deliver) throw new Error('This source cannot send from the inbox.');
-      // Disabled by SEND_POLICY in the gate today; the approval is wired anyway, so enabling
-      // Gmail is a policy flip rather than a new approval path.
+      // Gmail is enabled by SEND_POLICY; the approval is what makes this send one the owner asked
+      // for, and the gate writes its row before the adapter is reached.
       return sendGate(
         { account: input.account, conversationId: input.threadId ?? input.to, text: input.text },
         approvalFor(input.allow, input.threadId ?? input.to, Date.now()),
