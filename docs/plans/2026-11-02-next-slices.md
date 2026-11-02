@@ -213,6 +213,31 @@ owner's Test-bb group.
 Acceptance: the render test fails if a source stops using the shared base, and
 the three sources are visually comparable at the same width.
 
+**Shipped** (`0218814`, `c9d…`). `src/inbox-appearance.ts` owns `BUBBLE_BASE` and `bubbleClass(account)`;
+the base class in `chat.css` carries geometry only (max-width 440, radius 15px, padding 9/11/7, time
+bottom-right) and each source sets one `--ui-accent`, which tints the outgoing background and the
+sender name. The four claims in `tests/inbox-appearance.test.ts` are: the five sources share the
+base and differ only in accent, every accent a bubble can carry has a rule in `chat.css` (so a new
+source cannot render unaccented), no component holds a literal `ui-bubble` class, and no two
+sources share an accent. Live at 1000px: WhatsApp 50 bubbles `#25d366`, Messages 37 `#007aff`,
+LinkedIn 6 `#0a66c2`, all at width 381–384px with radius 15px and padding 9/11/7.
+
+Two defects fell out of doing this, both older than the slice:
+
+- **LinkedIn was drawn as mail documents.** It declares `threads: true` and has a composer, but the
+  layout was decided by account name (`whatsapp || imessage`), so LinkedIn conversations used the
+  document renderer — which is why "one bubble, three sources" could not have held. The layout now
+  reads the capability (`c9d…`), and the chat region is labelled from the account instead of a
+  two-account ternary that called a LinkedIn thread "WhatsApp messages".
+- **`send_audit` refused its own allowed rows.** The gate writes a reason only when it refuses, so
+  an allowed row carries `reason: null`, which the output schema required to be a string. The
+  plugin's error counter showed 273 failed calls. Only a real send triggers it, which is exactly
+  when the log matters; the schema now says nullable and a contract test pins both shapes.
+
+Not done, deliberately: the list row keeps its single `ui-row` base and no accent. It already names
+its source with an icon and an account label, and a second accent system there would be a fourth
+visual language rather than fewer.
+
 ## Order and risk
 
 A (done) → B (unblocks C–G) → F (cheap, read-only) → E (read-only) → C (local
