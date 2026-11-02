@@ -343,3 +343,22 @@ what was delivered. Nothing was special-cased for the test.
 What the send corrected afterwards (`c1a3813`): the mention footer still told agents a Gmail thread was
 read-only, and two comments still claimed the build keeps mail sending off. The footer now documents the
 real call, with the same approval word — the prose had outlived the policy by a day.
+
+## The audit row learns to say who was blind-copied
+
+A send's row named the conversation, the decision and the approval, and nothing about its audience. For
+a reply that is enough — the conversation is the audience. For a bcc it is not: a message to yourself
+with a blind copy has the same conversation id as one without, so the hidden recipient was the one fact
+a send could carry that the log could not explain.
+
+`AuditRow` gains `bcc`, written by the gate (it is the gate's row) from a new `SendRequest.bcc`, and only
+when there is one: no blind copy leaves the column empty rather than guessing. The table gains the
+column through the same in-place migration that added `approval_id`, the schema allows null so a row
+written before today reads as "no copy", and the CLI prints `bcc …` only when it has something to say.
+
+Two tests had to change shape first: the policy test carried **its own copy of the row type**, which is
+precisely how a new column goes unnoticed — it imports the gate's type now.
+
+Proved live, not only in tests: a send to `robertsinke.jr@gmail.com` with `bcc robert@inhouse.works`
+produced the row `… allowed personal robertsinke.jr@gmail.com bcc robert@inhouse.works`, and the
+business account's own sync shows the blind copy arrived there, unread.
