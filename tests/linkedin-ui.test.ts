@@ -15,6 +15,7 @@ import {
   invitationTargetOf,
   samePersonName,
   sendApprovalDecision,
+  sendClickRecord,
   threadKeyExpression,
   conversationKeyOf,
   type SendApproval,
@@ -305,4 +306,27 @@ test('an invitation button is recognised from its own label, typographic apostro
   const unnamed = sendApprovalDecision({ allow: 'send' }, 'Ignore an invitation to connect from Grace Hopper', { recipients: [], threadKey: '' });
   assert.equal(unnamed.ok, false);
   if (!unnamed.ok) assert.match(unnamed.reason, /approval names nobody/);
+});
+
+// The transport records only the click that can deliver a message. Opening, navigating,
+// snapshotting and typing change nothing on the account, and a click that is not LinkedIn's send
+// control changes what a person sees, not what they receive — none of them earns a send-log row.
+// The same three things the page driver needs before it clicks decide it: allow: send, a send
+// control, and the target the page must confirm.
+test('only a linkedin_ui click that can deliver a message earns a send-log row', () => {
+  const THREAD = '2-YWJj';
+  assert.equal(sendClickRecord({ op: 'goto', path: '/messaging/' }), null, 'navigation delivers nothing');
+  assert.equal(sendClickRecord({ op: 'snapshot' }), null, 'reading the page delivers nothing');
+  assert.equal(sendClickRecord({ op: 'type', control: 'Write a message…', text: 'hello' }), null, 'typing delivers nothing');
+  assert.equal(sendClickRecord({ op: 'press', control: 'Write a message…', key: 'Enter' }), null);
+  assert.equal(sendClickRecord({ op: 'click', control: 'Messaging', allow: 'send', conversation: THREAD }), null, 'a nav click is not a send control');
+  assert.equal(sendClickRecord({ op: 'click', control: 'Send', conversation: THREAD }), null, 'a click nobody said was a send is refused by the page driver, so it has no row');
+  assert.equal(sendClickRecord({ op: 'click', control: 'Send', allow: 'send' }), null, 'a click naming no target cannot be confirmed, so it has no row');
+
+  const reply = sendClickRecord({ op: 'click', control: 'Send', allow: 'send', conversation: THREAD });
+  assert.deepEqual(reply && reply.conversationId, THREAD, 'the row names the conversation the click was approved for');
+  assert.match(String(reply && reply.reason), /page confirmed the target/);
+  assert.match(String(reply && reply.reason), /allow: send/);
+  const compose = sendClickRecord({ op: 'click', control: 'Compose message', allow: 'send', recipient: 'Ada Lovelace' });
+  assert.equal(compose && compose.conversationId, 'Ada Lovelace', 'a compose click names the recipient the step confirmed');
 });
