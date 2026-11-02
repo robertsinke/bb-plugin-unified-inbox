@@ -94,6 +94,14 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     assert.deepEqual(older.items.map(item => item.id), ['t2'], 'the token answers with the page after the newest one');
     assert.equal(older.cursor, undefined, 'the last page says nothing older exists');
     assert.equal(params(f.calls.gmail.filter(args => args[2] === 'list').at(-1)!).pageToken, 'page-2', 'the token travels to Gmail as pageToken');
+    // A row needs headers, dates and labels, not a body: `metadata` is the read that answers it,
+    // and it measured 0.7s against 1.35s for a full thread — the whole difference between a page
+    // that lands in seconds and one that takes forty.
+    const reads = f.calls.gmail.filter(args => args[2] === 'get').map(args => params(args));
+    assert.deepEqual([...new Set(reads.map(read => read.format))], ['full', 'metadata'], 'the newest page keeps its full read; an older page reads metadata');
+    assert.equal(reads.at(-1)!.format, 'metadata');
+    assert.equal(older.items[0].attachments, undefined, 'a metadata read cannot name attachments, so an older row does not pretend it has none');
+    assert.deepEqual(first.items[0].attachments, [], 'the newest row still carries the attachment list the cache and search expect');
     assert.deepEqual(f.cache.list().map(item => item.id), ['t1'], 'an older page is a read: the cache is untouched');
   } finally {
     f.close();

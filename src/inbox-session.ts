@@ -149,6 +149,14 @@ const SEARCH_DEBOUNCE_MS = 150;
 /** The panel's own debounce was 250ms; the session keeps it, now driven by `tick`. */
 const DRAFT_DEBOUNCE_MS = 250;
 
+/**
+ * How long one round of "show older" may run. A Gmail source spends about a second per row (a CLI
+ * read per thread, bounded by the runner's pool) and WhatsAgent about a second per page, so a
+ * whole page lands in ten seconds or so; 15s leaves room for a slow mailbox and still never leaves
+ * the control loading with no end. A round that misses it degrades into a line in `errors`.
+ */
+const OLDER_TIMEOUT_MS = 15_000;
+
 /** Failure text names the source the way the person knows it. */
 const SOURCE_LABEL: Record<Account, string> = {
   personal: 'Personal Gmail',
@@ -162,7 +170,7 @@ const SOURCE_LABEL: Record<Account, string> = {
 const MESSAGES_REFRESH_FAILURE = 'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.';
 
 /** The one failure line "show older" adds, so a later success can clear it by name. */
-const OLDER_FAILURE = 'Older conversations could not load.';
+const OLDER_FAILURE = 'Older conversations could not load';
 
 /** A row's identity across sources; the same thread can arrive from a refresh and from a page. */
 function rowKey(item: InboxItem): string {
@@ -228,6 +236,13 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
    * removes it from here, so it does not come back on the next refresh.
    */
   const olderRows = new Map<Account, InboxItem[]>();
+
+  /** Per source: whether it told the gateway it still holds rows older than the newest page. */
+  const olderLeft = new Map<Account, boolean>();
+  /** When the round in flight must have answered by; null when no round is running. */
+  let olderDue: number | null = null;
+  /** Bumped when a round is given up, so the answers it was still waiting for are dropped. */
+  let olderSeq = 0;
 
   const createdAt = clock();
   const listDue = new Map<Account, number>();
@@ -360,8 +375,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           mergeSource(account, listed.items);
           state.refreshedAt = { ...state.refreshedAt, [account]: clock() };
           state.errors = state.errors.filter(error => !error.startsWith(SOURCE_LABEL[account]));
-          // A false here never lowers the offer: only the page that answers for every source does.
-          state.hasOlder = state.hasOlder || listed.more === true;
+          olderLeft.set(account, listed.more === true);
+          state.hasOlder = [...olderLeft.values()].some(Boolean);
           notify();
         } catch (error) {
           const detail = error instanceof Error ? ` ${error.message}` : '';
@@ -382,33 +397,52 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   }
 
   /**
-   * The next older page. One request at a time, no side effect from rendering, and a failure
-   * lands in `errors` with the rows already shown untouched — the same invariants as `refresh`.
+   * The next older page: one source at a time and merged as each answers, so WhatsApp rows land in
+   * a second while Gmail is still reading its twenty threads. One round at a time, no side effect
+   * from rendering, a source failure in `errors` with the shown rows untouched — and a round that
+   * misses OLDER_TIMEOUT_MS is given up rather than left waiting forever.
    */
   async function more(): Promise<void> {
-    if (state.loadingOlder || !state.hasOlder) return;
+    if (state.loadingOlder) return;
+    const sources = [...olderLeft].filter(([, left]) => left).map(([account]) => account);
+    if (!sources.length) return;
+    const seq = ++olderSeq;
+    let failed = false;
     state.loadingOlder = true;
+    olderDue = clock() + OLDER_TIMEOUT_MS;
     notify();
     try {
-      const page = await deps.rpc.call('list', { older: true });
-      const seen = new Set(state.items.map(rowKey));
-      const fresh: InboxItem[] = page.items.filter((item: InboxItem) => !seen.has(rowKey(item)));
-      for (const item of fresh) {
-        const rows = olderRows.get(item.account) ?? [];
-        if (!rows.some(row => row.id === item.id)) olderRows.set(item.account, [...rows, item]);
-      }
-      setItems([...state.items, ...fresh].sort((a, b) => b.date - a.date));
-      state.errors = state.errors.filter(error => !error.startsWith(OLDER_FAILURE));
-      state.hasOlder = page.more === true;
-      notify();
-    } catch (error) {
-      const detail = error instanceof Error ? ` ${error.message}` : '';
-      const message = `${OLDER_FAILURE}${detail} Refresh, then try again.`;
-      if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
-      notify();
+      await Promise.all(sources.map(async account => {
+        try {
+          const page = await deps.rpc.call('list', { older: true, account });
+          // A round the ceiling gave up on has already told the owner; its late rows are dropped
+          // rather than appearing under a message that says they did not.
+          if (seq !== olderSeq) return;
+          const seen = new Set(state.items.map(rowKey));
+          const fresh: InboxItem[] = page.items.filter((item: InboxItem) => !seen.has(rowKey(item)));
+          const rows = olderRows.get(account) ?? [];
+          const added = fresh.filter(item => !rows.some(row => row.id === item.id));
+          if (added.length) olderRows.set(account, [...rows, ...added]);
+          setItems([...state.items, ...fresh].sort((a, b) => b.date - a.date));
+          olderLeft.set(account, page.more === true);
+          state.hasOlder = [...olderLeft.values()].some(Boolean);
+          notify();
+        } catch (error) {
+          if (seq !== olderSeq) return;
+          failed = true;
+          const detail = error instanceof Error ? ` ${error.message}` : '';
+          const message = `${OLDER_FAILURE} from ${SOURCE_LABEL[account]}.${detail} The rows already shown are unchanged.`;
+          if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+          notify();
+        }
+      }));
     } finally {
-      state.loadingOlder = false;
-      notify();
+      if (seq === olderSeq) {
+        if (!failed) state.errors = state.errors.filter(line => !line.startsWith(OLDER_FAILURE));
+        state.loadingOlder = false;
+        olderDue = null;
+        notify();
+      }
     }
   }
 
@@ -699,6 +733,17 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           .catch(() => { /* a missed watch tick is retried next interval */ })
           .finally(() => { watchRunning = false; });
       }
+    }
+
+    // An older page that has not answered by its ceiling is given up: a slow source becomes a line
+    // the owner can read, never a control that never stops loading.
+    if (olderDue !== null && now >= olderDue) {
+      olderDue = null;
+      olderSeq += 1;
+      state.loadingOlder = false;
+      const message = `${OLDER_FAILURE} in time: nothing answered within ${OLDER_TIMEOUT_MS / 1000} seconds, so the wait was given up. The rows already shown are unchanged.`;
+      if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+      notify();
     }
 
     // Search: run the query once the typing has paused.
