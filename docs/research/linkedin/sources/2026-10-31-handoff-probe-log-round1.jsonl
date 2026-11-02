@@ -1,0 +1,21 @@
+{"at":"2026-10-31T16:00:24.771Z","event":"browser-up","arm":"C1-chrome-baseline","readyMs":2070,"rssIdleMB":897,"browser":"Chrome/150.0.7871.24","profile":"/tmp/handoff/chrome-profile"}
+{"at":"2026-10-31T16:00:25.584Z","event":"waiting-for-signin","hint":"sign in to the burner account in the window that just opened"}
+{"at":"2026-10-31T16:00:25.654Z","event":"waiting","linkedinCookies":8}
+{"at":"2026-10-31T16:00:29.487Z","event":"waiting","linkedinCookies":9}
+{"at":"2026-10-31T16:00:31.500Z","event":"waiting","linkedinCookies":9}
+{"at":"2026-10-31T16:00:33.584Z","event":"waiting","linkedinCookies":9}
+{"at":"2026-10-31T16:00:43.654Z","event":"waiting","linkedinCookies":9}
+{"at":"2026-10-31T16:01:55.872Z","event":"signed-in","li_at":true}
+{"at":"2026-10-31T16:01:58.066Z","event":"read","arm":"C1-chrome-baseline","url":"https://www.linkedin.com/connect-services/?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ms":685,"ok":true,"conversations":1,"unread":1,"invitations":0}
+{"at":"2026-10-31T16:01:58.068Z","event":"cookies-captured","total":54,"linkedin":13,"names":["JSESSIONID","bcookie","bscookie","li_gc","__cf_bm","timezone","g_state","li_at","liap","sdui_ver","lang","li_mc","lidc"],"li_at":true}
+{"at":"2026-10-31T16:02:01.255Z","event":"A-seeded","sent":13,"response":{},"injected":["JSESSIONID","li_at","timezone","bscookie","g_state","lidc","li_mc","bcookie","__cf_bm","liap","li_gc","sdui_ver","lang"]}
+{"at":"2026-10-31T16:02:08.002Z","event":"read","arm":"A-obscura-handoff","url":"https://www.linkedin.com/connect-services/?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ms":2383,"ok":true,"conversations":1,"unread":1,"invitations":0}
+{"at":"2026-10-31T16:02:10.505Z","event":"A-jar-on-disk","names":["li_gc","li_mc","lang","sdui_ver","bcookie","liap","lidc","__cf_bm","JSESSIONID","li_at","li_theme","timezone","bscookie","li_theme_set","g_state"],"li_at":true}
+{"at":"2026-10-31T16:02:14.584Z","event":"B-seeded","sent":13}
+{"at":"2026-10-31T16:02:22.500Z","event":"read","arm":"B-chrome-fresh-profile","url":"https://www.linkedin.com/uas/login?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F","ms":174,"ok":false,"error":"LinkedIn 401 for /voyager/api/me"}
+{"at":"2026-10-31T16:02:25.478Z","event":"browser-up","arm":"C2-chrome-baseline-again","readyMs":1280,"rssIdleMB":893,"browser":"Chrome/150.0.7871.24","profile":"/tmp/handoff/chrome-profile"}
+{"at":"2026-10-31T16:02:25.754Z","event":"read","arm":"C2-chrome-after","url":"about:blank","ms":124,"ok":false,"error":"Failed to read the 'cookie' property from 'Document': Access is denied for this document."}
+{"at":"2026-10-31T16:02:25.761Z","event":"c2-cookies","li_at":true,"linkedin":["JSESSIONID","bcookie","bscookie","li_gc","__cf_bm","timezone","g_state","li_at","liap","sdui_ver","lang","li_mc","lidc"]}
+{"at":"2026-10-31T16:02:25.762Z","event":"c2-session","li_at_unchanged":true,"baseline_ok":true,"after_ok":false}
+{"at":"2026-10-31T16:02:25.763Z","event":"done"}
+{"at":"2026-10-31T16:02:26.268Z","event":"probe-exit"}
