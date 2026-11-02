@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createInboxSession, type InboxItem } from '../src/inbox-session.ts';
+import { createInboxSession, type InboxItem, type InboxSessionDeps } from '../src/inbox-session.ts';
 import { inboxDraftKey, readInboxDraft } from '../src/inbox-drafts.ts';
 import type { Account, Capabilities, Conversation, Message } from '../src/adapters/types.ts';
 import { accounts } from '../src/adapters/types.ts';
@@ -46,10 +46,13 @@ function fakeRpc(handlers: Partial<Record<string, Handler>> = {}) {
   const calls: Call[] = [];
   return {
     calls,
-    async call(name: string, input: unknown): Promise<any> {
-      calls.push({ name, input });
-      const handler = handlers[name];
-      return handler ? await handler(input) : defaults(name);
+    // The contract's call shape, rest and all: a fake is assignable to the typed dep
+    // only if it accepts the optional-input tuple the contract declares.
+    async call(method: string, ...args: unknown[]): Promise<any> {
+      const input = args[0];
+      calls.push({ name: method, input });
+      const handler = handlers[method];
+      return handler ? await handler(input) : defaults(method);
     },
   };
 }
@@ -682,4 +685,22 @@ test('a refresh keeps the rows show older loaded, and an archived one does not r
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1']);
   await session.refresh(['personal']);
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1'], 'an archived row does not come back with the older pages');
+});
+
+// Type-level: the seam to the gateway is `rpcContract`, so these lines are the
+// tripwire the hand-written method-name list used to be. `tsc --noEmit` fails if
+// `sync` is renamed or dropped, and each `@ts-expect-error` goes unused (TS2578)
+// the moment the call below it starts compiling — the guard cannot rot silently.
+test('the rpc dep is the contract: a dead method name or a wrong input does not compile', async () => {
+  const rpc: InboxSessionDeps['rpc'] = fakeRpc();
+  // @ts-expect-error `list_source` was deleted: `sync` is the one refresh primitive.
+  await rpc.call('list_source', { account: 'whatsapp' });
+  // @ts-expect-error `linkedin_sync` went with it.
+  await rpc.call('linkedin_sync', { account: 'linkedin' });
+  // @ts-expect-error `account` is the registry enum, not any string.
+  await rpc.call('sync', { account: 'myspace' });
+  // @ts-expect-error `sync` names its account; the input is not optional.
+  await rpc.call('sync');
+  // The same call the session makes still compiles, at the same seam.
+  assert.deepEqual(await rpc.call('sync', { account: 'whatsapp' }), { items: [], updatedAt: 0 });
 });
