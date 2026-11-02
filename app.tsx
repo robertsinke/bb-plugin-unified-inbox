@@ -404,7 +404,13 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const threaded=chat;
   const sendable=!!selected&&canSend(capabilities,selected.account);
   const composer=composerMode({selected:!!selected,draft:!!mail,draftForThisThread:draftForConversation(mail?.threadId,selected?.id),threaded:chat});
-  return <div className={`ui-inbox ${selected?'ui-inbox-detail':''}`}>
+  return <div
+    className={`ui-inbox ${selected?'ui-inbox-detail':''}`}
+    /* A file dropped anywhere in the panel would otherwise be opened by the browser and the app is
+       gone; only the composer turns a drop into an attachment. */
+    onDragOver={event => event.preventDefault()}
+    onDrop={event => event.preventDefault()}
+  >
     
 
     {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>session.back()} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} actions={[

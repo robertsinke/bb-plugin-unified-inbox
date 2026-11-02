@@ -474,6 +474,21 @@ test('a size is judged by the bytes Gmail encodes, and the refusal names that ce
   assert.match(session.snapshot().mailStatus, /25 MB/, 'naming the ceiling the draft hit');
 });
 
+test('the words count against the same ceiling, because Gmail measures the encoded message', async () => {
+  const rpc = fakeRpc({ cached: () => ({ items: [] }), sync: () => ({ items: [] }) });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  session.startMail('new', 'personal');
+
+  // What is left for files once the body is encoded into the message Gmail measures.
+  const room = 25 * 1024 * 1024 - Math.ceil(1000 / 3) * 4;
+  session.setMail({ to: 'a@example.com', text: 'x'.repeat(1000) });
+  assert.equal(session.attach({ name: 'plan.zip', mimeType: 'application/zip', size: room / 4 * 3, data: bytes(room / 4 * 3) }), true, 'a file that fits beside the words is taken');
+  assert.equal(session.attach({ name: 'one-more.txt', mimeType: 'text/plain', size: 4, data: bytes(4) }), false, 'and the one that does not is refused');
+  assert.match(session.snapshot().mailStatus, /25 MB/);
+});
+
 test('a draft with an attachment and no body is still worth sending, and the file travels with it', async () => {
   const rpc = fakeRpc({
     cached: () => ({ items: [] }),
