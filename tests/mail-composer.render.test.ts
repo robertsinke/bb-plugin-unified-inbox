@@ -64,6 +64,21 @@ function install(dom: JSDOM): void {
   }
 }
 
+/**
+ * jsdom ships no DataTransfer and no DragEvent, so a drag is an ordinary event carrying the transfer
+ * the browser would: the form reads `event.dataTransfer.files`, and that is all this hands it.
+ */
+function dragTo(document: Document, type: string, files: unknown[] = []): any {
+  const event = new (document.defaultView as any).Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'dataTransfer', { value: { files }, configurable: true });
+  return event;
+}
+
+/** A FileReader answers a task later, so the drop's callback lands after the dispatch returns. */
+async function until(check: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 200 && !check(); tries += 1) await new Promise(resolve => setTimeout(resolve, 5));
+}
+
 test('the composer shows every address field, the body, and the file control', () => {
   const { document, calls, done } = mount({});
   try {
@@ -150,5 +165,50 @@ test('the send control is dead until there is a recipient and something to say, 
     assert.equal((fileOnly.document.querySelector('.ui-prompt-send') as any).disabled, false, 'a file with no words is still a message');
   } finally {
     fileOnly.done();
+  }
+});
+
+test('a file dragged onto the draft is taken the way a picked one is, and the drag never leaves the panel', async () => {
+  const { document, calls, done, dom } = mount({});
+  try {
+    const form = document.querySelector('.ui-mail-composer') as any;
+    const described = document.getElementById(form.getAttribute('aria-describedby'))?.textContent ?? '';
+    assert.match(described, /dropped/, 'a screen reader is told the draft takes dropped files, and Attach stays the keyboard path');
+
+    // Uncancelled, the browser opens the dropped file and the panel is gone: this is the drag being claimed.
+    assert.equal(form.dispatchEvent(dragTo(document, 'dragover')), false, 'dragover is cancelled');
+    await until(() => form.classList.contains('is-dropping'));
+    assert.ok(form.classList.contains('is-dropping'), 'and the form shows it is the drop target');
+
+    const file = new dom.window.File(['hello'], 'plan.txt', { type: 'text/plain' });
+    assert.equal(form.dispatchEvent(dragTo(document, 'drop', [file])), false, 'so is the drop');
+    await until(() => calls.attached.length > 0);
+
+    assert.deepEqual(calls.attached, [{ name: 'plan.txt', mimeType: 'text/plain', size: 5, data: 'aGVsbG8=' }], 'the bytes arrive once, read exactly as the picker reads them');
+    await until(() => !form.classList.contains('is-dropping'));
+    assert.equal(form.classList.contains('is-dropping'), false, 'and the drop state is cleared');
+  } finally {
+    done();
+  }
+});
+
+test('a drop carrying no file is ignored, and the draft it was dropped on stays', async () => {
+  const { document, calls, done } = mount({ to: 'a@example.com', text: 'Half written' });
+  try {
+    const form = document.querySelector('.ui-mail-composer') as any;
+    form.dispatchEvent(dragTo(document, 'dragover'));
+    await until(() => form.classList.contains('is-dropping'));
+
+    form.dispatchEvent(dragTo(document, 'drop', [])); // a dragged link or a snippet, not a file
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.deepEqual(calls.attached, [], 'nothing is attached');
+    assert.deepEqual(calls.fields, [], 'the draft is untouched');
+    assert.equal(calls.discarded, 0, 'and it is not thrown away');
+    assert.equal((document.querySelector('.ui-mail-body') as any)?.value, 'Half written', 'the words are still there');
+    await until(() => !form.classList.contains('is-dropping'));
+    assert.equal(form.classList.contains('is-dropping'), false, 'the highlight clears when the drag ends');
+  } finally {
+    done();
   }
 });
