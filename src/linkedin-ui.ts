@@ -273,6 +273,13 @@ export function threadKeyExpression(): string {
 export type SendApproval = { allow: 'send'; recipient?: string; conversation?: string; invitation?: string };
 
 /**
+ * What the page itself says the click is addressed to, read in one go: the recipient chips a compose
+ * box shows, or the conversation key an open thread's URL names. The send decision and the send
+ * log's row are both built from this one answer, so they cannot disagree about what was sent.
+ */
+export type SendTarget = { recipients: string[]; threadKey: string };
+
+/**
  * The invitation action a control's own label names, or null for anything else. LinkedIn puts the
  * person inside the label — "Accept <name>'s invitation", "Ignore an invitation to connect from
  * <name>", "Invite <name> to connect" — with a typographic apostrophe, which is why the exact-word
@@ -311,7 +318,7 @@ export function samePersonName(left: unknown, right: unknown): boolean {
  * carries whichever of those the page offered — the caller reads the chips first and the thread
  * key only when there are no chips to read.
  */
-export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: { recipients: string[]; threadKey: string }): SendDecision {
+export function sendApprovalDecision(approval: SendApproval | undefined, controlName: string, observed: SendTarget): SendDecision {
   if (approval?.allow !== 'send') {
     return { ok: false, reason: `${JSON.stringify(controlName)} changes LinkedIn; it needs { allow: 'send' } plus the target it is approved for: the compose box's recipient, the conversation an open thread is showing, or the invitation being answered.` };
   }
@@ -353,19 +360,37 @@ export function isSendControlNamed(name: unknown): boolean {
 }
 
 /**
+ * The conversation a send-log row names for one click: what the page confirmed, and only when the
+ * page confirms nothing, the target the caller stated.
+ *
+ * A thread reply is named by the thread key — the same shape every other row in the log carries,
+ * so a reply and a replay of the same thread are one conversation. A compose box addressed to more
+ * than one person has no single name, so its chips are the target: read in document order, which a
+ * re-render can change, then sorted and comma-separated the way the mail side writes a recipient
+ * list, so the same set of people is always the same id.
+ */
+export function pageConfirmedConversation(observed: SendTarget | undefined, stated: string): string {
+  const threadKey = conversationKeyOf(observed?.threadKey);
+  if (threadKey) return threadKey;
+  const chips = (observed?.recipients ?? []).filter(name => typeof name === 'string' && name.trim() !== '');
+  return chips.length ? [...chips].sort().join(', ') : stated;
+}
+
+/**
  * What a `linkedin_ui` click owes the send log, or null when it cannot deliver a message.
  *
  * The click only delivers when the caller said `allow: 'send'`, the control is LinkedIn's own send
  * control, and the step names the target the page must confirm — the same three things the driver
  * needs before it clicks anything. A refused click therefore leaves no row, and an open, navigate,
- * snapshot or typing step never had a row to leave.
+ * snapshot or typing step never had a row to leave. `observed` is what the page confirmed for this
+ * click; the row is named for it, and the caller's own target is only the fallback.
  */
-export function sendClickRecord(step: { op?: string; control?: string; allow?: string; conversation?: string; recipient?: string; [key: string]: unknown }): { conversationId: string; reason: string } | null {
+export function sendClickRecord(step: { op?: string; control?: string; allow?: string; conversation?: string; recipient?: string; [key: string]: unknown }, observed?: SendTarget): { conversationId: string; reason: string } | null {
   if (step.op !== 'click' || step.allow !== 'send' || !step.control || !isSendControlNamed(step.control)) return null;
-  const conversationId = step.conversation ?? step.recipient;
-  if (!conversationId) return null;
+  const stated = step.conversation ?? step.recipient;
+  if (!stated) return null;
   return {
-    conversationId,
+    conversationId: pageConfirmedConversation(observed, stated),
     reason: 'Delivered by a LinkedIn page click with no approval minted for it: the page confirmed the target, and the caller stated allow: send for this exact click.',
   };
 }

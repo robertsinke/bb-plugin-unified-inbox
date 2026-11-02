@@ -330,3 +330,59 @@ test('only a linkedin_ui click that can deliver a message earns a send-log row',
   const compose = sendClickRecord({ op: 'click', control: 'Compose message', allow: 'send', recipient: 'Ada Lovelace' });
   assert.equal(compose && compose.conversationId, 'Ada Lovelace', 'a compose click names the recipient the step confirmed');
 });
+
+// The row names what the page confirmed, not what the caller assumed: a reply sent from an open
+// thread logs the conversation key every other row already uses, so the two can be matched.
+test('a thread reply logs the conversation key the page showed, not the name the caller passed', () => {
+  const THREAD = '2-YWJj';
+  const urn = `urn:li:msg_conversation:(urn:li:fsd_profile:ACoAA,${THREAD})`;
+  const row = sendClickRecord(
+    { op: 'click', control: 'Send', allow: 'send', conversation: 'Andrea Rossi' },
+    { recipients: [], threadKey: THREAD },
+  );
+  assert.equal(row?.conversationId, THREAD, 'the row names the thread the page was showing');
+  assert.equal(
+    sendClickRecord({ op: 'click', control: 'Send', allow: 'send', conversation: 'Andrea Rossi' }, { recipients: [], threadKey: urn })?.conversationId,
+    THREAD,
+    'a page that reports the full urn is logged as the same short key the thread URL names',
+  );
+  assert.equal(
+    sendClickRecord({ op: 'click', control: 'Send', allow: 'send', conversation: 'Andrea Rossi' }, { recipients: ['Ada Lovelace'], threadKey: THREAD })?.conversationId,
+    THREAD,
+    'an open thread is named by its key, whatever a stale compose box still shows',
+  );
+});
+
+// A compose box addressed to more than one person has no single name: the chips are the target, so
+// they are logged as one stable list — comma-separated, the way the mail side writes recipients.
+test('a compose click logs the chips the page showed, in a stable order', () => {
+  const step = { op: 'click', control: 'Compose message', allow: 'send', recipient: 'Ada Lovelace' };
+  assert.equal(
+    sendClickRecord(step, { recipients: ['Andrea Rossi', 'Ada Lovelace'], threadKey: '' })?.conversationId,
+    'Ada Lovelace, Andrea Rossi',
+  );
+  assert.equal(
+    sendClickRecord(step, { recipients: ['Ada Lovelace', 'Andrea Rossi'], threadKey: '' })?.conversationId,
+    'Ada Lovelace, Andrea Rossi',
+    'the same two people in the other document order are the same conversation',
+  );
+});
+
+// A page that has re-rendered its chips away says nothing, and a blank row would be worse than the
+// value the caller stated: the fallback is what the step named.
+test('a page that confirms nothing falls back to the target the step named', () => {
+  const empty = { recipients: [], threadKey: '' };
+  assert.equal(
+    sendClickRecord({ op: 'click', control: 'Send', allow: 'send', conversation: '2-YWJj' }, empty)?.conversationId,
+    '2-YWJj',
+  );
+  assert.equal(
+    sendClickRecord({ op: 'click', control: 'Compose message', allow: 'send', recipient: 'Ada Lovelace' }, empty)?.conversationId,
+    'Ada Lovelace',
+  );
+  assert.equal(
+    sendClickRecord({ op: 'click', control: 'Compose message', allow: 'send' }, empty),
+    null,
+    'a step naming no target at all still has no row to leave',
+  );
+});
