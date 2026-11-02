@@ -58,3 +58,4 @@
 .ui-attachment-size{opacity:.6;font-variant-numeric:tabular-nums}
 .ui-attachment-drop{display:grid;place-items:center;width:16px;height:16px;border:0;border-radius:50%;background:transparent;color:inherit;font-size:13px;line-height:1;opacity:.65}
 .ui-attachment-drop:hover{opacity:1;background:#8883}
+.ui-more{border:1px solid #8885;border-radius:8px;background:transparent;padding:7px 10px;margin-right:10px;font-weight:650;opacity:1}

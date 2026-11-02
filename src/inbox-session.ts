@@ -67,6 +67,10 @@ export interface InboxSnapshot {
   hits: { account: Account; id: string }[] | null;
   refreshedAt: Partial<Record<Account, number>>;
   refreshingInbox: boolean;
+  /** Some source told the panel it still holds rows older than the ones on screen. */
+  hasOlder: boolean;
+  /** An older page is in flight; the control is disabled until it lands. */
+  loadingOlder: boolean;
   mail: MailDraft | null;
   mailStatus: string;
   /** What the send gate decided, newest first — the same rows the CLI prints. */
@@ -102,6 +106,8 @@ export interface InboxSession {
   open(item: InboxItem): Promise<void>;
   back(): void;
   refresh(sources?: Account[]): Promise<void>;
+  /** The one control that extends the list: the next older page from every source that has one. */
+  more(): Promise<void>;
   setFilter(f: InboxFilter): void;
   setQuery(q: string): void;
   setDraft(t: string): void;
@@ -155,6 +161,14 @@ const SOURCE_LABEL: Record<Account, string> = {
 /** Messages' own failure line: it is the one source whose fix is outside the plugin. */
 const MESSAGES_REFRESH_FAILURE = 'Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.';
 
+/** The one failure line "show older" adds, so a later success can clear it by name. */
+const OLDER_FAILURE = 'Older conversations could not load.';
+
+/** A row's identity across sources; the same thread can arrive from a refresh and from a page. */
+function rowKey(item: InboxItem): string {
+  return `${item.account}\u0000${item.id}`;
+}
+
 export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   const clock = deps.now ?? (() => Date.now());
   const storage: InboxDraftStorage | undefined = deps.storage;
@@ -174,6 +188,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     hits: null,
     refreshedAt: {},
     refreshingInbox: false,
+    hasOlder: false,
+    loadingOlder: false,
     mail: null,
     audit: [],
     auditOpen: false,
@@ -204,6 +220,14 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   const drafts = new Map<string, string>();
   const pendingDrafts = new Map<string, string>();
   const draftDue = new Map<string, number>();
+
+  /**
+   * The rows "show older" loaded, per source — the one record of what the owner asked to see
+   * beyond the newest page. A refresh replaces a source's newest page, so `mergeSource` puts
+   * these back instead of letting a 45-second poll silently shorten the list. Archiving a row
+   * removes it from here, so it does not come back on the next refresh.
+   */
+  const olderRows = new Map<Account, InboxItem[]>();
 
   const createdAt = clock();
   const listDue = new Map<Account, number>();
@@ -266,7 +290,12 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
 
   /** Replace one source's rows; the list stays newest first. */
   function mergeSource(account: Account, listed: InboxItem[]): void {
-    setItems([...state.items.filter(item => item.account !== account), ...listed].sort((a, b) => b.date - a.date));
+    // A row that has moved back into the newest page (new mail pushed the page down) is served
+    // by `listed`; keeping the older copy too would render the same row twice.
+    const listedIds = new Set(listed.map(item => item.id));
+    const kept = (olderRows.get(account) ?? []).filter(item => !listedIds.has(item.id));
+    olderRows.set(account, kept);
+    setItems([...state.items.filter(item => item.account !== account), ...listed, ...kept].sort((a, b) => b.date - a.date));
   }
 
   // Capabilities are asked once. A failure leaves the declaration null, which
@@ -331,6 +360,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           mergeSource(account, listed.items);
           state.refreshedAt = { ...state.refreshedAt, [account]: clock() };
           state.errors = state.errors.filter(error => !error.startsWith(SOURCE_LABEL[account]));
+          // A false here never lowers the offer: only the page that answers for every source does.
+          state.hasOlder = state.hasOlder || listed.more === true;
           notify();
         } catch (error) {
           const detail = error instanceof Error ? ` ${error.message}` : '';
@@ -346,6 +377,37 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     } finally {
       for (const account of pending) refreshing.delete(account);
       state.refreshingInbox = refreshing.size > 0;
+      notify();
+    }
+  }
+
+  /**
+   * The next older page. One request at a time, no side effect from rendering, and a failure
+   * lands in `errors` with the rows already shown untouched — the same invariants as `refresh`.
+   */
+  async function more(): Promise<void> {
+    if (state.loadingOlder || !state.hasOlder) return;
+    state.loadingOlder = true;
+    notify();
+    try {
+      const page = await deps.rpc.call('list', { older: true });
+      const seen = new Set(state.items.map(rowKey));
+      const fresh: InboxItem[] = page.items.filter((item: InboxItem) => !seen.has(rowKey(item)));
+      for (const item of fresh) {
+        const rows = olderRows.get(item.account) ?? [];
+        if (!rows.some(row => row.id === item.id)) olderRows.set(item.account, [...rows, item]);
+      }
+      setItems([...state.items, ...fresh].sort((a, b) => b.date - a.date));
+      state.errors = state.errors.filter(error => !error.startsWith(OLDER_FAILURE));
+      state.hasOlder = page.more === true;
+      notify();
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      const message = `${OLDER_FAILURE}${detail} Refresh, then try again.`;
+      if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+      notify();
+    } finally {
+      state.loadingOlder = false;
       notify();
     }
   }
@@ -423,6 +485,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     state.items = action === 'archive'
       ? state.items.filter(row => !(row.account === item.account && row.id === item.id))
       : state.items.map(row => row.account === item.account && row.id === item.id ? { ...row, unread } : row);
+    // An archived row must not return when a refresh merges the older pages back in.
+    if (action === 'archive') olderRows.set(item.account, (olderRows.get(item.account) ?? []).filter(row => row.id !== item.id));
     state.selected = state.selected && state.selected.account === item.account && state.selected.id === item.id
       ? action === 'archive' ? null : { ...state.selected, unread }
       : state.selected;
@@ -691,6 +755,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     open,
     back,
     refresh,
+    more,
     setFilter(f) {
       if (state.filter === f) return;
       state.filter = f;

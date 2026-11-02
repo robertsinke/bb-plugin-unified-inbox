@@ -507,3 +507,94 @@ test('a draft with an attachment and no body is still worth sending, and the fil
   assert.deepEqual((sent.input as any).attachments, [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) }], 'the file is sent exactly as it was attached');
   assert.equal(session.snapshot().mail, null);
 });
+
+test('show older appends the next page, drops a row already on screen, and stops offering more', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const repeated = row({ account: 'personal', id: 't2', date: 20 });
+  const older = row({ account: 'personal', id: 't3', date: 10 });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest, repeated] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest, repeated] : [], more: input.account === 'personal' }),
+    list: () => ({ items: [repeated, older], errors: [], more: false }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  assert.equal(session.snapshot().hasOlder, true, 'a source that has older rows offers them');
+
+  await session.more();
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2', 't3'], 'the older row lands after the rows already shown');
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'list').map(call => call.input), [{ older: true }], 'one call answers the whole page');
+  assert.equal(session.snapshot().hasOlder, false, 'the last page stops offering more');
+  assert.equal(session.snapshot().loadingOlder, false);
+
+  // Nothing older is left, so a second press changes nothing and asks nothing.
+  await session.more();
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2', 't3']);
+  assert.equal(rpc.calls.filter(call => call.name === 'list').length, 1, 'an exhausted list is not asked again');
+});
+
+test('show older is one request at a time', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  let release: () => void = () => {};
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    list: () => new Promise(resolve => { release = () => resolve({ items: [row({ account: 'personal', id: 't3', date: 10 })], errors: [], more: false }); }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  const first = session.more();
+  await settle();
+  assert.equal(session.snapshot().loadingOlder, true, 'the control says it is working');
+  await session.more();
+  assert.equal(rpc.calls.filter(call => call.name === 'list').length, 1, 'a second press while one page is in flight asks nothing');
+
+  release();
+  await first;
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't3']);
+  assert.equal(session.snapshot().loadingOlder, false);
+});
+
+test('a failed show older lands in errors and the rows already shown survive', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    list: () => { throw new Error('Gmail thread list request failed (403).'); },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  await session.more();
+  const snapshot = session.snapshot();
+  assert.deepEqual(snapshot.items.map(item => item.id), ['t1'], 'the list on screen is untouched');
+  assert.equal(snapshot.loadingOlder, false);
+  assert.ok(snapshot.errors.some(error => error.startsWith('Older conversations could not load.')), 'the failure is a line in the panel, not a throw');
+});
+
+test('a refresh keeps the rows show older loaded, and an archived one does not return', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30, unread: false });
+  const older = row({ account: 'personal', id: 't3', date: 10, unread: false });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    list: () => ({ items: [older], errors: [], more: true }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.more();
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't3']);
+
+  await session.refresh(['personal']);
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't3'], 'a refresh cannot silently shorten what the owner asked to see');
+
+  await session.mark(older, 'archive');
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1']);
+  await session.refresh(['personal']);
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1'], 'an archived row does not come back with the older pages');
+});
