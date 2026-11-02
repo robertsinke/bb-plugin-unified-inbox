@@ -52,6 +52,8 @@ export interface InboxSnapshot {
   mailStatus: string;
   /** What the send gate decided, newest first — the same rows the CLI prints. */
   audit: SendAuditEntry[];
+  /** Whether the panel is showing the decision log instead of the conversation list. */
+  auditOpen: boolean;
 }
 
 /** One send decision, as the gate recorded it: no message text, ever. */
@@ -86,6 +88,8 @@ export interface InboxSession {
   setDraft(t: string): void;
   mark(item: InboxItem, action: 'read' | 'unread' | 'archive'): Promise<void>;
   answer(item: InboxItem, action: 'confirm' | 'reject'): Promise<void>;
+  showAudit(): Promise<void>;
+  hideAudit(): void;
   submit(): Promise<void>;
   startMail(mode: MailMode, account: GmailAccount): void;
   setMail(patch: Partial<MailDraft>): void;
@@ -150,6 +154,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     refreshingInbox: false,
     mail: null,
     audit: [],
+    auditOpen: false,
     mailStatus: '',
   };
 
@@ -268,12 +273,27 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   }
 
   /** The last few send decisions, so a refusal is visible where it happened. */
-  async function loadAudit(): Promise<void> {
+  async function loadAudit(limit = 5): Promise<void> {
     try {
-      const { rows } = await deps.rpc.call('send_audit', { limit: 5 });
+      const { rows } = await deps.rpc.call('send_audit', { limit });
       state.audit = rows;
       notify();
     } catch { /* the CLI still has the full log */ }
+  }
+
+  /** The log is a view behind the inbox menu, not chrome above the list. */
+  async function showAudit(): Promise<void> {
+    if (!state.auditOpen) {
+      state.auditOpen = true;
+      notify();
+    }
+    await loadAudit(20);
+  }
+
+  function hideAudit(): void {
+    if (!state.auditOpen) return;
+    state.auditOpen = false;
+    notify();
   }
 
   async function refresh(sources: Account[] = DEFAULT_SOURCES): Promise<void> {
@@ -612,6 +632,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     start,
     tick,
     flush,
+    showAudit,
+    hideAudit,
     open,
     back,
     refresh,

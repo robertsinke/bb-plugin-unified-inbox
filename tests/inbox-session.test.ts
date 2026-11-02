@@ -361,3 +361,28 @@ test('a refused send is visible in the panel, not only in the CLI', async () => 
     'and the refused attempt is in the snapshot the panel renders',
   );
 });
+
+test('the send log is opened from the inbox menu, not sitting above the list', async () => {
+  const rpc = fakeRpc({
+    cached: () => ({ items: [row({ unread: false })] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [row({ unread: false })] : [] }),
+    send_audit: () => ({
+      rows: [{ at: 5, account: 'whatsapp', conversationId: 'chat-1', decision: 'refused', reason: 'nothing was sent' }],
+    }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  assert.equal(session.snapshot().auditOpen, false, 'the list is what the panel shows until asked');
+
+  await session.showAudit();
+  const reads = rpc.calls.filter(call => call.name === 'send_audit');
+  assert.equal(session.snapshot().auditOpen, true, 'the menu item opens the log');
+  const lastRead = reads.at(-1)!;
+  assert.equal((lastRead.input as { limit?: number }).limit, 20, 'a log view reads more than the five the badge needs');
+  assert.deepEqual(session.snapshot().audit.map(entry => entry.decision), ['refused']);
+
+  session.hideAudit();
+  assert.equal(session.snapshot().auditOpen, false, 'and closes back to the list');
+});
