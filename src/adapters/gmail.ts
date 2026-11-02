@@ -210,7 +210,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     async send(draft: SendDraft, _authorization: SendAuthorization): Promise<SendReceipt> {
       if (draft.kind !== 'gmail' || draft.account !== account) throw new Error('This draft belongs to another account.');
       try {
-        const raw = await buildGmailMime({ from: SELF[account], to: draft.to, cc: draft.cc ?? '', subject: draft.subject, text: draft.text, inReplyTo: draft.inReplyTo, references: draft.references });
+        const raw = await buildGmailMime({ from: SELF[account], to: draft.to, cc: draft.cc ?? '', bcc: draft.bcc ?? '', subject: draft.subject, text: draft.text, inReplyTo: draft.inReplyTo, references: draft.references });
         const response = await deps.gmail.send(account, { raw, threadId: draft.threadId });
         if (typeof response?.id !== 'string' || !response.id) throw new Error('Send result missing message ID');
         return { status: 'Sent.' };

@@ -45,7 +45,7 @@ test('a mail draft round-trips through storage, with and without reply context',
     account: 'personal',
     to: 'ana@example.com',
     cc: 'bo@example.com',
-    subject: 'Re: launch',
+    bcc:'',subject: 'Re: launch',
     text: 'Short answer: yes.',
     threadId: 'thread-1',
     inReplyTo: '<m1@example.com>',
@@ -55,7 +55,7 @@ test('a mail draft round-trips through storage, with and without reply context',
   assert.equal(writeMailDraft(storage, threadKey, reply), true);
   assert.deepEqual(readMailDraft(storage, threadKey), reply);
 
-  const fresh: InboxMailDraft = { account: 'business', to: '', cc: '', subject: 'Hello', text: 'Body' };
+  const fresh: InboxMailDraft = { account: 'business', to: '', cc: '', bcc:'',subject: 'Hello', text: 'Body' };
   const composeKey = mailDraftKey({ account: 'business', newMessageKey: 'compose-1' });
   assert.equal(writeMailDraft(storage, composeKey, fresh), true);
   assert.deepEqual(readMailDraft(storage, composeKey), fresh);
@@ -83,9 +83,9 @@ test('an absent mail draft and a disabled storage both read as no draft', () => 
     removeItem() { throw new Error('disabled'); },
   };
   assert.equal(readMailDraft(broken, key), undefined);
-  assert.equal(writeMailDraft(broken, key, { account: 'personal', to: '', cc: '', subject: 's', text: 't' }), false);
+  assert.equal(writeMailDraft(broken, key, { account: 'personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
   assert.equal(clearMailDraft(broken, key), false);
-  assert.equal(writeMailDraft(undefined, key, { account: 'personal', to: '', cc: '', subject: 's', text: 't' }), false);
+  assert.equal(writeMailDraft(undefined, key, { account: 'personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
 });
 
 test('reply text and mail drafts for the same conversation never collide', () => {
@@ -95,7 +95,7 @@ test('reply text and mail drafts for the same conversation never collide', () =>
   const composeKey = mailDraftKey({ account: 'personal', newMessageKey: 'thread-1' });
   assert.equal(new Set([replyKey, threadKey, composeKey]).size, 3);
 
-  const draft: InboxMailDraft = { account: 'personal', to: 'ana@example.com', cc: '', subject: 'Re: launch', text: 'body', threadId: 'thread-1' };
+  const draft: InboxMailDraft = { account: 'personal', to: 'ana@example.com', cc: '', bcc:'',subject: 'Re: launch', text: 'body', threadId: 'thread-1' };
   writeInboxDraft(storage, replyKey, 'chat reply text');
   writeMailDraft(storage, threadKey, draft);
   assert.equal(readInboxDraft(storage, replyKey), 'chat reply text');
@@ -116,4 +116,11 @@ test('storage failures degrade safely without losing the in-memory caller state'
   assert.equal(readInboxDraft(broken, key), undefined);
   assert.equal(writeInboxDraft(broken, key, 'draft'), false);
   assert.equal(writeInboxDraft(undefined, key, 'draft'), false);
+});
+
+test('a blind copy survives a reload with the rest of the draft', () => {
+  const storage = memoryStorage();
+  writeMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1', { account: 'personal', to: 'a@example.com', cc: 'b@example.com', bcc: 'c@example.com', subject: 'Hi', text: 'Hello' });
+  const back = readMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1');
+  assert.equal(back?.bcc, 'c@example.com', 'the draft the owner returns to still knows who was blind-copied');
 });

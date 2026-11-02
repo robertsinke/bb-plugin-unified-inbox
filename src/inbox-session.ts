@@ -24,6 +24,7 @@ export interface MailDraft {
   account: GmailAccount;
   to: string;
   cc: string;
+  bcc: string;
   subject: string;
   text: string;
   threadId?: string;
@@ -491,6 +492,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       account,
       to: mode === 'reply' || mode === 'replyAll' ? replyTo : '',
       cc,
+      bcc: '',
       subject: mode === 'new' ? '' : mode === 'forward' ? `Fwd: ${subject.replace(/^fwd:\s*/i, '')}` : `Re: ${subject.replace(/^re:\s*/i, '')}`,
       text: mode === 'forward' ? `\n\n---------- Forwarded message ----------\nFrom: ${last?.sender || ''}\n\n${last?.text || ''}` : '',
       ...(mode === 'reply' || mode === 'replyAll'
