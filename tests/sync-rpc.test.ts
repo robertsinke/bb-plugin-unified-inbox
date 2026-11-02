@@ -6,20 +6,22 @@ import test from 'node:test';
 import { createInboxSession } from '../src/inbox-session.ts';
 import type { Adapter } from '../src/adapters/types.ts';
 
-type Call = { name: string; input: any };
+type Call = { name: string; input: unknown };
 
+// A gateway fake: it answers whatever method the contract names. `...args` is the
+// contract's own call shape (`[input]` or `[]`), so the fake stays assignable to the
+// typed dep without widening it.
 function recordingRpc(answers: Record<string, (input: any) => unknown> = {}) {
   const calls: Call[] = [];
   return {
     calls,
-    async call(name: string, input: unknown): Promise<any> {
-      calls.push({ name, input: input as any });
-      const answer = answers[name];
-      if (answer) return answer(input as any);
-      if (name === 'capabilities') return {};
-      if (name === 'cached') return { items: [] };
-      if (name === 'list_source') return { items: [] };
-      if (name === 'linkedin_sync') return { items: [], updatedAt: 0 };
+    async call(method: string, ...args: unknown[]): Promise<any> {
+      const input = args[0];
+      calls.push({ name: method, input });
+      const answer = answers[method];
+      if (answer) return answer(input);
+      if (method === 'capabilities') return {};
+      if (method === 'cached') return { items: [] };
       return { items: [] };
     },
   };
@@ -34,10 +36,10 @@ test('refresh asks every source the same question: sync, once each', async () =>
   assert.deepEqual(
     rpc.calls.map(call => call.name),
     rpc.calls.map(() => 'sync'),
-    'no source reaches for a second RPC name (list_source, linkedin_sync)',
+    'no source reaches for a second RPC name: `sync` is the one refresh primitive',
   );
   assert.deepEqual(
-    [...new Set(syncs.map(call => call.input.account))].sort(),
+    [...new Set(syncs.map(call => (call.input as { account: string }).account))].sort(),
     ['business', 'imessage', 'linkedin', 'personal', 'whatsapp'],
   );
 });
