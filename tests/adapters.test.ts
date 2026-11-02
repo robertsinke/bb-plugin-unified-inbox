@@ -293,9 +293,12 @@ test('a refusal comes from capabilities, not from an account check in the transp
     await assert.rejects(f.registry.linkedin.action('read', 'not-a-conversation'), /cannot be marked/);
     assert.deepEqual(f.calls, []);
 
-    // And the transport never picks behaviour from a source name.
-    const source = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /===\s*'(?:personal|business|whatsapp|imessage|linkedin)'/);
+    // And the transport never picks behaviour from a source name. The handler table lives in
+    // src/gateway.ts now; server.ts keeps the wiring, so both are checked.
+    for (const path of ['../src/gateway.ts', '../server.ts']) {
+      const source = await readFile(new URL(path, import.meta.url), 'utf8');
+      assert.doesNotMatch(source, /===\s*'(?:personal|business|whatsapp|imessage|linkedin)'/, `${path} branches on a source name`);
+    }
   } finally { f.done(); }
 });
 
