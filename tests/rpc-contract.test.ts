@@ -57,6 +57,11 @@ test('a send decision that was allowed has no reason, and the contract says so',
 
   const refused = { rows: [{ ...allowed.rows[0], decision: 'refused', reason: 'nothing was sent' }] };
   assert.equal(rpcContract.send_audit.output.safeParse(refused).success, true, 'a refusal keeps its reason');
+  // A blind copy is who the message reached silently; an old row has no such column at all, so
+  // null and missing must both be readable rather than thrown away.
+  const copying = { rows: [{ ...allowed.rows[0], bcc: 'quiet@example.com' }] };
+  assert.equal(rpcContract.send_audit.output.safeParse(copying).success, true, 'a row remembers the blind copy');
+  assert.equal(rpcContract.send_audit.output.safeParse({ rows: [{ ...allowed.rows[0], bcc: null }] }).success, true, 'and a send without one reads as null');
 });
 
 test('a Gmail draft can carry a blind copy', () => {

@@ -21,21 +21,24 @@ export function createSendAudit(db: Database.Database) {
     conversation_id TEXT NOT NULL,
     decision TEXT NOT NULL,
     approval_id TEXT,
-    reason TEXT
+    reason TEXT,
+    bcc TEXT
   )`);
-  // The table on a machine that ran an earlier build predates `approval_id`, and
-  // CREATE TABLE IF NOT EXISTS will not add a column to it. Add it in place, once.
-  const columns = db.prepare('PRAGMA table_info(inbox_send_audit)').all() as { name: string }[];
-  if (!columns.some(column => column.name === 'approval_id')) {
-    db.exec('ALTER TABLE inbox_send_audit ADD COLUMN approval_id TEXT');
+  // A table from an earlier build predates one or more of these, and CREATE TABLE IF NOT EXISTS
+  // will not add a column to it — so every column the rows need is added in place, once.
+  const present = new Set(
+    (db.prepare('PRAGMA table_info(inbox_send_audit)').all() as { name: string }[]).map(column => column.name),
+  );
+  for (const column of ['approval_id', 'bcc']) {
+    if (!present.has(column)) db.exec(`ALTER TABLE inbox_send_audit ADD COLUMN ${column} TEXT`);
   }
-  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason)');
-  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
+  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason, bcc) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason, @bcc)');
+  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason, bcc FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
   const spentRow = db.prepare("SELECT 1 FROM inbox_send_audit WHERE approval_id = ? AND decision = 'allowed' LIMIT 1");
   return {
     /** One row per attempted send. Never a body, never bytes. */
     record(row: AuditRow) {
-      insert.run({ ...row, approvalId: row.approvalId ?? null, reason: row.reason ?? null });
+      insert.run({ ...row, approvalId: row.approvalId ?? null, reason: row.reason ?? null, bcc: row.bcc ?? null });
     },
     /**
      * Whether this approval was already spent, read from the rows themselves rather than

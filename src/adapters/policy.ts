@@ -21,6 +21,8 @@ export interface AuditRow {
   approvalId?: string;
   /** Why a refusal happened, in words a person can read. */
   reason?: string;
+  /** Who was blind-copied, when anyone was. Empty when the send had no blind copy. */
+  bcc?: string;
 }
 
 /** How long one approval stays good. One number, here, so no call site can widen it. */
@@ -39,6 +41,12 @@ export interface SendRequest {
   account: Account;
   conversationId: string;
   text: string;
+  /**
+   * Who was blind-copied, as the draft holds it. The conversation id cannot say this — a send to
+   * yourself with a bcc has the same id as one without — so a blind copy would otherwise leave the
+   * record with no trace of the audience it reached.
+   */
+  bcc?: string;
 }
 
 /** Whether a source may send at all, and why not when it may not. */
@@ -116,7 +124,16 @@ export function createSendGate({ now, store }: SendGateDeps) {
     // Written before delivery, with the approval it spends: a delivery that throws must
     // not leave the approval usable for a retry, which is how one approval becomes two
     // messages. The row is the spend, so a reload cannot undo it.
-    store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'allowed', approvalId: approval.id });
+    store.record({
+      at: now(),
+      operation: 'send',
+      account: request.account,
+      conversationId: request.conversationId,
+      decision: 'allowed',
+      approvalId: approval.id,
+      // Only a blind copy is kept: it is the one audience nothing else in the row can name.
+      ...(request.bcc?.trim() ? { bcc: request.bcc.trim() } : {}),
+    })
     return deliver();
   };
 }
