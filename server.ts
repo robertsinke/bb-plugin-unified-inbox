@@ -228,8 +228,9 @@ export default function plugin(bb: BbPluginApi) {
     },
     async list(options) {
       const older = options?.older === true;
+      const scope = options?.account ? [options.account] : accounts;
       // A source that already answered "nothing older" is not asked again.
-      const names = older ? accounts.filter(name => typeof olderCursor[name] === 'string') : accounts;
+      const names = older ? scope.filter(name => typeof olderCursor[name] === 'string') : scope;
       const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined)));
       const errors: string[] = [];
       const items: Conversation[] = [];
@@ -247,7 +248,9 @@ export default function plugin(bb: BbPluginApi) {
         errors.push(listError(name, result.reason));
       });
       searchIndex.warm();
-      return { items: decorated(items.sort((a, b) => b.date - a.date)), errors, more: hasOlder() };
+      // A call that named one source answers for that source; the whole-inbox call answers for all.
+      const more = options?.account ? typeof olderCursor[options.account] === 'string' : hasOlder();
+      return { items: decorated(items.sort((a, b) => b.date - a.date)), errors, more };
     },
   });
 

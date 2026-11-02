@@ -524,7 +524,7 @@ test('show older appends the next page, drops a row already on screen, and stops
 
   await session.more();
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2', 't3'], 'the older row lands after the rows already shown');
-  assert.deepEqual(rpc.calls.filter(call => call.name === 'list').map(call => call.input), [{ older: true }], 'one call answers the whole page');
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'list').map(call => call.input), [{ older: true, account: 'personal' }], 'one call answers that source; the sources that said nothing older are not asked');
   assert.equal(session.snapshot().hasOlder, false, 'the last page stops offering more');
   assert.equal(session.snapshot().loadingOlder, false);
 
@@ -532,6 +532,68 @@ test('show older appends the next page, drops a row already on screen, and stops
   await session.more();
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2', 't3']);
   assert.equal(rpc.calls.filter(call => call.name === 'list').length, 1, 'an exhausted list is not asked again');
+});
+
+test('show older grows the list as each source answers, not when the slowest does', async () => {
+  const mine = row({ account: 'personal', id: 't1', date: 30 });
+  const chat = row({ account: 'whatsapp', id: 'c1', date: 20 });
+  const olderChat = row({ account: 'whatsapp', id: 'c2', date: 5 });
+  const olderMail = row({ account: 'personal', id: 't2', date: 10 });
+  let release: () => void = () => {};
+  const rpc = fakeRpc({
+    cached: () => ({ items: [] }),
+    sync: input => ({
+      items: input.account === 'personal' ? [mine] : input.account === 'whatsapp' ? [chat] : [],
+      more: input.account === 'personal' || input.account === 'whatsapp',
+    }),
+    list: input => input.account === 'personal'
+      ? new Promise(resolve => { release = () => resolve({ items: [olderMail], errors: [], more: false }); })
+      : { items: [olderChat], errors: [], more: false },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  const round = session.more();
+  await settle();
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 'c1', 'c2'], 'the fast source lands while the slow one is still reading');
+  assert.equal(session.snapshot().loadingOlder, true, 'the round is still open');
+
+  release();
+  await round;
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 'c1', 't2', 'c2'], 'the slow source lands into the same list');
+  assert.equal(session.snapshot().loadingOlder, false);
+  assert.equal(session.snapshot().hasOlder, false, 'both sources said there is nothing older');
+});
+
+test('an older page that misses its ceiling is given up with a line, and the rows on screen stay', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const late = row({ account: 'personal', id: 't2', date: 10 });
+  let answer: (value: unknown) => void = () => {};
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    list: () => new Promise(resolve => { answer = resolve; }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  const round = session.more();
+  await settle();
+  assert.equal(session.snapshot().loadingOlder, true);
+
+  // The session's own heartbeat is the clock: a page open past its ceiling is given up there.
+  session.tick(15_000);
+  const timedOut = session.snapshot();
+  assert.equal(timedOut.loadingOlder, false, 'the control is usable again instead of wedged');
+  assert.deepEqual(timedOut.items.map(item => item.id), ['t1'], 'the rows already shown are untouched');
+  assert.ok(timedOut.errors.some(line => line.startsWith('Older conversations could not load in time')), 'and it says so in words a person can read');
+
+  // The answer arrives late; the owner was told the wait was given up, so it is dropped.
+  answer({ items: [late], errors: [], more: false });
+  await round;
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1'], 'a page given up on does not appear afterwards');
+  assert.equal(session.snapshot().hasOlder, true, 'and the source can still be asked again');
 });
 
 test('show older is one request at a time', async () => {
@@ -573,7 +635,7 @@ test('a failed show older lands in errors and the rows already shown survive', a
   const snapshot = session.snapshot();
   assert.deepEqual(snapshot.items.map(item => item.id), ['t1'], 'the list on screen is untouched');
   assert.equal(snapshot.loadingOlder, false);
-  assert.ok(snapshot.errors.some(error => error.startsWith('Older conversations could not load.')), 'the failure is a line in the panel, not a throw');
+  assert.ok(snapshot.errors.some(error => error.startsWith('Older conversations could not load from Personal Gmail')), 'the failure is a line in the panel, naming the source, not a throw');
 });
 
 test('a refresh keeps the rows show older loaded, and an archived one does not return', async () => {

@@ -8,10 +8,17 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createAsyncGate } from '../async-gate.ts';
+import { createAsyncGate, createAsyncPool } from '../async-gate.ts';
 import type { GmailAccount } from './types.ts';
 
 const exec = promisify(execFile);
+
+/**
+ * Reads that may overlap: a CLI call spends ~0.4s of CPU on its own startup, so twenty of them
+ * one after another is a long wait and twenty at once fights for the machine. Six is where the
+ * measured curve flattens. The serialized gate below still owns sends.
+ */
+const READ_CONCURRENCY = 6;
 
 /** Installed CLI path; the runner does not search PATH. */
 const GWS_BINARY = '/usr/local/bin/gws';
@@ -29,10 +36,11 @@ export interface GwsRunner {
 }
 
 export function createGwsRunner(): GwsRunner {
-  const gate = createAsyncGate();
+  const reads = createAsyncPool(READ_CONCURRENCY);
+  const sends = createAsyncGate();
   return {
     call(account, args) {
-      return gate(async () => {
+      return reads(async () => {
         const { stdout } = await exec(GWS_BINARY, ['gmail', ...args], {
           env: { ...process.env, GOOGLE_WORKSPACE_CLI_CONFIG_DIR: gwsConfigDir(account) },
           timeout: 30_000,
@@ -43,7 +51,7 @@ export function createGwsRunner(): GwsRunner {
     },
 
     send(account, message) {
-      return gate(async () => {
+      return sends(async () => {
         const dir = await mkdtemp(join(tmpdir(), 'bb-inbox-mail-'));
         try {
           await writeFile(join(dir, 'message.eml'), message.raw, { mode: 0o600 });
