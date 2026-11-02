@@ -41,3 +41,20 @@ test('a chat send says allow: send, and an unknown field is still refused', () =
   const typo = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', allows: 'send' });
   assert.equal(typo.success, false, 'a mistyped approval field is refused rather than ignored');
 });
+
+test('a send decision that was allowed has no reason, and the contract says so', () => {
+  const allowed = {
+    rows: [{
+      at: 1,
+      account: 'whatsapp',
+      conversationId: 'chat-1',
+      decision: 'allowed',
+      // the gate writes a reason only when it refuses; an allowance has nothing to explain
+      reason: null,
+    }],
+  };
+  assert.equal(rpcContract.send_audit.output.safeParse(allowed).success, true, 'an allowed row with a null reason must parse');
+
+  const refused = { rows: [{ ...allowed.rows[0], decision: 'refused', reason: 'nothing was sent' }] };
+  assert.equal(rpcContract.send_audit.output.safeParse(refused).success, true, 'a refusal keeps its reason');
+});
