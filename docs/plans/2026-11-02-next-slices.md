@@ -362,3 +362,39 @@ precisely how a new column goes unnoticed — it imports the gate's type now.
 Proved live, not only in tests: a send to `robertsinke.jr@gmail.com` with `bcc robert@inhouse.works`
 produced the row `… allowed personal robertsinke.jr@gmail.com bcc robert@inhouse.works`, and the
 business account's own sync shows the blind copy arrived there, unread.
+
+## Three children, one assessment
+
+An assessment against the record (specs, plans, decisions, the INBOX tracker, and the code) found the
+feature backlog empty and three things left: a trust boundary we knowingly left open, prose that
+described a plugin we no longer ship, and no paging. Each went to a child on its own worktree; the
+parent merged, and verified live.
+
+**1. The send log sees the LinkedIn writes** (`0ad6e59` merge). `linkin_replay` and a `linkedin_ui` send
+click reached the page without passing the gate — no approval, no row — so an agent-driven LinkedIn send
+left no trace while a panel send did. The gate now has a second entry point, `observe`, which records
+`allowed` with **no `approvalId`** and a reason naming the real authorisation (the page-confirmed target
+and the caller's `confirm`), then delivers. No policy, no window, no spend. A read-only `linkedin_ui`
+step records nothing — proved live: 11 rows before a snapshot step, 11 after. Recorded in
+`decisions/0004-linkin-writes-are-recorded-not-approved.md`.
+
+**2. The docs match the product** (`742c6b7`). `README.md` claimed Gmail reply/compose, group replies
+and WhatsApp playback were missing (all shipped) and that LinkedIn never sends (it does). The brief
+itself was wrong twice and the child said so: audio/document playback really is missing, and WhatsApp
+*unread* really does work. `PLUGIN_OVERVIEW.md` was still the BB "Example todos" template; it now
+describes five sources, one gate, and what stays on this machine.
+
+**3. Show older** (`abb5411`, fixed in the merge of `e9a833b`). Gmail's `pageToken`, WhatsAgent's offset,
+one `list` call that takes `{older, account}`, a session `more()` that lands each source as it answers,
+and a 15-second ceiling so a slow source becomes a line rather than a control that never stops loading.
+
+The first version was correct and unusable: 41 s for an older page, because Gmail fetched the **full body**
+of 20 threads per account through a serialized runner. Reading `format: metadata` instead (a row shows
+headers, labels, dates, a snippet — never a body), overlapping the reads through a 6-slot pool, and asking
+for ten mail rows per press took it to ~3.4 s for both accounts. A page that returns nothing new while the
+source still says more now says so, so no press is silent.
+
+Proved live, in the panel, after a reload: 131 rows → **201** on one press (WhatsApp 50, personal 10,
+business 10), no error marker. Two things this cost me to learn: the panel renders session errors only as
+a marker on the ⋯ menu, and a browser script that polls every 500 ms starves the page it is measuring —
+read once after a sleep, not in a tight loop.
