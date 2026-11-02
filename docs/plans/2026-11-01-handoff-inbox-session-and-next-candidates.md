@@ -170,9 +170,12 @@ is proved by `tests/rpc-contract.test.ts` rather than only by a live call — th
 does and mints its approval, so enabling Gmail later is a `SEND_POLICY` line, not a new approval
 path.
 
-**The decision log is visible in the panel**: `send_audit` (read-only RPC) feeds `state.audit`, read
-on start and after every send attempt, rendered as a collapsed "N send decisions" list above the
-rows — time, decision, source, reason. Live: five rows, the newest a Gmail refusal with its reason.
+**The decision log is a view behind the inbox menu**: `send_audit` (read-only RPC) feeds
+`state.audit`, read on start and after every send attempt; the bar's ⋯ carries "Send log", which
+reads 20 rows and turns the list into them (time, decision, source, reason), and the same item reads
+"Back to inbox". The session owns that mode (`showAudit`/`hideAudit`) so the component keeps no
+second source of truth. It is deliberately *not* chrome above the list: the owner never asked for a
+log there, and a strip that reads like "5 send decisions" looks like five of their own sends.
 
 ## Test work
 
