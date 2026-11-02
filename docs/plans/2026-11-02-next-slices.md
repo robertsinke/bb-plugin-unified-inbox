@@ -324,3 +324,22 @@ Proved live on the running panel: a dropped `plan.txt` became a chip, `dragover`
 prevented on both the composer and the panel, and the page never navigated. The tint at the instant
 of a drag is a batched render, so it is proved in jsdom (`7ef3ff2`) rather than by chasing a browser
 under load — the machine was at load 30–86 and sessions kept expiring mid-run.
+
+## The first real Gmail send
+
+Owner-authorised, sent to himself, through the product's own path rather than a test harness: the
+`send_gmail` RPC with `allow: 'send'`, which mints the approval, writes the `allowed` row, builds the
+MIME and hands it to Gmail.
+
+| step | evidence |
+|---|---|
+| gate approved | audit row `2026-11-02T16:11:53Z allowed personal personal@example.com` |
+| Gmail accepted | RPC returned `Sent.` |
+| Gmail delivered | the plugin's own IMAP reader synced the message back, unread, as `1a19d0812bb336e0` |
+
+So the chain is closed end to end: policy, approval, spend-before-delivery, MIME, delivery, and reading
+what was delivered. Nothing was special-cased for the test.
+
+What the send corrected afterwards (`c1a3813`): the mention footer still told agents a Gmail thread was
+read-only, and two comments still claimed the build keeps mail sending off. The footer now documents the
+real call, with the same approval word — the prose had outlived the policy by a day.
