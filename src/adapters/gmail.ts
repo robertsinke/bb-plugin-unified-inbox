@@ -30,8 +30,8 @@ const SELF: Record<GmailAccount, string> = {
   business: 'work@example.com',
 };
 
-// `send` is declared because this adapter implements it; the transport's send
-// policy (server.ts `send_gmail`) is what keeps mail sending off in this build.
+// `send` is declared because this adapter implements it; whether it may be used is the send
+// gate's decision (SEND_POLICY), and every attempt lands in the audit log first.
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true };
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */

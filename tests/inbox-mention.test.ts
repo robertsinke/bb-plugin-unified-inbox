@@ -31,10 +31,9 @@ test('context names the conversation and keeps the newest messages', () => {
   assert.match(context, /bb plugin rpc call unified-inbox action --input-file/);
 });
 
-test('media-only messages keep a placeholder and gmail stays read-only', () => {
+test('a media-only message keeps its placeholder', () => {
   const context = inboxMentionContext({ account: 'business', id: '18f2c', preview: 'Invoice', messages: [{ sender: 'Vendor', text: '', date: 1_700_000_000_000, media: { kind: 'image' } }] });
   assert.match(context, /Vendor: \[image\]/);
-  assert.match(context, /cannot be sent from this plugin/);
 });
 
 test('the footer tells an agent what each source can actually do now', () => {
@@ -50,7 +49,9 @@ test('the footer tells an agent what each source can actually do now', () => {
   assert.doesNotMatch(linkedin, /nothing can be sent/i);
 
   const gmail = inboxMentionContext({ account: 'personal', id: '18f2c', title: 'Vendor', messages });
-  assert.match(gmail, /cannot be sent/i, 'Gmail stays off, and the footer still says so');
+  assert.match(gmail, /send_gmail/, 'Gmail sends through its own RPC, and the footer names it');
+  assert.match(gmail, /"allow":"send"/, 'with the same approval word as the chat sources');
+  assert.doesNotMatch(gmail, /cannot be sent|read-only/i, 'sending was enabled on 2026-11-03');
 });
 
 test('long threads stay inside the context budget', () => {

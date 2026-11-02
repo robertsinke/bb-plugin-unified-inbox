@@ -90,7 +90,10 @@ export function inboxMentionContext(input: {
           'A LinkedIn reply replays the send request the page recorded for this conversation. If none is recorded yet, send once from the page so the plugin can replay it, then:',
           `printf '%s' '${JSON.stringify({ account: 'linkedin', id: input.id, action: 'reply', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox action --input-file /tmp/inbox-reply.json`,
         ]
-      : ['Gmail replies cannot be sent from this plugin yet; this conversation is read-only context.'];
+      : [
+          'A Gmail reply is a new message from your address; write it as a draft with an explicit send:',
+          `printf '%s' '${JSON.stringify({ account: input.account, to: '<recipient>', subject: '<subject>', text: '<reply>', allow: 'send' })}' > /tmp/inbox-reply.json && bb plugin rpc call unified-inbox send_gmail --input-file /tmp/inbox-reply.json`,
+        ];
   const lines: string[] = [];
   let budget = MAX_CONTEXT_CHARS - head.join('\n').length - footer.join('\n').length - 8;
   for (const message of input.messages.slice(-MAX_MESSAGES).reverse()) {
