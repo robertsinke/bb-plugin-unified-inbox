@@ -283,3 +283,24 @@ Two things fell out of it: forward starts a draft with no thread id, and the com
 a draft whose thread id matched the open conversation — so **Forward opened nothing at all** from
 inside a thread (`c9d…` → `fix(inbox): a forward is written in the conversation it came from`). And
 `formatBytes` called a five-byte file "1 KB".
+
+## A render test, and Gmail sending enabled
+
+**The jsdom render test that kept being deferred** (`8e2c464`). The blocker was never jsdom, it was
+JSX: the runner strips types but not JSX. `tests/jsdom-harness.ts` transpiles TSX with the TypeScript
+that was already a dev dependency — no bundler — resolves the component's own imports, and stubs the
+plugin SDK, because the question is what the owner sees. The composer moved to
+`src/mail-composer.tsx` as a controlled form (the panel supplies the callbacks), and
+`src/composer-mode.ts` holds the decision the forward bug lived in. Four render tests describe the
+form; four more describe `composerMode` and `draftForConversation`, including the exact case that
+answered "none" and rendered a forward nowhere.
+
+**Gmail sending** (`6cbe4b5`). One line of policy, plus the three things that had to be true first:
+`sendMail` states `allow: 'send'` the way a chat reply does, the gate still demands an approval per
+conversation and spends it before delivery, and the composer's send control is live exactly when
+there is a recipient and a message or file. The two tests that said "Gmail is refused by policy" now
+say what every enabled source owes the gate. Live: the control reads "Add a recipient and a message
+or file first" on an empty draft, and "Send from Personal Gmail" once the draft can go.
+
+What is *not* proven: no real email has been sent through this path yet. The gate's allowance is
+covered by tests, and the last step — one message through Gmail's API — is the owner's to authorise.
