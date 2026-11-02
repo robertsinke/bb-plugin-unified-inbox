@@ -17,16 +17,19 @@ const OTHER_ID = '4915112345678@s.whatsapp.net';
 function memoryStore() {
   const rows: AuditRow[] = [];
   const spent = new Set<string>();
-  return {
+  const store = {
     rows,
+    spendChecks: 0,
     record(row: AuditRow) {
       rows.push(row);
       if (row.decision === 'allowed' && row.approvalId) spent.add(row.approvalId);
     },
     hasSpent(approvalId: string) {
+      store.spendChecks += 1;
       return spent.has(approvalId);
     },
   };
+  return store;
 }
 
 function gate(now = T0) {
@@ -283,4 +286,44 @@ test('a spent approval stays spent across a reload', async () => {
   );
   assert.equal(delivered, 0);
   assert.equal(store.rows.filter(row => row.decision === 'refused').length, 1, 'and records the refusal');
+});
+
+// A LinkedIn write the page itself confirmed is delivered, not approved: no approval exists to
+// spend, and pretending one did would make the log claim an approval nobody gave. `observe` is
+// the entry point for that, and its row says so in words a person can read.
+test('observe records a page-confirmed delivery with no approval and spends nothing', async () => {
+  const { rows, store, send } = gate();
+  let delivered = 0;
+  const receipt = await send.observe(
+    { account: 'linkedin', conversationId: LINKEDIN_ID, reason: 'Delivered by a LinkedIn replay: the page confirmed the conversation and the caller confirmed it with confirm: true.' },
+    async () => { delivered += 1; return { ok: true, status: 200 }; },
+  );
+  assert.deepEqual(receipt, { ok: true, status: 200 });
+  assert.equal(delivered, 1, 'the delivery is what observe is for');
+  assert.equal(rows.length, 1);
+  const [row] = rows;
+  assert.equal(row.decision, 'allowed');
+  assert.equal(row.account, 'linkedin');
+  assert.equal(row.conversationId, LINKEDIN_ID);
+  assert.equal(row.approvalId, undefined, 'delivered, never approved: there is no approval id to hold');
+  assert.ok(!('approvalId' in row), 'the column is absent, not an empty approval');
+  assert.match(String(row.reason), /page confirmed/i);
+  assert.match(String(row.reason), /confirm: true/);
+  assert.equal(store.spendChecks, 0, 'observing is not spending: hasSpent is never consulted');
+});
+
+// The row is the record of a delivery, and a delivery can fail after it started. Exactly like the
+// approving path, the row is written first, so a throw still leaves one row behind.
+test('observe writes its row before delivering, so a failed delivery is still recorded', async () => {
+  const { rows, send } = gate();
+  await assert.rejects(
+    send.observe(
+      { account: 'linkedin', conversationId: LINKEDIN_ID, reason: 'Delivered by a LinkedIn page click: the page confirmed the target and the caller stated allow: send.' },
+      async () => { throw new Error('LinkedIn did not accept the request (status 500).'); },
+    ),
+    /did not accept/,
+  );
+  assert.equal(rows.length, 1, 'one attempt, one row, even when the delivery throws');
+  assert.equal(rows[0].decision, 'allowed');
+  assert.equal(rows[0].approvalId, undefined);
 });
