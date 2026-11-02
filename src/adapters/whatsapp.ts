@@ -130,9 +130,15 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     return names;
   }
 
-  async function listChats(): Promise<Conversation[]> {
-    const p = await wa('list-chats', { filter: 'all', limit: 50 });
-    const chats = (p.items ?? []).filter((c: any) => !c.archived).map((c: any) => ({ ...c, preview: isWhatsAppNoisePreview(String(c.preview || '')) ? '' : String(c.preview || '') }));
+  /**
+   * One page of chats. `cursor` is the row offset `list-chats` pages by; WhatsAgent answers
+   * `has_more`, so an empty next page is never mistaken for the end of the list.
+   */
+  async function listChats(cursor?: string): Promise<{ items: Conversation[]; cursor?: string }> {
+    const offset = Number.parseInt(cursor ?? '0', 10) || 0;
+    const p = await wa('list-chats', { filter: 'all', limit: 50, offset });
+    const raw: any[] = p.items ?? [];
+    const chats = raw.filter((c: any) => !c.archived).map((c: any) => ({ ...c, preview: isWhatsAppNoisePreview(String(c.preview || '')) ? '' : String(c.preview || '') }));
     for (const c of chats) waChatTitles.set(String(c.jid), whatsappTitle(String(c.name || ''), String(c.display_jid || c.jid || '')));
     const senders = new Map<string, string>();
     let runtime: { baseUrl: string; token: string } | undefined;
@@ -147,7 +153,8 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         }));
       }
     }
-    return chats.map((c: any) => {
+    return {
+      items: chats.map((c: any) => {
       const avatarUrl = sourceAvatarUrl(c.avatar_url, 'whatsapp');
       return {
         account: ACCOUNT,
@@ -158,7 +165,11 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         unread: Number(c.unread || 0) > 0,
         ...(avatarUrl ? { avatarUrl } : {}),
       };
-    });
+      }),
+      // The offset advances by the rows WhatsAgent returned, not by the rows kept: an archived
+      // chat is filtered here, and skipping by the filtered count would re-read it every page.
+      ...(p.has_more === true ? { cursor: String(offset + raw.length) } : {}),
+    };
   }
 
   async function openChat(id: string): Promise<OpenResult> {
@@ -212,28 +223,31 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
   }
 
   /** The live WhatsApp list: the read, the cache migration it triggers, and the rows worth saving. */
-  async function liveList(): Promise<Conversation[]> {
-    const listed = await listChats();
+  async function liveList(): Promise<{ items: Conversation[]; cursor?: string }> {
+    const page = await listChats();
     await migrateCache();
     const previous = cache.list().filter(item => item.account === ACCOUNT);
     const previews = new Map(previous.map(item => [item.id, item.preview]));
-    const items = listed.map(item => {
+    const items = page.items.map(item => {
       const kept = cache.keptUnread(ACCOUNT, item.id);
       return { ...item, preview: item.preview || previews.get(item.id) || '', ...(kept ? { unread: true } : {}) };
     });
     if (!whatsappListUnchanged(previous, items)) cache.save(ACCOUNT, items);
-    return items;
+    return { items, ...(page.cursor ? { cursor: page.cursor } : {}) };
   }
 
   return {
     capabilities: () => CAPABILITIES,
 
-    async list(_cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
-      return { items: await liveList(), errors: [] };
+    async list(cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
+      // An older page is a read only: the cache holds the newest chats, and a refresh replaces
+      // them wholesale, so a second page written into it would vanish on the next sync.
+      if (cursor) return { ...(await listChats(cursor)), errors: [] };
+      return { ...(await liveList()), errors: [] };
     },
 
     async sync(_opts?: OpenOptions): Promise<SyncResult> {
-      return { items: await liveList(), updatedAt: Date.now() };
+      return { ...(await liveList()), updatedAt: Date.now() };
     },
 
     open: (id: string) => openChat(id),

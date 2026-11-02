@@ -89,6 +89,17 @@ export default function plugin(bb: BbPluginApi) {
   /** A source's cache-only decoration (WhatsApp group participants) is applied wherever rows leave the gateway. */
   const decorated = (rows: Conversation[]) => rows.map(row => registry[row.account].decorate?.(row) ?? row);
 
+  /**
+   * Where each source's next older page begins: Gmail's own page token, WhatsAgent's row offset,
+   * and `null` once a source says nothing older exists (a source that cannot page is `null` too).
+   * The newest-page read seeds it and only `older` advances it, so the 45-second refresh cannot
+   * restart a walk the owner started. It lives in memory, not in the cache: a restart shows the
+   * newest page again, exactly as this inbox did before it could page.
+   */
+  const olderCursor: Partial<Record<Account, string | null>> = {};
+  /** Whether any source still holds rows older than the newest page it showed. */
+  const hasOlder = () => accounts.some(name => typeof olderCursor[name] === 'string');
+
   bb.rpc.register(rpcContract, {
     capabilities() {
       return registryCapabilities(registry);
@@ -114,9 +125,12 @@ export default function plugin(bb: BbPluginApi) {
     },
     clear_cache() { cache.clear(); return { cleared: true }; },
     async sync({ account, limit }) {
-      const result = await registry[account].sync({ limit });
+      const { cursor, ...result } = await registry[account].sync({ limit });
+      // The newest page is what seeds the walk; once `older` has advanced it, a refresh leaves it
+      // alone, or every poll would drop the owner back to page two.
+      if (olderCursor[account] === undefined) olderCursor[account] = cursor ?? null;
       searchIndex.warm();
-      return { ...result, items: decorated(result.items) };
+      return { ...result, items: decorated(result.items), more: typeof olderCursor[account] === 'string' };
     },
     async open({ account, id }) {
       const result = await registry[account].open(id);
@@ -194,16 +208,28 @@ export default function plugin(bb: BbPluginApi) {
         () => deliver({ kind: 'gmail', ...input }, {}),
       );
     },
-    async list() {
-      const results = await Promise.allSettled(accounts.map(name => registry[name].list()));
+    async list(options) {
+      const older = options?.older === true;
+      // A source that already answered "nothing older" is not asked again.
+      const names = older ? accounts.filter(name => typeof olderCursor[name] === 'string') : accounts;
+      const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined)));
       const errors: string[] = [];
       const items: Conversation[] = [];
       results.forEach((result, index) => {
-        if (result.status === 'fulfilled') items.push(...result.value.items);
-        else errors.push(listError(accounts[index], result.reason));
+        const name = names[index];
+        if (result.status === 'fulfilled') {
+          items.push(...result.value.items);
+          // A first page seeds the walk and an older page advances it.
+          if (older || olderCursor[name] === undefined) olderCursor[name] = result.value.cursor ?? null;
+          return;
+        }
+        // A page that failed may be a token the source has since dropped: forget it so the next
+        // refresh reseeds the walk from the newest page instead of retrying a dead one forever.
+        if (older) olderCursor[name] = undefined;
+        errors.push(listError(name, result.reason));
       });
       searchIndex.warm();
-      return { items: decorated(items.sort((a, b) => b.date - a.date)), errors };
+      return { items: decorated(items.sort((a, b) => b.date - a.date)), errors, more: hasOlder() };
     },
   });
 

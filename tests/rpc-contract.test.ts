@@ -69,3 +69,21 @@ test('a Gmail draft can carry a blind copy', () => {
   assert.equal(rpcContract.send_gmail.input.safeParse(send).success, true);
   assert.equal(rpcContract.send_gmail.input.safeParse({ ...send, bcc: 'x@example.com\r\nBcc: y@example.com' }).success, false, 'the header guard applies to bcc too');
 });
+
+test('list keeps the no-input call every consumer makes and gains an opt-in page request', () => {
+  assert.equal(rpcContract.list.input.safeParse(null).success, true, 'the panel, the CLI and the mention provider all pass null');
+  assert.equal(rpcContract.list.input.safeParse({}).success, true);
+  assert.equal(rpcContract.list.input.safeParse({ older: true }).success, true);
+  assert.equal(rpcContract.list.input.safeParse({ older: 'yes' }).success, false, 'only a boolean asks for a page');
+  assert.equal(rpcContract.list.input.safeParse({ older: true, cursor: 'page-2' }).success, false, 'a mistyped field is refused, not ignored: the gateway keeps the cursor');
+
+  // The shape the panel has always been handed still parses, so a caller that never asks for a
+  // page reads exactly what it read before; `more` is the addition, not a replacement.
+  assert.equal(rpcContract.list.output.safeParse({ items: [], errors: [] }).success, true);
+  assert.equal(rpcContract.list.output.safeParse({ items: [], errors: ['WhatsApp unavailable.'], more: true }).success, true);
+});
+
+test('a source refresh may say it has an older page, and may say nothing at all', () => {
+  assert.equal(rpcContract.sync.output.safeParse({ items: [], updatedAt: 1 }).success, true, 'a source that cannot page answers as it always did');
+  assert.equal(rpcContract.sync.output.safeParse({ items: [], updatedAt: 1, more: true }).success, true);
+});
