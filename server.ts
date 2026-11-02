@@ -13,7 +13,7 @@ import {
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { describeControlExpression, pageTextExpression, sendClickRecord, type SendTarget } from './src/linkedin-ui';
+import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord, type SendTarget } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { item, message, rpcContract } from './src/rpc-contract';
 import { createGwsRunner } from './src/adapters/gws';
@@ -200,7 +200,9 @@ export default function plugin(bb: BbPluginApi) {
       if (!isMessageSend(input.write, input.conversationId)) return deliver();
       return sendGate.observe({
         account: 'linkedin',
-        conversationId: input.conversationId,
+        // The validation needs the full urn; the log names the short key a click row names, so one
+        // conversation is one id however the caller addressed it.
+        conversationId: conversationKeyOf(input.conversationId),
         reason: 'Delivered by a LinkedIn replay with no approval minted for it: the page confirmed the conversation, and the caller confirmed this exact action with confirm: true.',
       }, deliver);
     },

@@ -18,6 +18,7 @@ import {
   sendClickRecord,
   threadKeyExpression,
   conversationKeyOf,
+  pageConfirmedConversation,
   type SendApproval,
 } from '../src/linkedin-ui.ts';
 import { writeRecorderExpression } from '../src/linkedin-write.ts';
@@ -84,6 +85,21 @@ function fakePage(specs: ControlSpec[], pageText = '') {
   };
   return { document, elements, evaluate };
 }
+
+// Two writers put LinkedIn conversations in one log: a page click (named by what the page showed)
+// and a replay (named by the caller). A full urn and a short key for the same thread must be one id,
+// or the same conversation appears twice and neither row can be matched to the other.
+test('a replay row and a click row name the same conversation, whatever shape the caller used', () => {
+  const urn = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAbbbb,2-YWJj)';
+  assert.equal(conversationKeyOf(urn), '2-YWJj', 'a full urn reads down to the key the page shows');
+  assert.equal(conversationKeyOf('2-YWJj'), '2-YWJj', 'and a key is already the key, so the rule is idempotent');
+  assert.equal(conversationKeyOf('Ada Lovelace'), 'Ada Lovelace', 'an unrecognised shape passes through, never guesses');
+  assert.equal(
+    pageConfirmedConversation({ recipients: [], threadKey: urn }, ''),
+    conversationKeyOf(urn),
+    'the click row and the replay row agree about the same thread',
+  );
+});
 
 test('indexes are array positions, and two runs over the same page agree', async () => {
   const page = fakePage([
