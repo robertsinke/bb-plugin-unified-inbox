@@ -408,3 +408,14 @@ asserted only that `safeParse` succeeded — which is precisely what a schema th
 The schema declares `bcc` and `approvalId` now, and the test **parses and reads the values back**, so a
 schema that loses a field fails. `approvalId: null` is the panel's way of saying "delivered, never
 approved", which is the whole point of `observe`.
+
+### Two things the children taught the parent
+
+A child that reports "all green, 315/315" has **not necessarily committed anything**: the fourth child's
+five files sat uncommitted in its worktree while its branch still pointed at `main`'s parent. The merge
+said "Already up to date" and that was almost the end of it. Read `git log <branch> -1` before believing a
+report, and if the tip is not the child's work, look for it in the worktree — nothing was lost, because
+nothing had been thrown away.
+
+And a bug report about the harness needs the number that moved: the handler counter went from 31 to 44
+errors across one working hour in which nothing failed visibly (`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`).
