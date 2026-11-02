@@ -8,6 +8,7 @@ import { ATTACHMENT_LIMIT } from './adapters/gmail.ts';
 import { accounts } from './adapters/types.ts';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
+import { sourceDeclarationSchema } from './adapters/source.ts';
 
 const account = z.enum(accounts);
 export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
@@ -84,4 +85,8 @@ export const rpcContract = defineRpcContract({
     // when the owner enables it, that is the one line that changes — not this path.
     allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string() }) },
   capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
+  // What each source *is*, as opposed to what it can do: the name a person knows it by, its icon,
+  // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its
+  // own, so a renamed source is renamed everywhere the moment its adapter says so.
+  sources: { input: z.null(), output: z.record(account, sourceDeclarationSchema) },
 });

@@ -198,6 +198,34 @@ export interface ActionResult {
 }
 
 /**
+ * What a person knows one source by, and how the panel paces it: declared by the adapter that owns
+ * the transport, so a label, an icon or a cadence has exactly one home (`registrySources()`), and
+ * nothing outside src/adapters/ keeps a copy. Identity only: what a source can *do* is
+ * `capabilities()` and stays there.
+ */
+export interface SourceDeclaration {
+  /** The name a person knows this source by; the panel and the `#`-mention context show it. */
+  label: string;
+  /** The icon name the panel's filter and the `#` picker draw beside the source. */
+  icon: string;
+  /** How often the panel re-asks this source for its newest rows, in milliseconds. */
+  pollIntervalMs: number;
+  /**
+   * How often the open conversation is re-read, when this source's read is cheap enough to follow
+   * a list refresh. Absent for a source the panel does not watch.
+   */
+  watchIntervalMs?: number;
+  /**
+   * Rows one "show older" page asks this source for. Absent for a source that cannot page: its
+   * `list` answers the newest page and ignores a cursor.
+   */
+  pageSize?: number;
+}
+
+/** Every source's declaration, keyed as the `sources` RPC returns them. */
+export type SourceMap = Record<Account, SourceDeclaration>;
+
+/**
  * What an adapter supports; the gateway consults this instead of try/catch.
  * The keys are named once, in `src/adapters/capability.ts`, and documented there;
  * a capability added to that list is required of every declaration.
@@ -282,6 +310,8 @@ export interface SyncResult {
  * how the file is addressed.
  */
 export interface Adapter {
+  /** What a person knows this source by, and how the panel paces it. */
+  source: SourceDeclaration;
   capabilities(): Capabilities;
   /**
    * Conversation rows for this source. A source that can page takes the `cursor` its previous

@@ -12,13 +12,20 @@ import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult,
-  MediaPayload, Message, OpenOptions, OpenResult, SyncResult,
+  MediaPayload, Message, OpenOptions, OpenResult, SourceDeclaration, SyncResult,
 } from './types.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';
+
+/**
+ * What a person knows WhatsApp by, and how the panel paces it. WhatsApp pages by offset and
+ * answers fifty chats in a second, so its page is the whole page `list-chats` was already asked
+ * for. An open chat is cheap to re-read, so the panel watches it more often than it polls.
+ */
+const SOURCE: SourceDeclaration = { label: 'WhatsApp', icon: 'MessageCircle', pollIntervalMs: 8_000, watchIntervalMs: 5_000, pageSize: 50 };
 
 export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
   const { cache } = deps;
@@ -134,9 +141,9 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
    * One page of chats. `cursor` is the row offset `list-chats` pages by; WhatsAgent answers
    * `has_more`, so an empty next page is never mistaken for the end of the list.
    */
-  async function listChats(cursor?: string): Promise<{ items: Conversation[]; cursor?: string }> {
+  async function listChats(cursor?: string, limit = SOURCE.pageSize ?? 50): Promise<{ items: Conversation[]; cursor?: string }> {
     const offset = Number.parseInt(cursor ?? '0', 10) || 0;
-    const p = await wa('list-chats', { filter: 'all', limit: 50, offset });
+    const p = await wa('list-chats', { filter: 'all', limit, offset });
     const raw: any[] = p.items ?? [];
     const chats = raw.filter((c: any) => !c.archived).map((c: any) => ({ ...c, preview: isWhatsAppNoisePreview(String(c.preview || '')) ? '' : String(c.preview || '') }));
     for (const c of chats) waChatTitles.set(String(c.jid), whatsappTitle(String(c.name || ''), String(c.display_jid || c.jid || '')));
@@ -237,12 +244,13 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
   }
 
   return {
+    source: SOURCE,
     capabilities: () => CAPABILITIES,
 
-    async list(cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
+    async list(cursor?: string, opts?: OpenOptions): Promise<ListResult> {
       // An older page is a read only: the cache holds the newest chats, and a refresh replaces
       // them wholesale, so a second page written into it would vanish on the next sync.
-      if (cursor) return { ...(await listChats(cursor)), errors: [] };
+      if (cursor) return { ...(await listChats(cursor, opts?.limit)), errors: [] };
       return { ...(await liveList()), errors: [] };
     },
 

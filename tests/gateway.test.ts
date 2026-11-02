@@ -8,6 +8,7 @@ import { createSendGate, type AuditRow, type SendAuditStore } from '../src/adapt
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Adapter, Conversation, ListResult } from '../src/adapters/types.ts';
 import { createGateway, type GatewayDeps, type GatewayDriver } from '../src/gateway.ts';
+import { rpcContract } from '../src/rpc-contract.ts';
 
 
 const NOW = 1_700_000_000_000;
@@ -25,8 +26,12 @@ interface FixtureOptions {
   fail?: Account;
 }
 
+/** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
+const LABEL: Record<Account, string> = { personal: 'Personal Gmail', business: 'Inhouse Gmail', whatsapp: 'WhatsApp', imessage: 'Messages', linkedin: 'LinkedIn' };
+
 function adapter(name: Account, overrides: Partial<Adapter>): Adapter {
   return {
+    source: { label: LABEL[name], icon: 'MessageCircle', pollIntervalMs: 1_000 },
     capabilities: () => NO_CAPABILITIES,
     list: async () => ({ items: [], errors: [] }),
     sync: async () => ({ items: [], updatedAt: NOW }),
@@ -109,6 +114,31 @@ function fixture(options: FixtureOptions = {}) {
   });
   return { gateway, calls, auditRows, cacheRows, registry };
 }
+
+test('the panel receives each source\'s declaration, and the contract accepts it', async () => {
+  const f = fixture();
+  const declared = await f.gateway.sources(null);
+  assert.deepEqual(Object.keys(declared).sort(), [...accounts].sort(), 'every source answers');
+  assert.deepEqual(declared, Object.fromEntries(accounts.map(name => [name, f.registry[name].source])), 'with what its own adapter declared');
+  assert.equal(rpcContract.sources.output.safeParse(declared).success, true, 'and the wire carries exactly that');
+});
+
+test('an older page asks the source for the number of rows that source declares', async () => {
+  const f = fixture();
+  const asked: (number | undefined)[] = [];
+  // The page size is a number the adapter owns; the gateway stops keeping its own table.
+  f.registry.personal = {
+    ...f.registry.personal,
+    source: { ...f.registry.personal.source, pageSize: 7 },
+    list: async (cursor, opts) => {
+      asked.push(opts?.limit);
+      return cursor ? { items: [], errors: [] } : { items: [], errors: [], cursor: 'page-2' };
+    },
+  };
+  await f.gateway.list({ account: 'personal' });
+  await f.gateway.list({ older: true, account: 'personal' });
+  assert.deepEqual(asked, [undefined, 7], 'the newest page is asked for no limit; the older page for the declared seven');
+});
 
 test('list decorates rows and reports more from the cursor; a refresh does not advance it', async () => {
   const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } } });
