@@ -57,10 +57,13 @@ cannot drift. Open, navigate, snapshot, describe, type and press steps never had
   the click, so a target mismatch is recorded as a delivery the page did not confirm. The existing
   approving path has the same shape for a delivery that throws. This is the price of writing the
   row before the act rather than after it.
-- A `linkedin_ui` send click records the step's declared target. An in-thread reply carries a
-  thread key; a compose click carries the recipient's name, because that is the only target the
-  step names. The conversation column therefore holds "who" for one shape and "which" for the
-  other.
+- A `linkedin_ui` send click records the target the page itself confirmed, because that is the same
+  value the driver's decision compares the approval against. An in-thread reply logs the thread
+  key (`conversationKeyOf`, so a short `2-…` key and a full urn are one conversation); a compose
+  click logs the recipient chips the box showed, sorted and comma-separated, which is one stable
+  id for the same set of people. Only a page that reads neither falls back to the step's declared
+  target. The page is read once: the row is named for that read and the driver decides on the same
+  answer, so the row can never describe a different page from the one that was clicked.
 - Nothing else about the gate moved. Refusals, the window, spend, and row-before-delivery are
   unchanged and pinned by their existing tests.
 
@@ -69,9 +72,6 @@ cannot drift. Open, navigate, snapshot, describe, type and press steps never had
 - **OQ-1**: a host-issued approval token per send. When it lands, `approvalFor` is replaced and
   the approving path is unchanged; `observe` should then carry the page's own confirmation as a
   token too, rather than a caller's word, and this note should be superseded.
-- `linkedin_ui` steps are classified by the same name rule the driver uses. When a step can say
-  more about itself — the recipient chips it read, the thread key in the URL — the row should
-  carry that instead of the recipient name.
 - Invitation answers (`accept`, `ignore`) are irreversible account changes that `linkedin_replay`
   never sees and `linkedin_ui` never records. They are outside this note; recording them would
   need an operation that is not `send`.
