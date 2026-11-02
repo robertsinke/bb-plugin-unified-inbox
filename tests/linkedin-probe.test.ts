@@ -70,8 +70,8 @@ test('the probe asks for the conversation window and invitation view under the s
     if (url === '/voyager/api/me') return { status: 200, body: { data: { '*miniProfile': 'urn:li:fs_miniProfile:ME' } } };
     if (url.includes('messengerConversations')) {
       return { status: 200, body: { included: [
-        { entityUrn: 'urn:li:msg_conversation:1', lastActivityAt: 1000, unreadCount: 2 },
-        { entityUrn: 'urn:li:msg_conversation:2', lastActivityAt: 2000, unreadCount: 0 },
+        { entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:ME,2-ONE)', lastActivityAt: 1000, unreadCount: 2 },
+        { entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:ME,2-TWO)', lastActivityAt: 2000, unreadCount: 0 },
       ] } };
     }
     return { status: 200, body: { included: [{ $type: 'com.linkedin.voyager.relationships.invitation.Invitation', sentTime: 3000, unseen: true }] } };
@@ -114,7 +114,7 @@ test('nonsense numbers in a payload never produce a negative or NaN marker', () 
 
 test('a remembered mailbox drops the identity request, so a repeat probe is one round', async () => {
   const { result, seen } = await runProbe(url => {
-    if (url.includes('messengerConversations')) return { status: 200, body: { included: [{ entityUrn: 'urn:li:msg_conversation:1', lastActivityAt: 1000, unreadCount: 0 }] } };
+    if (url.includes('messengerConversations')) return { status: 200, body: { included: [{ entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:ME,2-ONE)', lastActivityAt: 1000, unreadCount: 0 }] } };
     return { status: 200, body: { included: [] } };
   }, 'urn:li:fsd_profile:ME');
   assert.equal(seen.length, 2);
