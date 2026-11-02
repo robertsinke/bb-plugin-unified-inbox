@@ -45,6 +45,11 @@
 .ui-compose-view .ui-mail-composer{margin-top:0}
 .ui-file-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .ui-mail-actions-spacer{flex:1}
+.ui-attachment-offer{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;opacity:.8}
+.ui-attachment-take{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 9px;border:1px dashed #8886;border-radius:999px;background:transparent;color:inherit;font-size:11px}
+.ui-attachment-take:hover{border-style:solid;background:#8882}
+.ui-attachment-take svg{width:10px;height:10px;flex:none}
+.ui-attachment-take{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ui-attachment-list{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .ui-attachment-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:3px 4px 3px 9px;border-radius:999px;background:#8882;font-size:11px}
 .ui-attachment-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

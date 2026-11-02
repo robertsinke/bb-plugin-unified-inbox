@@ -150,7 +150,8 @@ function MailFrame({ html, onOpenLink }: { html: string; onOpenLink: (url: strin
 }
 const mediaCache = createMediaCache();
 function formatBytes(bytes: number) {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024) return `${bytes} B`;
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 function useMediaSource(media: WhatsAppMedia) {
   const rpc = useRpc<typeof rpcContract>();
@@ -280,7 +281,8 @@ function MailComposer({ mail, busy, mailStatus, session, fromThread }: {
       const result = await rpc.call('media', { account: fromThread.account, kind: 'attachment', id: fromThread.gmailId, filename: name });
       const data = result.dataUrl.replace(/^data:[^,]*,/, '');
       const mimeType = result.dataUrl.slice(5, result.dataUrl.indexOf(';')) || 'application/octet-stream';
-      session.attach({ name: result.filename ?? name, mimeType, size: Math.floor((data.length * 3) / 4), data });
+      const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+      session.attach({ name: result.filename ?? name, mimeType, size: Math.floor((data.length * 3) / 4) - padding, data });
     } catch {
       setTakeError(`${name} could not be read from the conversation.`);
     } finally {
@@ -306,13 +308,16 @@ function MailComposer({ mail, busy, mailStatus, session, fromThread }: {
         <button type="button" className="ui-attachment-drop" onClick={() => session.detach(index)} aria-label={`Remove ${file.name}`} title="Remove">×</button>
       </li>
     ))}</ul>}
-    <div className="ui-mail-actions">
-      <button type="button" className="ui-text-button" disabled={busy} onClick={() => files.current?.click()}>Attach</button>
-      {fromThread && fromThread.names.length > 0 && fromThread.names.map(name => (
-        <button key={name} type="button" className="ui-text-button" disabled={taking !== ''} title="Take this attachment from the conversation through the media reader" onClick={() => void takeFromThread(name)}>
-          {taking === name ? 'Adding…' : `+ ${name}`}
+    {fromThread && fromThread.names.length > 0 && <div className="ui-attachment-offer">
+      <span>In this conversation:</span>
+      {fromThread.names.map(name => (
+        <button key={name} type="button" className="ui-attachment-take" disabled={taking !== ''} title="Take this attachment from the conversation through the media reader" onClick={() => void takeFromThread(name)}>
+          <Icon name="Plus" aria-hidden="true" />{taking === name ? 'Adding…' : name}
         </button>
       ))}
+    </div>}
+    <div className="ui-mail-actions">
+      <button type="button" className="ui-text-button" disabled={busy} onClick={() => files.current?.click()}>Attach</button>
       <input ref={files} type="file" multiple className="ui-file-input" onChange={event => void add(event.target.files)} aria-label="Choose files to attach" />
       <span className="ui-mail-actions-spacer" />
       <button type="button" className="ui-text-button" disabled={busy} onClick={() => { if ((!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}>Discard</button>
