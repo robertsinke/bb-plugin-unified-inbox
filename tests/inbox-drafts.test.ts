@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { MailDraft } from '../src/inbox-session.ts';
 import {
   clearMailDraft,
   inboxDraftKey,
@@ -123,4 +124,16 @@ test('a blind copy survives a reload with the rest of the draft', () => {
   writeMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1', { account: 'personal', to: 'a@example.com', cc: 'b@example.com', bcc: 'c@example.com', subject: 'Hi', text: 'Hello' });
   const back = readMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1');
   assert.equal(back?.bcc, 'c@example.com', 'the draft the owner returns to still knows who was blind-copied');
+});
+
+test('a stored draft keeps its words and leaves the file bytes behind', () => {
+  const storage = memoryStorage();
+  const key = 'unified-inbox.mail-draft.v1:personal:t1';
+    // exactly what the session hands the writer: a live draft, which carries files
+  const live: MailDraft = { account: 'personal', to: 'a@example.com', cc: '', bcc: '', subject: 'Hi', text: 'See attached', attachments: [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 4, data: 'aGVsbG8=' }] };
+  writeMailDraft(storage, key, live);
+  const raw = storage.getItem(key) ?? '';
+  assert.equal(raw.includes('aGVsbG8='), false, 'a stored draft does not carry file bytes');
+  const back = readMailDraft(storage, key);
+  assert.equal(back?.text, 'See attached', 'the words survive; the file bytes do not');
 });

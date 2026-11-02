@@ -232,11 +232,65 @@ function WhatsAppVideo({ media }: { media: WhatsAppMedia }) {
  * The mail draft is the bottom composer, the same slot a chat reply uses: the addresses, the
  * subject and the body are one form, and reply / reply all / forward / new all open it here.
  */
-function MailComposer({ mail, busy, mailStatus, session }: { mail: MailDraft; busy: boolean; mailStatus: string; session: InboxSession }) {
-  const label = accounts[mail.account].label;
-  return <form className="ui-mail-composer" aria-label={`${label} draft`} onSubmit={event => {
+/** What the open conversation can contribute to a draft: the files of its newest message that has any. */
+function threadAttachments(messages: InboxMessage[], account: 'personal' | 'business'): { account: 'personal' | 'business'; gmailId: string; names: string[] } | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.gmailId && message.attachments && message.attachments.length > 0) {
+      return { account, gmailId: message.gmailId, names: message.attachments };
+    }
+  }
+  return undefined;
+}
+
+function MailComposer({ mail, busy, mailStatus, session, fromThread }: {
+  mail: MailDraft;
+  busy: boolean;
+  mailStatus: string;
+  session: InboxSession;
+  /** Attachments already in the open conversation, offered through the same media primitive the reader uses. */
+  fromThread?: { account: 'personal' | 'business'; gmailId: string; names: string[] };
+}) {
+  const rpc = useRpc<typeof rpcContract>();
+  const files = useRef<HTMLInputElement>(null);
+  const [taking, setTaking] = useState('');
+  const [takeError, setTakeError] = useState('');
+
+  /** A file the owner picked is base64 in the page; the session decides whether the draft can hold it. */
+  async function add(picked: FileList | null): Promise<void> {
+    if (!picked) return;
+    for (const file of Array.from(picked)) {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error ?? new Error('Could not read this file.'));
+        reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+        reader.readAsDataURL(file);
+      });
+      session.attach({ name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, data });
+    }
+    if (files.current) files.current.value = '';
+  }
+
+  /** A file already on the thread travels through `media`, the same call that reads it in the message. */
+  async function takeFromThread(name: string): Promise<void> {
+    if (!fromThread || taking) return;
+    setTaking(name);
+    setTakeError('');
+    try {
+      const result = await rpc.call('media', { account: fromThread.account, kind: 'attachment', id: fromThread.gmailId, filename: name });
+      const data = result.dataUrl.replace(/^data:[^,]*,/, '');
+      const mimeType = result.dataUrl.slice(5, result.dataUrl.indexOf(';')) || 'application/octet-stream';
+      session.attach({ name: result.filename ?? name, mimeType, size: Math.floor((data.length * 3) / 4), data });
+    } catch {
+      setTakeError(`${name} could not be read from the conversation.`);
+    } finally {
+      setTaking('');
+    }
+  }
+
+  return <form className="ui-mail-composer" aria-label={`${accounts[mail.account].label} draft`} onSubmit={event => {
     event.preventDefault();
-    if (window.confirm(`Send from ${label} to ${mail.to}?`)) void session.sendMail();
+    if (window.confirm(`Send from ${accounts[mail.account].label} to ${mail.to}?`)) void session.sendMail();
   }}>
     <div className="ui-mail-fields">
       <label>To<input value={mail.to} onChange={event => session.setMail({ to: event.target.value })} /></label>
@@ -245,11 +299,26 @@ function MailComposer({ mail, busy, mailStatus, session }: { mail: MailDraft; bu
       <label>Subject<input value={mail.subject} onChange={event => session.setMail({ subject: event.target.value })} /></label>
     </div>
     <textarea className="ui-mail-body" rows={6} value={mail.text} aria-label="Message" placeholder="Write a message…" onChange={event => session.setMail({ text: event.target.value })} />
+    {mail.attachments.length > 0 && <ul className="ui-attachment-list" aria-label="Attachments">{mail.attachments.map((file, index) => (
+      <li key={`${file.name}:${index}`} className="ui-attachment-chip">
+        <span className="ui-attachment-name">{file.name}</span>
+        <span className="ui-attachment-size">{formatBytes(file.size)}</span>
+        <button type="button" className="ui-attachment-drop" onClick={() => session.detach(index)} aria-label={`Remove ${file.name}`} title="Remove">×</button>
+      </li>
+    ))}</ul>}
     <div className="ui-mail-actions">
-      <button type="button" className="ui-text-button" disabled={busy} onClick={() => { if ((!mail.text.trim() && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}>Discard</button>
+      <button type="button" className="ui-text-button" disabled={busy} onClick={() => files.current?.click()}>Attach</button>
+      {fromThread && fromThread.names.length > 0 && fromThread.names.map(name => (
+        <button key={name} type="button" className="ui-text-button" disabled={taking !== ''} title="Take this attachment from the conversation through the media reader" onClick={() => void takeFromThread(name)}>
+          {taking === name ? 'Adding…' : `+ ${name}`}
+        </button>
+      ))}
+      <input ref={files} type="file" multiple className="ui-file-input" onChange={event => void add(event.target.files)} aria-label="Choose files to attach" />
+      <span className="ui-mail-actions-spacer" />
+      <button type="button" className="ui-text-button" disabled={busy} onClick={() => { if ((!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}>Discard</button>
       <button type="submit" className="ui-prompt-send" disabled title="Gmail sending is not enabled yet" aria-label="Send (not enabled yet)"><Icon name="ArrowUp" aria-hidden="true" /></button>
     </div>
-    <p className="ui-notice">{mailStatus || 'Your draft stays on this machine; Gmail sending and attachments are not enabled yet.'}</p>
+    <p className="ui-notice">{mailStatus || takeError || 'Files stay in this panel until a draft is sent; Gmail sending is not enabled yet.'}</p>
   </form>;
 }
 function MessageText({ text, onOpenLink }: { text: string; onOpenLink: (url: string) => void }) {
@@ -380,7 +449,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
         ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${accounts[selected.account].label} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {mail&&mail.threadId===selected.id?<MailComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session}/>:threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {mail&&mail.threadId===selected.id?<MailComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} fromThread={threadAttachments(messages, selected.account as 'personal' | 'business')}/>:threaded?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${accounts[selected.account].label} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
     </section>:(compose||(mail&&!mail.threadId))?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','personal');setCompose(false);}}>Personal Gmail</button><button onClick={()=>{session.startMail('new','business');setCompose(false);}}>Inhouse Gmail</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session}/>:null}</section>:<><div className="ui-list"><header className="ui-mail-bar"><FilterMenu value={filter} onChange={next=>session.setFilter(next)} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" marker={errors.length?`Some messages couldn't load: ${errors.join(' ')}`:undefined} actions={[
           { label: 'New', run: () => setCompose(!compose) },

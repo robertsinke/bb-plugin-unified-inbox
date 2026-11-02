@@ -148,6 +148,7 @@ export interface GmailDraft {
   threadId?: string;
   inReplyTo?: string;
   references?: string;
+  attachments?: { name: string; mimeType: string; size: number; data: string }[];
 }
 
 /** WhatsApp reply text for an open conversation (propose → confirm flow). */
