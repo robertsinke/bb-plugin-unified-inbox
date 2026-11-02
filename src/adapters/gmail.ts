@@ -47,6 +47,11 @@ function plain(payload: any): string {
   return '';
 }
 
+/** Gmail's own token for the page after this one; absent when this page is the last. */
+function nextCursor(page: any): { cursor?: string } {
+  return typeof page?.nextPageToken === 'string' && page.nextPageToken ? { cursor: page.nextPageToken } : {};
+}
+
 export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): Adapter {
   const { cache } = deps;
 
@@ -115,28 +120,44 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     };
   }
 
-  async function listThreads(limit: number): Promise<Conversation[]> {
+  async function listThreads(limit: number, cursor?: string): Promise<{ items: Conversation[]; cursor?: string }> {
+    const storedItems = stored();
+    const previous = new Map(storedItems.map(item => [item.id, item]));
+    // An older page is a read only. The cache holds "the newest rows as of the last full
+    // refresh", so writing a second page into it would make the next refresh look like the
+    // inbox lost rows — and each refresh replaces that account's entries wholesale anyway.
+    if (cursor) {
+      const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit, pageToken: cursor })]);
+      const items: Conversation[] = [];
+      for (const entry of page.threads ?? []) {
+        const id = String(entry.id);
+        items.push(previous.get(id) ?? row(await thread(id)));
+      }
+      return { items, ...nextCursor(page) };
+    }
     let historyId = '';
     try {
       const profile = await gmail(['users', 'getProfile', '--params', JSON.stringify({ userId: 'me' })]);
       historyId = String(profile.historyId ?? '');
     } catch (error) {
-      const fallback = stored().slice(0, limit);
-      if (fallback.length) return fallback;
+      const fallback = storedItems.slice(0, limit);
+      if (fallback.length) return { items: fallback };
       throw error;
     }
-    const storedItems = stored();
-    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined)) return storedItems.slice(0, limit);
+    // The listing runs even when the cached rows are still current, because it is what says
+    // whether a page exists beyond this one: "show older" is offered on evidence, not guessed.
     const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit })]);
+    const next = nextCursor(page);
+    const complete = storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined);
+    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete) return { items: storedItems.slice(0, limit), ...next };
     const listed = (page.threads ?? []).map((entry: any) => ({ id: String(entry.id), historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }));
     const changed = new Set<string>(gmailInboxIdsToFetch(cache.cursor(account), cache.revisions(account), listed));
     for (const entry of listed) {
-      const known = storedItems.find(item => item.id === entry.id);
+      const known = previous.get(entry.id);
       if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined)) changed.add(entry.id);
     }
     const fetched = new Map<string, Conversation>();
     for (const id of changed) fetched.set(id, row(await thread(id)));
-    const previous = new Map(stored().map(item => [item.id, item]));
     const items = listed.flatMap((entry: { id: string }) => {
       const found = fetched.get(entry.id) ?? previous.get(entry.id);
       return found ? [found] : [];
@@ -144,7 +165,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     cache.save(account, items);
     cache.saveRevisions(account, listed.map((entry: { id: string; historyId: string; snippet: string }) => ({ id: entry.id, historyId: entry.historyId, preview: entry.snippet })));
     if (historyId) cache.setCursor(account, gmailSummaryCursor(historyId));
-    return items.slice(0, limit);
+    return { items: items.slice(0, limit), ...next };
   }
 
   async function openThread(id: string): Promise<OpenResult> {
@@ -183,12 +204,12 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   return {
     capabilities: () => CAPABILITIES,
 
-    async list(_cursor, opts?: OpenOptions): Promise<ListResult> {
-      return { items: await listThreads(opts?.limit ?? 20), errors: [] };
+    async list(cursor, opts?: OpenOptions): Promise<ListResult> {
+      return { ...(await listThreads(opts?.limit ?? 20, cursor)), errors: [] };
     },
 
     async sync(opts?: OpenOptions): Promise<SyncResult> {
-      return { items: await listThreads(opts?.limit ?? 20), updatedAt: Date.now() };
+      return { ...(await listThreads(opts?.limit ?? 20)), updatedAt: Date.now() };
     },
 
     open: (id: string, _opts?: OpenOptions) => openThread(id),

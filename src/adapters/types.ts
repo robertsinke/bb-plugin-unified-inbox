@@ -209,7 +209,7 @@ export interface Capabilities extends Record<CapabilityKey, boolean> {
 
 export interface ListResult {
   items: Conversation[];
-  /** Providers re-list in full today; kept for state-3 parity with cursored sources. */
+  /** Where this source's next older page begins; absent when it has nothing older to show. */
   cursor?: string;
   errors: ProviderError[];
 }
@@ -267,6 +267,11 @@ export interface SyncResult {
   updatedAt: number;
   /** Why the source read or skipped, when it has a delta check. */
   reason?: string;
+  /**
+   * Where the source's next older page begins, when it can page (`list(cursor)` takes it back).
+   * The gateway keeps it, not the panel: a refresh must not restart paging the owner began.
+   */
+  cursor?: string;
 }
 
 /**
@@ -279,9 +284,10 @@ export interface SyncResult {
 export interface Adapter {
   capabilities(): Capabilities;
   /**
-   * Conversation rows for this source. `cursor` is unused by every provider
-   * today (each re-lists in full); `opts.limit` is the `sync` limit and
-   * defaults to what the whole-inbox `list` asks for.
+   * Conversation rows for this source. A source that can page takes the `cursor` its previous
+   * answer returned and answers with the next older page plus that page's own cursor; a source
+   * that cannot ignores it. `opts.limit` is the `sync` limit and defaults to what the
+   * whole-inbox `list` asks for.
    */
   list(cursor?: string, opts?: OpenOptions): Promise<ListResult>;
   /**
