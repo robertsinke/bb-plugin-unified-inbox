@@ -101,6 +101,16 @@ export default function plugin(bb: BbPluginApi) {
   /** Whether any source still holds rows older than the newest page it showed. */
   const hasOlder = () => accounts.some(name => typeof olderCursor[name] === 'string');
 
+  /**
+   * How many rows one older page asks a source for. A Gmail row costs one CLI read of its thread
+   * (a listing carries only an id and a snippet), and twenty of those per account — forty in a
+   * round, sharing the runner's pool with the periodic refreshes — measured 11–20s and lost the
+   * panel's 15-second ceiling, so the owner saw the WhatsApp page and no mail. Ten fits: the same
+   * page lands in about five seconds, and a press that is quick is worth two that never arrive.
+   * WhatsApp pages by offset and answers fifty chats in a second, so it keeps its fifty.
+   */
+  const OLDER_PAGE: Partial<Record<Account, number>> = { personal: 10, business: 10 };
+
   bb.rpc.register(rpcContract, {
     capabilities() {
       return registryCapabilities(registry);
@@ -231,7 +241,7 @@ export default function plugin(bb: BbPluginApi) {
       const scope = options?.account ? [options.account] : accounts;
       // A source that already answered "nothing older" is not asked again.
       const names = older ? scope.filter(name => typeof olderCursor[name] === 'string') : scope;
-      const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined)));
+      const results = await Promise.allSettled(names.map(name => registry[name].list(older ? olderCursor[name]! : undefined, older ? { limit: OLDER_PAGE[name] ?? undefined } : undefined)));
       const errors: string[] = [];
       const items: Conversation[] = [];
       results.forEach((result, index) => {

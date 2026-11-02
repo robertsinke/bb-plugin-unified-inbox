@@ -423,6 +423,14 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
           const rows = olderRows.get(account) ?? [];
           const added = fresh.filter(item => !rows.some(row => row.id === item.id));
           if (added.length) olderRows.set(account, [...rows, ...added]);
+          // The source promised more and answered with rows already on screen: a press that adds
+          // nothing must say so, or the owner is left clicking a control that is indistinguishable
+          // from a broken one.
+          if (!fresh.length && page.more === true) {
+            failed = true;
+            const message = `${OLDER_FAILURE} from ${SOURCE_LABEL[account]}: it answered with rows already on screen, so there was nothing new to add.`;
+            if (!state.errors.some(line => line.startsWith(OLDER_FAILURE))) state.errors = [...state.errors, message];
+          }
           setItems([...state.items, ...fresh].sort((a, b) => b.date - a.date));
           olderLeft.set(account, page.more === true);
           state.hasOlder = [...olderLeft.values()].some(Boolean);
