@@ -13,7 +13,7 @@ import {
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { describeControlExpression, pageTextExpression } from './src/linkedin-ui';
+import { describeControlExpression, pageTextExpression, sendClickRecord } from './src/linkedin-ui';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, mentionLabels, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { item, message, rpcContract } from './src/rpc-contract';
 import { createGwsRunner } from './src/adapters/gws';
@@ -22,6 +22,7 @@ import { capabilitiesSchema } from './src/adapters/capability';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './src/adapters/media';
 import { toProviderError } from './src/adapters/provider-error';
 import { approvalFor, createSendGate } from './src/adapters/policy';
+import { isMessageSend } from './src/linkedin-write';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import type { Account, Conversation } from './src/adapters/types';
 
@@ -148,7 +149,14 @@ export default function plugin(bb: BbPluginApi) {
       if (!target) throw new Error('A LinkedIn page click or typing step needs the control to act on.');
       if (step.op === 'click') {
         const allowed = step.allow ? { allow: step.allow, ...(step.recipient ? { recipient: step.recipient } : {}), ...(step.conversation ? { conversation: step.conversation } : {}), ...(step.invitation ? { invitation: step.invitation } : {}) } : undefined;
-        const answered = await clickNamedControl(target, step.role, allowed);
+        const click = () => clickNamedControl(target, step.role, allowed);
+        // One click can deliver a message and every other step cannot: that one goes through the
+        // gate so the send log sees it, with no approval minted — the page-confirmed target and the
+        // caller's own `allow: 'send'` are what authorise it. The row lands before the click.
+        const record = sendClickRecord(step);
+        const answered = record
+          ? await sendGate.observe({ account: 'linkedin', ...record }, click)
+          : await click();
         return { clicked: answered.clicked, ...(answered.reason ? { reason: answered.reason } : {}), ...(answered.recipients ? { recipients: answered.recipients } : {}) };
       }
       if (typeof step.text !== 'string') throw new Error('A LinkedIn page typing step needs the text to type.');
@@ -157,8 +165,18 @@ export default function plugin(bb: BbPluginApi) {
     async linkedin_record({ op }) { return registry.linkedin.record!(op); },
     async linkedin_writes() { return { writes: (await registry.linkedin.record!('dump')).writes ?? [] }; },
     // The one RPC that can change the account: the adapter refuses unless the action is a
-    // message send to that conversation and the caller approved this exact replay.
-    async linkedin_replay(input) { return registry.linkedin.replay!(input); },
+    // message send to that conversation and the caller approved this exact replay. A send is
+    // recorded through the gate — page-confirmed target, `confirm: true`, no approval minted —
+    // before it is delivered; a read mark delivers no message and records nothing.
+    async linkedin_replay(input) {
+      const deliver = () => registry.linkedin.replay!(input);
+      if (!isMessageSend(input.write, input.conversationId)) return deliver();
+      return sendGate.observe({
+        account: 'linkedin',
+        conversationId: input.conversationId,
+        reason: 'Delivered by a LinkedIn replay with no approval minted for it: the page confirmed the conversation, and the caller confirmed this exact action with confirm: true.',
+      }, deliver);
+    },
     async linkedin_signin() {
       const profile = await openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };

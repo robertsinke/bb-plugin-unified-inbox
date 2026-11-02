@@ -49,6 +49,29 @@ export interface SendRequest {
   bcc?: string;
 }
 
+/**
+ * A delivery no approval authorised: an action the page itself confirmed and the caller confirmed
+ * in the same request. The record is the whole point — it says this went out, not that anyone
+ * approved it.
+ */
+export interface ObservedSend {
+  account: Account;
+  conversationId: string;
+  /** The authorisation model that let this out, in words a person can read. */
+  reason: string;
+}
+
+/** The one gate, as a call and as the entry point that records without approving. */
+export interface SendGate {
+  (request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt>;
+  /**
+   * Record a delivery no approval authorised, then deliver: the row lands before the call, so a
+   * delivery that throws still leaves it. No policy check, no window, no spend — the authorisation
+   * was the page naming its own target, and this entry point does not judge it.
+   */
+  observe<Receipt>(request: ObservedSend, deliver: () => Promise<Receipt>): Promise<Receipt>;
+}
+
 /** Whether a source may send at all, and why not when it may not. */
 export type SendPolicy = { state: 'enabled' } | { state: 'disabled'; reason: string };
 
@@ -99,7 +122,7 @@ export function approvalFor(allow: 'send' | undefined, conversationId: string, a
   return allow === 'send' ? { id: randomUUID(), conversationId, issuedAt: at } : undefined;
 }
 
-export function createSendGate({ now, store }: SendGateDeps) {
+export function createSendGate({ now, store }: SendGateDeps): SendGate {
   /** The refusal record and the refusal itself, so a refusal can never skip its row. */
   function refuse(request: SendRequest, reason: string, approval?: SendApproval): never {
     store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason, ...(approval ? { approvalId: approval.id } : {}) });
@@ -107,7 +130,7 @@ export function createSendGate({ now, store }: SendGateDeps) {
   }
 
   /** Deliver through `deliver` only when this attempt is allowed; the row is written either way. */
-  return async function send(request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt> {
+  const send = async function send(request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt> {
     const policy = SEND_POLICY[request.account];
     if (policy.state === 'disabled') refuse(request, policy.reason);
     if (!approval) refuse(request, 'A send needs an approval for the conversation it goes to; nothing was sent.');
@@ -136,4 +159,24 @@ export function createSendGate({ now, store }: SendGateDeps) {
     })
     return deliver();
   };
+
+  /**
+   * The approving path's counterpart: one row, no approval, written before the delivery for the
+   * same reason — a delivery that throws must still leave the record. `approvalId` stays absent,
+   * which is the honest marker for "delivered, never approved"; nothing here reads spend, so this
+   * can never consume an approval.
+   */
+  async function observe<Receipt>(request: ObservedSend, deliver: () => Promise<Receipt>): Promise<Receipt> {
+    store.record({
+      at: now(),
+      operation: 'send',
+      account: request.account,
+      conversationId: request.conversationId,
+      decision: 'allowed',
+      reason: request.reason,
+    });
+    return deliver();
+  }
+
+  return Object.assign(send, { observe });
 }
