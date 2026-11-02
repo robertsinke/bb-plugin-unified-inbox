@@ -1,4 +1,13 @@
+import { conversationKeyOf } from './linkedin-conversation.ts';
 import { sameConversationUrn } from './linkedin-write.ts';
+
+/**
+ * The short conversation key a thread URL names. The rule lives in `linkedin-conversation.ts` so
+ * the send gate, the inbox read and this module cannot disagree about what one id is; it stays
+ * exported from here because that is where its callers already look for it.
+ */
+export { conversationKeyOf };
+
 /**
  * The LinkedIn page as a person drives it: what is on it, where it is, and which control a call
  * names.
@@ -240,19 +249,6 @@ export function recipientsExpression(): string {
   }
   return chips;
 })()`;
-}
-
-/**
- * The short conversation key a LinkedIn thread URL names — the `2-…` that sits inside a full
- * conversation urn's parentheses. A thread URL carries the key alone; a cached row carries the full
- * urn; a send approval may arrive as either, so both are read down to the key before they are
- * compared. Anything this does not recognise is passed through unchanged, so an unrecognised
- * value can only fail the comparison, never pass it by transformation.
- */
-export function conversationKeyOf(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const full = /^urn:li:msg_conversation:\((urn:li:fsd_profile:[^,]+),(.+)\)$/.exec(value);
-  return full ? full[2] : value;
 }
 
 /**

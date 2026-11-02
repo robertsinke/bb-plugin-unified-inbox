@@ -1,3 +1,5 @@
+import { CONVERSATION_URN_SOURCE } from './linkedin-conversation.ts';
+
 /**
  * In-page read of LinkedIn's own inbox, run inside the BB browser's signed-in session.
  *
@@ -27,6 +29,11 @@ const BODY = `
     const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
     const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
     const get = async url => { const response = await fetch(url, { headers, credentials: 'include' }); if (!response.ok) throw new Error('LinkedIn ' + response.status + ' for ' + url.split('?')[0]); return JSON.parse(await response.text()); };
+
+    // What a conversation is, from the one rule: the shared pattern. A message urn wraps a
+    // conversation urn, so a substring test would list messages as conversations, which is exactly
+    // what it used to do.
+    const conversationUrn = new RegExp(${JSON.stringify(CONVERSATION_URN_SOURCE)});
 
     const names = new Map();
     const avatars = new Map();
@@ -109,7 +116,7 @@ const BODY = `
     }
 
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
-    const entities = (inbox.included || []).filter(e => /msg_conversation/.test(String(e.entityUrn || '')));
+    const entities = (inbox.included || []).filter(e => conversationUrn.test(String(e.entityUrn || '')));
     // The payload inlines each conversation's latest messages, so a body can stand in for the empty descriptionText.
     const previewLabels = ${JSON.stringify(LINKEDIN_PREVIEW_LABELS)};
     const previewOf = item => {
