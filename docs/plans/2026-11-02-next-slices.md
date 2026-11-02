@@ -246,3 +246,25 @@ only) → D (writes; needs a real target each time) → G.
 D is last on purpose: it is the only slice that can change the owner's real
 account state, and it should be built on the toolbox rather than inside the
 branchy dispatch it is meant to replace.
+
+## Mail is written in the composer, not in a form above the thread
+
+Reply, reply all, forward and new message all open one form in the slot a chat reply uses
+(`cba1c51`): To, Cc, Bcc, Subject and the body, with the same Discard and send controls. Before this
+there were two identical mail forms — one under the conversation header, one above the list — and a
+new message floated a form over the inbox. Now a new message takes the panel: account choice, then
+the composer.
+
+A blind copy needed the whole chain to carry it: `MailDraft` → `send_gmail` → the gmail adapter →
+`buildGmailMime`. Two things were easy to get wrong and are pinned by tests: nodemailer strips `Bcc`
+from the generated headers unless its root MIME node is told to keep it (right for an SMTP envelope,
+wrong for Gmail, which delivers to the headers of the raw message we hand it), and a draft stored
+before bcc existed must still read — as an empty blind copy, not as a lost draft.
+
+**The reason the compose view would not open, and why earlier checks looked flaky.** The bar's ⋯
+took the whole menu down whenever a refresh was in flight, and the inbox refreshes on a heartbeat
+every few seconds — so `New`, `Send log` and every row action were unreachable for most of the time
+the panel was open (`e7d87e7`). What I had twice written off as a flaky test harness was this: the
+menu opened, the item existed, and the item was `disabled`. The menu now stays openable and the
+actions that must not run mid-flight guard themselves — the session refuses `mark` while busy, and
+`refresh` skips a source it is already reading.
