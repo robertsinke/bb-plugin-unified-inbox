@@ -539,7 +539,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       notify();
       return false;
     }
-    const encoded = [...mail.attachments, file].reduce((total, one) => total + encodedBytes(one.size), 0);
+    // The words are encoded into the same message, so a long body leaves less room for files.
+    const body = encodedBytes(new TextEncoder().encode(mail.text).length);
+    const encoded = body + [...mail.attachments, file].reduce((total, one) => total + encodedBytes(one.size), 0);
     if (encoded > ATTACHMENT_ENCODED_LIMIT_BYTES) {
       state.mailStatus = `That attachment is too large: a draft carries up to ${Math.round(ATTACHMENT_ENCODED_LIMIT_BYTES / (1024 * 1024))} MB once its files are encoded for Gmail.`;
       notify();
