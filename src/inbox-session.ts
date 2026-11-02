@@ -565,7 +565,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     state.mailStatus = 'Sending…';
     notify();
     try {
-      const result = await deps.rpc.call('send_gmail', mail);
+      // The same statement a chat reply carries: the owner pressed send on this draft.
+      const result = await deps.rpc.call('send_gmail', { ...mail, allow: 'send' });
       state.mailStatus = result.status;
       state.mail = null;
       state.status = result.status;

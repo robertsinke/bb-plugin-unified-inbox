@@ -126,37 +126,42 @@ test('an allowed send delivers once and its row carries no message', async () =>
   assert.ok(!JSON.stringify(rows).includes('party'), 'the audit never carries message text');
 });
 
-// Gmail sending was disabled by a named constant inside its handler. The same
-// decision belongs to the gate, as a rule a person can read, and the caller's
-// refusal text must not change while it moves.
-test('Gmail is refused by a readable policy rule, and every source declares one', async () => {
+// Gmail sending was disabled by a named constant inside its handler; that decision moved to the
+// gate. On 2026-11-03 the owner enabled it, so what the gate owes every source is the same two
+// rules: an approval, and a policy entry that says enabled.
+test('every source declares its policy, and every enabled source still needs an approval', async () => {
   const { rows, send } = gate();
-  const reason = 'Gmail sending is not enabled yet. Your draft has not been sent.';
-  for (const account of ['personal', 'business'] as const) {
-    let delivered = 0;
-    await assert.rejects(
-      send(
-        { account, conversationId: 'thread-1', text: 'draft for the team' },
-        { id: `gmail-${account}`, conversationId: 'thread-1', issuedAt: T0 },
-        async () => { delivered += 1; return { status: 'Sent.' }; },
-      ),
-      /Gmail sending is not enabled yet\. Your draft has not been sent\./,
-      'a disabled source refuses even with a valid approval',
-    );
-    assert.equal(delivered, 0);
-    assert.equal(rows.at(-1)!.reason, reason);
-  }
   assert.deepEqual(
     accounts.map(account => [account, SEND_POLICY[account].state]),
     [
-      ['personal', 'disabled'],
-      ['business', 'disabled'],
+      ['personal', 'enabled'],
+      ['business', 'enabled'],
       ['whatsapp', 'enabled'],
       ['imessage', 'enabled'],
       ['linkedin', 'enabled'],
     ],
-    'the owner decisions of 2026-11-02 are the rule the gate reads',
+    'the owner decisions are the rule the gate reads',
   );
+
+  for (const account of accounts) {
+    let delivered = 0;
+    const deliver = async () => { delivered += 1; return { status: 'Sent.' }; };
+    await assert.rejects(
+      send({ account, conversationId: 'thread-1', text: 'draft for the team' }, undefined, deliver),
+      /approv/i,
+      `${account}: an enabled source refuses a send that carries no approval`,
+    );
+    assert.equal(delivered, 0, `${account}: the adapter is never reached without an approval`);
+    assert.equal(rows.at(-1)!.decision, 'refused');
+
+    await send(
+      { account, conversationId: 'thread-1', text: 'draft for the team' },
+      { id: `approval-${account}`, conversationId: 'thread-1', issuedAt: T0 },
+      deliver,
+    );
+    assert.equal(delivered, 1, `${account}: an approval lets the one send through`);
+    assert.equal(rows.at(-1)!.decision, 'allowed');
+  }
 });
 
 // The composition the spec asks for: the gate in front of the real registry. Every
@@ -173,8 +178,8 @@ test('a refusal stops before every adapter, and an approved WhatsApp send reache
   try {
     const { rows, send } = gate();
     const attempts: Array<[Account, string, RegExp]> = [
-      ['personal', 'thread-1', /Gmail sending is not enabled yet/],
-      ['business', 'thread-1', /Gmail sending is not enabled yet/],
+      ['personal', 'thread-1', /approv/i],
+      ['business', 'thread-1', /approv/i],
       ['whatsapp', WHATSAPP_ID, /approv/i],
       ['imessage', IMSG_ID, /approv/i],
       ['linkedin', LINKEDIN_ID, /approv/i],

@@ -41,7 +41,8 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
     if (files.current) files.current.value = '';
   }
 
-  return <form className="ui-mail-composer" aria-label={`${accountLabel} draft`} onSubmit={event => { event.preventDefault(); onSend(); }}>
+  const ready = mail.to.trim() !== '' && (mail.text.trim() !== '' || mail.attachments.length > 0);
+  return <form className="ui-mail-composer" aria-label={`${accountLabel} draft`} onSubmit={event => { event.preventDefault(); if (ready && !busy) onSend(); }}>
     <div className="ui-mail-fields">
       <label>To<input value={mail.to} onChange={event => onField({ to: event.target.value })} /></label>
       <label>Cc<input value={mail.cc} onChange={event => onField({ cc: event.target.value })} /></label>
@@ -69,8 +70,8 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
       <input ref={files} type="file" multiple className="ui-file-input" onChange={event => void read(event.target.files)} aria-label="Choose files to attach" />
       <span className="ui-mail-actions-spacer" />
       <button type="button" className="ui-text-button" disabled={busy} onClick={onDiscard}>Discard</button>
-      <button type="submit" className="ui-prompt-send" disabled title="Gmail sending is not enabled yet" aria-label="Send (not enabled yet)">{sendIcon}</button>
+      <button type="submit" className="ui-prompt-send" disabled={busy || !ready} title={ready ? `Send from ${accountLabel}` : 'Add a recipient and a message or file first'} aria-label="Send">{sendIcon}</button>
     </div>
-    <p className="ui-notice">{status || 'Files stay in this panel until a draft is sent; Gmail sending is not enabled yet.'}</p>
+    <p className="ui-notice">{status || 'Files stay in this panel until the draft is sent.'}</p>
   </form>;
 }

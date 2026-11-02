@@ -47,12 +47,13 @@ export type SendPolicy = { state: 'enabled' } | { state: 'disabled'; reason: str
 /**
  * The owner's decisions as rules the gate reads, so a handler holds no flag of its own.
  * Chat sending was enabled on 2026-11-02 — Messages by explicit request, WhatsApp through
- * the owner's own composer, LinkedIn replies. Gmail stays off until its boundary is
- * verified, and a disabled reason is the caller-facing refusal text.
+ * the owner's own composer, LinkedIn replies. Gmail was enabled on 2026-11-03, once every draft
+ * reached the gate with `allow: 'send'`, a refusal was visible in the panel, and a send was spent
+ * before delivery. A `disabled` reason is the caller-facing refusal text.
  */
 export const SEND_POLICY: Record<Account, SendPolicy> = {
-  personal: { state: 'disabled', reason: 'Gmail sending is not enabled yet. Your draft has not been sent.' },
-  business: { state: 'disabled', reason: 'Gmail sending is not enabled yet. Your draft has not been sent.' },
+  personal: { state: 'enabled' },
+  business: { state: 'enabled' },
   whatsapp: { state: 'enabled' },
   imessage: { state: 'enabled' },
   linkedin: { state: 'enabled' },
