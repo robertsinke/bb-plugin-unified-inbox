@@ -50,7 +50,7 @@ export const rpcContract = defineRpcContract({
   linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
   // What the send gate decided, newest first: the same rows `bb unified-inbox send-audit`
   // prints, so a refused send is visible where it happened rather than only in a terminal.
-  send_audit: { input: z.object({ limit: z.number().int().min(1).max(50).optional() }).strict(), output: z.object({ rows: z.array(z.object({ at: z.number(), account, conversationId: z.string(), decision: z.enum(['allowed', 'refused']), reason: z.string().optional() })) }) },
+  send_audit: { input: z.object({ limit: z.number().int().min(1).max(50).optional() }).strict(), output: z.object({ rows: z.array(z.object({ at: z.number(), account, conversationId: z.string(), decision: z.enum(['allowed', 'refused']), reason: z.string().nullable().optional() })) }) },
   media: {
     input: z.discriminatedUnion('kind', [
       messageMediaRequestSchema.extend({ account }),
