@@ -1,3 +1,4 @@
+import { isConversationUrn } from './linkedin-conversation.ts';
 import { sourceAvatarUrl } from './avatar-url.ts';
 import { linkedinCdnUrl } from './linkedin-media.ts';
 import type { MessageMedia } from './adapters/types.ts';
@@ -89,5 +90,5 @@ export function isInvitationId(id: string): boolean {
 
 /** Rejects anything that is not a LinkedIn conversation URN before it reaches the page. */
 export function isConversationId(id: string): boolean {
-  return /^urn:li:msg_conversation:.+/.test(id) && id.length <= 512;
+  return isConversationUrn(id);
 }

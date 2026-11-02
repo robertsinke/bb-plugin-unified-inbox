@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { conversationMailboxOf, isConversationUrn } from './linkedin-conversation.ts';
 /**
  * LinkedIn writes, recorded rather than guessed.
  *
@@ -305,7 +306,7 @@ const SEND_TRACKING_ID = '\u0003\u00ca\u0088\u00de1\u0001Kv\u00b8\u00e2\u00cb\u0
  */
 export function linkedinSendWrite(conversationUrn: string, text: string, originToken: string = randomUUID()): RecordedWrite | null {
   if (typeof text !== 'string' || !text) return null;
-  const mailbox = /^urn:li:msg_conversation:\((urn:li:fsd_profile:[^,]+),.+\)$/.exec(conversationUrn);
+  const mailbox = conversationMailboxOf(conversationUrn);
   if (!mailbox) return null;
   if (writeBytes(text) > LINKEDIN_WRITE_LIMIT) return null;
   return {
@@ -318,7 +319,7 @@ export function linkedinSendWrite(conversationUrn: string, text: string, originT
         conversationUrn,
         originToken,
       },
-      mailboxUrn: mailbox[1],
+      mailboxUrn: mailbox,
       trackingId: SEND_TRACKING_ID,
       dedupeByClientGeneratedToken: false,
     }),
@@ -446,13 +447,6 @@ export function replayWriteExpression(write: RecordedWrite): string {
 
 type Path = Array<string | number>;
 type TextField = { path: Path; value: string };
-
-/** A conversation urn is the only id this module will template against. */
-const CONVERSATION_URN = /^urn:li:msg_conversation:\S+$/;
-
-function isConversationUrn(value: unknown): value is string {
-  return typeof value === 'string' && CONVERSATION_URN.test(value);
-}
 
 function parsedBody(write: RecordedWrite): Record<string, unknown> | null {
   if (!write || typeof write.body !== 'string') return null;

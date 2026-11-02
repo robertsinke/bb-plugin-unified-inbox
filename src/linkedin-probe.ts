@@ -1,3 +1,5 @@
+import { CONVERSATION_URN_SOURCE } from './linkedin-conversation.ts';
+
 /**
  * The LinkedIn change probe: a second in-page read that answers one question —
  * "did anything the inbox shows move since the marker was stored?"
@@ -56,6 +58,9 @@ const body = (mailboxUrn: string) => `
     const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
     const get = async url => { const response = await fetch(url, { headers, credentials: 'include' }); if (!response.ok) throw new Error('LinkedIn ' + response.status + ' for ' + url.split('?')[0]); return JSON.parse(await response.text()); };
     const time = value => { const number = Number(value); return Number.isFinite(number) && number > 0 ? number : 0; };
+    // The shared pattern, not the msg_conversation substring: a message urn contains that
+    // substring and is not a conversation.
+    const conversationUrn = new RegExp(${JSON.stringify(CONVERSATION_URN_SOURCE)});
     const counter = value => { const number = Math.floor(Number(value)); return Number.isFinite(number) && number > 0 ? number : 0; };
 
     // A remembered mailbox saves the identity round trip; invitations start immediately either way,
@@ -72,7 +77,7 @@ const body = (mailboxUrn: string) => `
 
     const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${CONVERSATIONS_QUERY}&variables=(mailboxUrn:' + enc(mailboxUrn) + ')');
     const conversations = (inbox.included || [])
-      .filter(e => /msg_conversation/.test(String(e.entityUrn || '')))
+      .filter(e => conversationUrn.test(String(e.entityUrn || '')))
       .map(e => ({ at: time(e.lastActivityAt), unread: counter(e.unreadCount) }));
 
     const settled = await invites;
