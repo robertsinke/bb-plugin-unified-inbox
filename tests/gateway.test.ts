@@ -1,0 +1,198 @@
+// The gateway is one handler map built from plain deps, so a test can call one handler
+// without a host API and without a browser. Every dependency here is a local stub: the
+// only record of anything crossing a boundary is `calls`.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { NO_CAPABILITIES } from '../src/adapters/capability.ts';
+import { createSendGate, type AuditRow, type SendAuditStore } from '../src/adapters/policy.ts';
+import { accounts } from '../src/adapters/types.ts';
+import type { Account, Adapter, Conversation, ListResult } from '../src/adapters/types.ts';
+import { createGateway, type GatewayDeps, type GatewayDriver } from '../src/gateway.ts';
+
+
+const NOW = 1_700_000_000_000;
+const FIRST: Conversation = { account: 'personal', id: 't1', title: 'Dinner', preview: 'See you at six', date: NOW, unread: true };
+const SECOND: Conversation = { ...FIRST, id: 't0', preview: 'Older mail', date: NOW - 86_400_000, unread: false };
+
+/** The first page a source answers, and the page its cursor walks to. */
+type Pages = { newest: { items: Conversation[]; cursor?: string }; older: { items: Conversation[]; cursor?: string } };
+
+interface FixtureOptions {
+  pages?: Pages;
+  /** What the driver answers for one click. */
+  click?: { clicked: boolean; reason?: string; recipients?: string[] };
+  /** One source whose `list` rejects, for the isolation case. */
+  fail?: Account;
+}
+
+function adapter(name: Account, overrides: Partial<Adapter>): Adapter {
+  return {
+    capabilities: () => NO_CAPABILITIES,
+    list: async () => ({ items: [], errors: [] }),
+    sync: async () => ({ items: [], updatedAt: NOW }),
+    open: async () => ({ messages: [] }),
+    media: async () => ({ dataUrl: '', mime: '' }),
+    action: async () => ({ status: 'ok' }),
+    ...overrides,
+  };
+}
+
+function fixture(options: FixtureOptions = {}) {
+  const calls: string[] = [];
+  const auditRows: AuditRow[] = [];
+  const cacheRows: Conversation[] = [];
+  // The real gate over an in-memory store: the ordering the task cares about is the
+  // gate's, so a fake that wrote the row itself would prove nothing.
+  const store: SendAuditStore = {
+    record(row) { calls.push('audit:record'); auditRows.push(row); },
+    hasSpent() { return false; },
+  };
+  const cache: GatewayDeps['cache'] = {
+    list: () => cacheRows,
+    readThread: () => null,
+    clear: () => { cacheRows.length = 0; },
+  };
+  const search: GatewayDeps['search'] = {
+    search: () => [],
+    status: () => ({ size: 0, updatedAt: null, ready: true }),
+    warm() {},
+  };
+  const driver: GatewayDriver = {
+    openInLinkedInProfile: async () => {},
+    inspectLinkedInPage: async () => [],
+    evaluateInLinkedInProfile: async () => undefined,
+    pressKeyInLinkedInPage: async () => {},
+    readSendTarget: async () => {
+      calls.push('driver:readSendTarget');
+      return { recipients: ['Ada Lovelace'], threadKey: '' };
+    },
+    clickNamedControl: async () => {
+      calls.push('driver:clickNamedControl');
+      return options.click ?? { clicked: true, recipients: ['Ada Lovelace'] };
+    },
+    typeIntoNamedControl: async () => ({ typed: true }),
+    openLinkedInSignIn: async () => '/tmp/inbox-profile',
+  };
+  const personal: Partial<Adapter> = {
+    // A cache-only decoration, the shape WhatsApp's group participants use.
+    decorate: row => ({ ...row, participants: ['Ada Lovelace'] }),
+    async list(cursor): Promise<ListResult> {
+      calls.push(`personal:list:${cursor ?? 'newest'}`);
+      if (!options.pages) return { items: [], errors: [] };
+      const page = cursor === undefined ? options.pages.newest : options.pages.older;
+      return { ...page, errors: [] };
+    },
+    async sync() {
+      calls.push('personal:sync');
+      // A refresh hands over a cursor. It must not move the walk the owner started.
+      return { items: options.pages?.older.items ?? [], updatedAt: NOW, cursor: 'page-99' };
+    },
+    async send() {
+      calls.push('personal:send');
+      return { status: 'sent' };
+    },
+  };
+  const registry = Object.fromEntries(accounts.map(name => [name, adapter(name, {
+    ...(name === 'personal' ? personal : {}),
+    ...(name === options.fail
+      ? { list: async (): Promise<never> => { calls.push(`${name}:list`); throw new Error('provider exploded'); } }
+      : {}),
+  })])) as Record<Account, Adapter>;
+  const gateway = createGateway({
+    cache,
+    search,
+    audit: { list: (limit = 20) => auditRows.slice(-limit).reverse() },
+    gate: createSendGate({ now: () => NOW, store }),
+    registry,
+    now: () => NOW,
+    driver,
+  });
+  return { gateway, calls, auditRows, cacheRows, registry };
+}
+
+test('list decorates rows and reports more from the cursor; a refresh does not advance it', async () => {
+  const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } } });
+
+  const first = await f.gateway.list({ account: 'personal' });
+  assert.deepEqual(first.items.map(row => row.id), [FIRST.id]);
+  assert.deepEqual(first.items[0].participants, ['Ada Lovelace'], 'the adapter decoration reaches the caller');
+  assert.equal(first.more, true, 'the source says an older page exists');
+
+  // `older: false` and an absent `older` both read the newest page again, and neither
+  // replaces the cursor the first read seeded.
+  f.calls.length = 0;
+  const refreshed = await f.gateway.list({ older: false, account: 'personal' });
+  const absent = await f.gateway.list({ account: 'personal' });
+  assert.deepEqual(f.calls, ['personal:list:newest', 'personal:list:newest']);
+  assert.equal(refreshed.more, true);
+  assert.equal(absent.more, true, 'the walk is still parked on page two');
+
+  f.calls.length = 0;
+  const older = await f.gateway.list({ older: true, account: 'personal' });
+  assert.deepEqual(f.calls, ['personal:list:page-2'], 'an older read asks for the page after the newest one');
+  assert.deepEqual(older.items.map(row => row.id), [SECOND.id]);
+  assert.equal(older.more, false, 'the source answered with no next cursor');
+
+  f.calls.length = 0;
+  assert.equal((await f.gateway.list({ older: true, account: 'personal' })).more, false);
+  assert.deepEqual(f.calls, [], 'a source that said "nothing older" is not asked again');
+});
+
+test('only older advances the walk: a refresh that hands over a cursor leaves it alone', async () => {
+  const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } } });
+
+  await f.gateway.list({ account: 'personal' });
+  f.calls.length = 0;
+  const synced = await f.gateway.sync({ account: 'personal' });
+  assert.deepEqual(f.calls, ['personal:sync']);
+  assert.equal(synced.more, true, 'the 45-second refresh answers for the walk already in progress');
+
+  f.calls.length = 0;
+  await f.gateway.list({ older: true, account: 'personal' });
+  assert.deepEqual(f.calls, ['personal:list:page-2'], "the refresh's cursor did not restart the owner's walk");
+});
+
+test('send_gmail without allow: send refuses and the adapter is never reached', async () => {
+  const f = fixture();
+
+  await assert.rejects(
+    async () => f.gateway.send_gmail({ account: 'personal', to: 'ada@example.com', subject: 'Dinner', text: 'On my way' }),
+    /needs an approval/,
+  );
+  assert.deepEqual(f.calls, ['audit:record'], 'the gate wrote the refusal, and the adapter was never called');
+  assert.equal(f.auditRows.length, 1);
+  assert.equal(f.auditRows[0].decision, 'refused');
+  assert.equal(f.auditRows[0].conversationId, 'ada@example.com');
+});
+
+test('a sending click writes its audit row before the driver clicks', async () => {
+  const f = fixture();
+
+  const answered = await f.gateway.linkedin_ui({ op: 'click', control: 'Send', allow: 'send', recipient: 'Ada Lovelace' });
+  assert.deepEqual(answered, { clicked: true, recipients: ['Ada Lovelace'] });
+  assert.deepEqual(f.calls, ['driver:readSendTarget', 'audit:record', 'driver:clickNamedControl']);
+  assert.equal(f.auditRows.length, 1);
+  assert.equal(f.auditRows[0].decision, 'allowed');
+  assert.equal(f.auditRows[0].conversationId, 'Ada Lovelace', 'the row names the target the page confirmed');
+  assert.equal(f.auditRows[0].approvalId, undefined, 'delivered, never approved');
+});
+
+test('a driver that refuses the click writes no row', async () => {
+  const f = fixture({ click: { clicked: false, reason: 'LinkedIn shows no control named "Send".' } });
+
+  // No `allow: 'send'`: the click delivers nothing, so the gateway has no row to write and
+  // the driver refuses the click itself.
+  const answered = await f.gateway.linkedin_ui({ op: 'click', control: 'Send' });
+  assert.deepEqual(answered, { clicked: false, reason: 'LinkedIn shows no control named "Send".' });
+  assert.deepEqual(f.calls, ['driver:clickNamedControl'], 'no page read and no audit row');
+  assert.deepEqual(f.auditRows, []);
+});
+
+test('one failing source becomes one line and the rest still list', async () => {
+  const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } }, fail: 'whatsapp' });
+
+  const listed = await f.gateway.list(null);
+  assert.deepEqual(listed.items.map(row => row.id), [FIRST.id]);
+  assert.deepEqual(listed.errors, ['WhatsApp unavailable. Check its connection.']);
+  assert.equal(listed.more, true);
+});
