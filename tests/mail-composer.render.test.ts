@@ -16,10 +16,11 @@ import { loadComponent } from './jsdom-harness.ts';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
 install(dom);
 
+const { flushSync } = require('react-dom');
+
 function mount(mail: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   const React = require('react');
   const { createRoot } = require('react-dom/client');
-  const { flushSync } = require('react-dom');
   const { MailComposer } = loadComponent('src/mail-composer.tsx', { '@get-bb/plugin-sdk/app': { experimental_Icon: () => null } });
 
   const calls: { sent: number; discarded: number; fields: unknown[]; attached: unknown[]; detached: number[]; taken: string[] } = {
@@ -208,6 +209,29 @@ test('a drop carrying no file is ignored, and the draft it was dropped on stays'
     assert.equal((document.querySelector('.ui-mail-body') as any)?.value, 'Half written', 'the words are still there');
     await until(() => !form.classList.contains('is-dropping'));
     assert.equal(form.classList.contains('is-dropping'), false, 'the highlight clears when the drag ends');
+  } finally {
+    done();
+  }
+});
+
+test('a drag over the form claims it, and the tint says so until the pointer leaves', async () => {
+  const { document, dom, done } = mount({});
+  try {
+    const form = document.querySelector('.ui-mail-composer') as any;
+    const dataTransfer = { files: [{ name: 'plan.txt' }] };
+    const dragover: any = new (dom.window as any).Event('dragover', { bubbles: true, cancelable: true });
+    Object.assign(dragover, { dataTransfer });
+    form.dispatchEvent(dragover);
+    assert.equal(dragover.defaultPrevented, true, 'the browser would otherwise open the file and the panel is gone');
+    // `dragover` is a continuous event, so React batches its update into the next tick.
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.match(form.className, /is-dropping/, 'and the form shows it is the target');
+
+    const leave: any = new (dom.window as any).Event('dragleave', { bubbles: true, cancelable: true });
+    Object.assign(leave, { relatedTarget: document.body });
+    form.dispatchEvent(leave);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.doesNotMatch(form.className, /is-dropping/, 'leaving the form ends it');
   } finally {
     done();
   }
