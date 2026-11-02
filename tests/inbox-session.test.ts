@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createInboxSession, type InboxItem, type InboxSessionDeps } from '../src/inbox-session.ts';
 import { inboxDraftKey, readInboxDraft } from '../src/inbox-drafts.ts';
-import type { Account, Capabilities, Conversation, Message } from '../src/adapters/types.ts';
+import type { Account, Capabilities, Conversation, Message, SourceMap } from '../src/adapters/types.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { CapabilityMap } from '../src/ui-capabilities.ts';
 
@@ -11,6 +11,16 @@ const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, in
 /** Every source declaring the same thing; a case overrides only the rule it is about. */
 function declarations(overrides: Partial<Capabilities> = {}): CapabilityMap {
   return Object.fromEntries(accounts.map(account => [account, { ...EVERYTHING, ...overrides }])) as CapabilityMap;
+}
+
+/** What each source says it is. The cadences are the ones the adapters declare; a case may override one. */
+function sources(overrides: Partial<Record<Account, number | undefined>> = {}): SourceMap {
+  const poll: Record<Account, number> = { personal: 45_000, business: 45_000, whatsapp: 8_000, imessage: 8_000, linkedin: 45_000 };
+  return Object.fromEntries(accounts.map(account => [account, {
+    label: account,
+    icon: 'MessageCircle',
+    pollIntervalMs: overrides[account] ?? poll[account],
+  }])) as SourceMap;
 }
 
 const row = (overrides: Partial<Conversation> = {}): InboxItem => ({
@@ -28,6 +38,7 @@ type Handler = (input: any) => unknown;
 
 function defaults(name: string): unknown {
   if (name === 'capabilities') return declarations();
+  if (name === 'sources') return sources();
   if (name === 'cached') return { items: [] };
   if (name === 'cached_open') return { messages: [] };
   if (name === 'open') return { messages: [] };
@@ -120,16 +131,45 @@ test('a source that does not follow the list moves the row without re-reading th
   assert.equal(session.snapshot().selected?.preview, 'See you at six, then', 'but the selected row follows the list');
 });
 
+test('two failures that say exactly the same words are cleared by the source that owns them', async () => {
+  // Both mailboxes fail with one sentence. Clearing one has to leave the other alone, and the text
+  // cannot be what tells them apart: it is identical.
+  let failing = true;
+  const rpc = fakeRpc({
+    sync: input => {
+      if (failing && (input.account === 'personal' || input.account === 'business')) throw new Error('the token expired');
+      return { items: [], updatedAt: 0 };
+    },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await session.refresh(['personal', 'business']);
+
+  const failed = session.snapshot().errors;
+  assert.deepEqual(failed.map(error => error.account).sort(), ['business', 'personal'], 'one line per failed source');
+  assert.equal(failed[0].message, failed[1].message, 'and both say exactly the same thing');
+
+  failing = false;
+  await session.refresh(['business']);
+  const remaining = session.snapshot().errors;
+  assert.deepEqual(remaining.map(error => error.account), ['personal'], 'the source that answered is cleared, the other keeps its identical line');
+  assert.equal(remaining[0].message, 'could not refresh. the token expired Previously loaded messages may be stale.');
+});
+
 test('one tick fires each due list call once, even with two subscribers', async () => {
   const rpc = fakeRpc();
   const session = createInboxSession({ rpc, now: () => 1_000 });
   const seen: string[] = [];
   session.subscribe(() => seen.push('first'));
   session.subscribe(() => seen.push('second'));
+  session.start();
   await settle();
   rpc.calls.length = 0;
 
   const at = 1_000 + 45_000;
+  // A source's poll interval is its own declaration, so the first tick arms each one and the
+  // one after it is the first that can fire.
+  session.tick(1_000);
+  assert.equal(rpc.calls.filter(call => call.name === 'sync').length, 0, 'arming fires nothing');
   session.tick(at);
   const refreshed = rpc.calls
     .filter(call => call.name === 'sync')
@@ -590,7 +630,7 @@ test('an older page that misses its ceiling is given up with a line, and the row
   const timedOut = session.snapshot();
   assert.equal(timedOut.loadingOlder, false, 'the control is usable again instead of wedged');
   assert.deepEqual(timedOut.items.map(item => item.id), ['t1'], 'the rows already shown are untouched');
-  assert.ok(timedOut.errors.some(line => line.startsWith('Older conversations could not load in time')), 'and it says so in words a person can read');
+  assert.ok(timedOut.errors.some(line => line.kind === 'older' && line.account === undefined && line.message.startsWith('Older conversations could not load in time')), 'and it says so in words a person can read');
 
   // The answer arrives late; the owner was told the wait was given up, so it is dropped.
   answer({ items: [late], errors: [], more: false });
@@ -616,7 +656,7 @@ test('a page that adds nothing while the source says more is a line, not a silen
   const snapshot = session.snapshot();
   assert.deepEqual(snapshot.items.map(item => item.id), ['t1', 't2'], 'nothing is duplicated and nothing is lost');
   assert.ok(
-    snapshot.errors.some(error => error.startsWith('Older conversations could not load from Personal Gmail: it answered with rows already on screen')),
+    snapshot.errors.some(error => error.account === 'personal' && error.message.startsWith('could not load older conversations: it answered with rows already on screen')),
     'a press that adds nothing says so',
   );
   assert.equal(snapshot.hasOlder, true, 'the source is still offered, because it says it has more');
@@ -661,7 +701,7 @@ test('a failed show older lands in errors and the rows already shown survive', a
   const snapshot = session.snapshot();
   assert.deepEqual(snapshot.items.map(item => item.id), ['t1'], 'the list on screen is untouched');
   assert.equal(snapshot.loadingOlder, false);
-  assert.ok(snapshot.errors.some(error => error.startsWith('Older conversations could not load from Personal Gmail')), 'the failure is a line in the panel, naming the source, not a throw');
+  assert.ok(snapshot.errors.some(error => error.account === 'personal' && error.message.startsWith('could not load older conversations')), 'the failure is a line in the panel, owned by the source, not a throw');
 });
 
 test('a refresh keeps the rows show older loaded, and an archived one does not return', async () => {

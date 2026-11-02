@@ -56,16 +56,20 @@ test('a failed sync names its source and carries the reason it gave', async () =
   const session = createInboxSession({ rpc });
   await session.refresh(['linkedin', 'whatsapp', 'imessage']);
   const errors = session.snapshot().errors;
+  // A line is the source plus the sentence it says: the account is the identity, so a failure is
+  // found by the source that owned it rather than by a name written into the text.
+  const lineOf = (account: string) => errors.find(error => error.account === account);
   assert.ok(
-    errors.some(error => error.startsWith('LinkedIn could not refresh.') && error.includes(hint)),
+    lineOf('linkedin')?.message.startsWith('could not refresh.') && lineOf('linkedin')?.message.includes(hint),
     'the reason travels with the failure',
   );
   assert.ok(
-    errors.some(error => error.startsWith('WhatsApp could not refresh.') && error.includes('boom')),
+    lineOf('whatsapp')?.message.startsWith('could not refresh.') && lineOf('whatsapp')?.message.includes('boom'),
     'every source carries its reason, not just LinkedIn',
   );
-  assert.ok(
-    errors.includes('Messages could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.'),
+  assert.equal(
+    lineOf('imessage')?.message,
+    'could not refresh. Check that imsg is installed and BB has Full Disk Access. Previously loaded messages may be stale.',
     'Messages keeps its own guidance',
   );
 });
