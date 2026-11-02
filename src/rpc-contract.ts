@@ -27,8 +27,10 @@ const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid he
 export const rpcContract = defineRpcContract({
   // `null` is the call every existing consumer makes (the panel's poll, the CLI, the mention
   // provider) and it keeps answering exactly what it always did. `{ older: true }` asks every
-  // source that has one for the page after the newest one; `more` says whether any is left.
-  list: { input: z.object({ older: z.boolean().optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
+  // source that has one for the page after the newest one; `{ older: true, account }` asks one
+  // source, which is how the panel grows the list as each answers instead of waiting for the
+  // slowest. `more` answers for the scope the call named.
+  list: { input: z.object({ older: z.boolean().optional(), account: account.optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
   cached: { input: z.null(), output: z.object({ items: z.array(item) }) },
   search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },

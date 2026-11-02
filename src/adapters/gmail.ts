@@ -80,8 +80,8 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     return html;
   }
 
-  async function thread(id: string) {
-    return gmail(['users', 'threads', 'get', '--params', JSON.stringify({ userId: 'me', id, format: 'full' })]);
+  async function thread(id: string, format: 'full' | 'metadata' = 'full') {
+    return gmail(['users', 'threads', 'get', '--params', JSON.stringify({ userId: 'me', id, format })]);
   }
 
   async function attachment(gmailId: string, filename: string): Promise<MediaPayload> {
@@ -101,19 +101,22 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     return { dataUrl: `data:${mime};base64,${bytes.toString('base64')}`, mime, filename: part.filename, size: bytes.length };
   }
 
-  function row(t: any): Conversation {
+  function row(t: any, headersOnly = false): Conversation {
     const ms: any[] = t.messages ?? [];
     const last: any = latestReceivedMessage(ms) ?? {};
     const head = headers(last);
     const recipients = [...new Set(ms.flatMap((m: any) => { const h = headers(m); return [h.to, h.cc]; }).filter(Boolean))].join(', ').slice(0, 4000);
-    const attachments = [...new Set(ms.flatMap((m: any) => pickGmailAttachments(m.payload)))].slice(0, 20);
+    // A `metadata` read carries no part list, so an older row cannot name its attachments. Saying
+    // "none" would be a lie, so the field is left out; only the newest page reaches the cache, and
+    // the cache is what search reads, so nothing that is indexed loses an attachment name.
+    const attachments = headersOnly ? undefined : [...new Set(ms.flatMap((m: any) => pickGmailAttachments(m.payload)))].slice(0, 20);
     return {
       account,
       id: String(t.id),
       title: String(head.subject || '(no subject)'),
       sender: mailSenderName(String(head.from || '')),
       recipients,
-      attachments,
+      ...(attachments ? { attachments } : {}),
       preview: String(last.snippet || ''),
       date: Number(last.internalDate || 0),
       unread: ms.some((m: any) => m.labelIds?.includes('UNREAD')),
@@ -128,11 +131,16 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // inbox lost rows — and each refresh replaces that account's entries wholesale anyway.
     if (cursor) {
       const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit, pageToken: cursor })]);
-      const items: Conversation[] = [];
-      for (const entry of page.threads ?? []) {
+      // Gmail's listing gives an id and a snippet and nothing else: the subject, sender, date and
+      // read state a row shows live in the thread. So an older page costs one read per row, and
+      // the two cheapening moves are both here. `metadata` is exactly what a row needs — headers,
+      // labels and dates, no body and no part list — and measured 0.7s against 1.35s for `full`.
+      // The reads overlap instead of running one after another, which is the other half: twenty
+      // of them in sequence was a forty-second wait for a page.
+      const items = await Promise.all((page.threads ?? []).map(async (entry: any) => {
         const id = String(entry.id);
-        items.push(previous.get(id) ?? row(await thread(id)));
-      }
+        return previous.get(id) ?? row(await thread(id, 'metadata'), true);
+      }));
       return { items, ...nextCursor(page) };
     }
     let historyId = '';

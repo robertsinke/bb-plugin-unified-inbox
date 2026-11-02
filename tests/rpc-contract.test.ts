@@ -76,6 +76,8 @@ test('list keeps the no-input call every consumer makes and gains an opt-in page
   assert.equal(rpcContract.list.input.safeParse({ older: true }).success, true);
   assert.equal(rpcContract.list.input.safeParse({ older: 'yes' }).success, false, 'only a boolean asks for a page');
   assert.equal(rpcContract.list.input.safeParse({ older: true, cursor: 'page-2' }).success, false, 'a mistyped field is refused, not ignored: the gateway keeps the cursor');
+  assert.equal(rpcContract.list.input.safeParse({ older: true, account: 'personal' }).success, true, 'one source can be asked on its own, which is how the list grows as each answers');
+  assert.equal(rpcContract.list.input.safeParse({ older: true, account: 'nobody' }).success, false, 'and only a source that exists');
 
   // The shape the panel has always been handed still parses, so a caller that never asks for a
   // page reads exactly what it read before; `more` is the addition, not a replacement.
