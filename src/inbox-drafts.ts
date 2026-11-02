@@ -8,6 +8,7 @@ export type InboxMailDraft = {
   account: string;
   to: string;
   cc: string;
+  bcc: string;
   subject: string;
   text: string;
   threadId?: string;
@@ -100,6 +101,9 @@ function parseMailDraft(value: unknown): InboxMailDraft | undefined {
   const draft = value as Record<string, unknown>;
   const { account, to, cc, subject, text } = draft;
   if (![account, to, cc, subject, text].every(field => typeof field === 'string')) return undefined;
+  // Drafts written before blind copies existed have no such field; they read as empty rather than vanishing.
+  const bcc = draft.bcc === undefined ? '' : optionalText(draft.bcc);
+  if (bcc === null) return undefined;
   const threadId = optionalText(draft.threadId);
   const inReplyTo = optionalText(draft.inReplyTo);
   const references = optionalText(draft.references);
@@ -108,6 +112,7 @@ function parseMailDraft(value: unknown): InboxMailDraft | undefined {
     account: account as string,
     to: to as string,
     cc: cc as string,
+    bcc: bcc as string,
     subject: subject as string,
     text: text as string,
     ...(threadId === undefined ? {} : { threadId }),

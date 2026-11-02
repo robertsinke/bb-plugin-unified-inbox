@@ -386,3 +386,53 @@ test('the send log is opened from the inbox menu, not sitting above the list', a
   session.hideAudit();
   assert.equal(session.snapshot().auditOpen, false, 'and closes back to the list');
 });
+
+test('reply all seeds the addresses the thread already knows, and every mail draft starts with no blind copy', async () => {
+  const target = row({ account: 'personal', id: 't1', title: 'Plan' });
+  const liveMessage = { sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com', suggestedCc: 'bo@example.com' };
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: () => ({ items: [] }),
+    open: () => ({ messages: [liveMessage] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.open(target);
+
+  session.startMail('replyAll', 'personal');
+  assert.deepEqual(
+    { to: session.snapshot().mail?.to, cc: session.snapshot().mail?.cc, bcc: session.snapshot().mail?.bcc },
+    { to: 'ada@example.com', cc: 'bo@example.com', bcc: '' },
+    'reply all fills what the thread knows; a blind copy is the owner’s to add',
+  );
+
+  session.startMail('reply', 'personal');
+  assert.equal(session.snapshot().mail?.cc, '', 'a plain reply does not copy anyone');
+  assert.equal(session.snapshot().mail?.bcc, '', 'and still starts with no blind copy');
+});
+
+test('a blind copy the owner types reaches send_gmail with the rest of the draft', async () => {
+  const target = row({ account: 'personal', id: 't1', title: 'Plan' });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: () => ({ items: [] }),
+    open: () => ({ messages: [{ sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com' }] }),
+    send_gmail: () => ({ status: 'Sent.' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.startMail('reply', 'personal');
+  session.setMail({ bcc: 'hidden@example.com', text: 'On it.' });
+  await session.sendMail();
+
+  const sent = rpc.calls.filter(call => call.name === 'send_gmail').at(-1)!;
+  assert.deepEqual(
+    { to: (sent.input as any).to, cc: (sent.input as any).cc, bcc: (sent.input as any).bcc, text: (sent.input as any).text },
+    { to: 'ada@example.com', cc: '', bcc: 'hidden@example.com', text: 'On it.' },
+    'the draft the owner wrote is the draft that is sent, blind copies included',
+  );
+  assert.equal(session.snapshot().mail, null, 'a sent draft leaves the composer');
+});

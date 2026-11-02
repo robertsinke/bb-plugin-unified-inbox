@@ -58,3 +58,9 @@ test('a send decision that was allowed has no reason, and the contract says so',
   const refused = { rows: [{ ...allowed.rows[0], decision: 'refused', reason: 'nothing was sent' }] };
   assert.equal(rpcContract.send_audit.output.safeParse(refused).success, true, 'a refusal keeps its reason');
 });
+
+test('a Gmail draft can carry a blind copy', () => {
+  const send = { account: 'business' as const, to: 'a@example.com', bcc: 'hidden@example.com', subject: 'Hi', text: 'Hello' };
+  assert.equal(rpcContract.send_gmail.input.safeParse(send).success, true);
+  assert.equal(rpcContract.send_gmail.input.safeParse({ ...send, bcc: 'x@example.com\r\nBcc: y@example.com' }).success, false, 'the header guard applies to bcc too');
+});

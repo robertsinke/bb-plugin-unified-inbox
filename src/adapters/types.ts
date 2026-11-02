@@ -142,6 +142,7 @@ export interface GmailDraft {
   account: GmailAccount;
   to: string;
   cc?: string;
+  bcc?: string;
   subject: string;
   text: string;
   threadId?: string;

@@ -62,7 +62,7 @@ export const rpcContract = defineRpcContract({
   // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
   // refuses and records the attempt: a send is never approved by merely happening.
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
-  send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header.optional(), subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional(),
+  send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().min(1).max(100000), threadId: z.string().max(512).optional(), inReplyTo: header.optional(), references: header.optional(),
     // The same send statement a chat reply carries. Gmail is refused by SEND_POLICY today;
     // when the owner enables it, that is the one line that changes — not this path.
     allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string() }) },
