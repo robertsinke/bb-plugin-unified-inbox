@@ -21,8 +21,14 @@
 
 How **one source** lists conversations, opens a thread, serves media and
 attachments, and performs its actions. That includes source-specific mapping,
-validation, refusal text, cache-only decoration and repair, and the
-**capability declaration** this adapter promises to keep.
+validation, refusal text, cache-only decoration and repair, and the two things
+this adapter declares about its source:
+
+- **`capabilities()`** — what it can *do*.
+- **`source`** — what it *is*: the name a person knows it by, the icon beside
+  that name, how often the panel polls it, and how many rows an older page asks
+  it for. `registrySources()` hands the five declarations to the `sources` RPC,
+  so the panel and the mention context keep no table of their own.
 
 ## The rule
 
@@ -30,7 +36,7 @@ A new source is a **new adapter plus a capability declaration**, never a new
 `account === …` branch in `server.ts`.
 
 1. Add the account to the `accounts` tuple in `src/adapters/types.ts`.
-2. Implement `Adapter` in `src/adapters/<source>.ts` and declare `Capabilities`.
+2. Implement `Adapter` in `src/adapters/<source>.ts`, declare `Capabilities` and its `source`.
 3. Register it in `createRegistry` in `src/adapters/index.ts`.
 4. Prove the declaration in `tests/adapters/<source>.test.ts` with stubbed deps.
 

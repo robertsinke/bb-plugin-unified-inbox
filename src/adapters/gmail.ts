@@ -14,7 +14,7 @@ import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities,
   Conversation, GmailAccount, ListResult, MediaPayload, Message, OpenOptions, OpenResult,
-  SendAuthorization, SendDraft, SendReceipt, SyncResult,
+  SendAuthorization, SendDraft, SendReceipt, SourceDeclaration, SyncResult,
 } from './types.ts';
 import type { MediaRequest } from './media.ts';
 
@@ -33,6 +33,19 @@ const SELF: Record<GmailAccount, string> = {
 // `send` is declared because this adapter implements it; whether it may be used is the send
 // gate's decision (SEND_POLICY), and every attempt lands in the audit log first.
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true };
+
+/**
+ * What a person knows each mailbox by, and how the panel paces it. A Gmail row costs one CLI read
+ * of its thread (a listing carries only an id and a snippet), and twenty of those per account —
+ * forty in a round, sharing the runner's pool with the periodic refreshes — measured 11–20s and
+ * lost the panel's 15-second ceiling, so the owner saw the WhatsApp page and no mail. Ten fits:
+ * the same page lands in about five seconds, and a press that is quick is worth two that never
+ * arrive.
+ */
+const SOURCE: Record<GmailAccount, SourceDeclaration> = {
+  personal: { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
+  business: { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
+};
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */
 const cachedMessage = z.object({ sender: z.string(), text: z.string(), date: z.number() }).loose();
@@ -210,6 +223,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   }
 
   return {
+    source: SOURCE[account],
     capabilities: () => CAPABILITIES,
 
     async list(cursor, opts?: OpenOptions): Promise<ListResult> {
