@@ -304,3 +304,23 @@ or file first" on an empty draft, and "Send from Personal Gmail" once the draft 
 
 What is *not* proven: no real email has been sent through this path yet. The gate's allowance is
 covered by tests, and the last step — one message through Gmail's API — is the owner's to authorise.
+
+## Files dropped on the draft, and the ceiling Gmail actually sets
+
+A child thread (`thr_ii293ud9hj`, commit `4886d6a`) did the drag: `dragover` and `drop` are both
+prevented on the form — a browser that is not told otherwise opens the dropped file and the panel is
+gone — and a drop arrives through the same `read()` the picker uses, so bytes become base64 in one
+place. `is-dropping` tints the border, `dragleave` clears it only when the pointer actually leaves,
+and the hidden file input stays the keyboard path with an off-screen hint naming both.
+
+Its second half found the limit that matters: Gmail measures the **encoded** message, so the old
+10 MB raw cap refused files the service would take while telling the owner a number nobody enforced.
+`session.attach` now sums `ceil(size / 3) * 4` over the draft against 25 MB — see
+`decisions/0002-the-ceiling-is-the-encoded-message.md`. Two edges were closed on merge (`e1f5412`):
+the panel claims a drag for itself, so a file dropped *beside* the composer no longer navigates away,
+and the body is encoded into the same sum because the words travel in the same message.
+
+Proved live on the running panel: a dropped `plan.txt` became a chip, `dragover`/`drop` defaulted
+prevented on both the composer and the panel, and the page never navigated. The tint at the instant
+of a drag is a batched render, so it is proved in jsdom (`7ef3ff2`) rather than by chasing a browser
+under load — the machine was at load 30–86 and sessions kept expiring mid-run.
