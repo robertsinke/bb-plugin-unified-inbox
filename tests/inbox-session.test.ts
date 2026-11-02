@@ -596,6 +596,29 @@ test('an older page that misses its ceiling is given up with a line, and the row
   assert.equal(session.snapshot().hasOlder, true, 'and the source can still be asked again');
 });
 
+test('a page that adds nothing while the source says more is a line, not a silent click', async () => {
+  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const shown = row({ account: 'personal', id: 't2', date: 20 });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest, shown] }),
+    sync: input => ({ items: input.account === 'personal' ? [newest, shown] : [], more: input.account === 'personal' }),
+    // The source re-serves rows the list already holds and still claims there is more.
+    list: () => ({ items: [shown], errors: [], more: true }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  await session.more();
+  const snapshot = session.snapshot();
+  assert.deepEqual(snapshot.items.map(item => item.id), ['t1', 't2'], 'nothing is duplicated and nothing is lost');
+  assert.ok(
+    snapshot.errors.some(error => error.startsWith('Older conversations could not load from Personal Gmail: it answered with rows already on screen')),
+    'a press that adds nothing says so',
+  );
+  assert.equal(snapshot.hasOlder, true, 'the source is still offered, because it says it has more');
+});
+
 test('show older is one request at a time', async () => {
   const newest = row({ account: 'personal', id: 't1', date: 30 });
   let release: () => void = () => {};
