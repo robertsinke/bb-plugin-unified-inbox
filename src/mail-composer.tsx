@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { MailAttachment, MailDraft } from './inbox-session.ts';
 import { formatBytes } from './format.ts';
 
@@ -25,8 +25,10 @@ export type MailComposerProps = {
  */
 export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromThread, onField, onAttach, onDetach, onDiscard, onSend }: MailComposerProps) {
   const files = useRef<HTMLInputElement>(null);
+  const [dropping, setDropping] = useState(false);
+  const dropHint = useId();
 
-  /** A picked file lives in this page: base64 in, no server round trip until a send. */
+  /** A picked or dropped file lives in this page: base64 in, no server round trip until a send. */
   async function read(picked: FileList | null): Promise<void> {
     if (!picked) return;
     for (const file of Array.from(picked)) {
@@ -41,8 +43,38 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
     if (files.current) files.current.value = '';
   }
 
+  /** A drag has to be claimed here, or the browser opens the file and the panel is gone. */
+  function over(event: DragEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    setDropping(true);
+  }
+
+  /** Crossing between fields is still inside the form; only leaving the form ends the drop. */
+  function leave(event: DragEvent<HTMLFormElement>): void {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false);
+  }
+
+  /** A drop arrives through the same `read` the picker uses, so bytes become base64 in one place. */
+  function drop(event: DragEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    setDropping(false);
+    const dropped = event.dataTransfer?.files;
+    if (!dropped || dropped.length === 0) return;
+    void read(dropped);
+  }
+
   const ready = mail.to.trim() !== '' && (mail.text.trim() !== '' || mail.attachments.length > 0);
-  return <form className="ui-mail-composer" aria-label={`${accountLabel} draft`} onSubmit={event => { event.preventDefault(); if (ready && !busy) onSend(); }}>
+  return <form
+    className={dropping ? 'ui-mail-composer is-dropping' : 'ui-mail-composer'}
+    aria-label={`${accountLabel} draft`}
+    aria-describedby={dropHint}
+    onDragOver={over}
+    onDragLeave={leave}
+    onDragEnd={() => setDropping(false)}
+    onDrop={drop}
+    onSubmit={event => { event.preventDefault(); if (ready && !busy) onSend(); }}
+  >
+    <p id={dropHint} className="ui-sr">Files can be dropped onto this draft, or chosen with Attach.</p>
     <div className="ui-mail-fields">
       <label>To<input value={mail.to} onChange={event => onField({ to: event.target.value })} /></label>
       <label>Cc<input value={mail.cc} onChange={event => onField({ cc: event.target.value })} /></label>
@@ -72,6 +104,6 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
       <button type="button" className="ui-text-button" disabled={busy} onClick={onDiscard}>Discard</button>
       <button type="submit" className="ui-prompt-send" disabled={busy || !ready} title={ready ? `Send from ${accountLabel}` : 'Add a recipient and a message or file first'} aria-label="Send">{sendIcon}</button>
     </div>
-    <p className="ui-notice">{status || 'Files stay in this panel until the draft is sent.'}</p>
+    <p className="ui-notice">{status || 'Drop files here, or use Attach. They stay in this panel until the draft is sent.'}</p>
   </form>;
 }

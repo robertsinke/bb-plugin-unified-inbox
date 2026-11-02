@@ -39,6 +39,8 @@
 .ui-mail-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .ui-mail-composer .ui-notice{margin:0;font-size:11px;opacity:.7;text-align:left}
 .ui-mail-composer .ui-prompt-send{opacity:.5}
+/* A file dragged over the draft is claimed here, not by the browser: the border says so, no motion. */
+.ui-mail-composer.is-dropping{border-color:#ad9afb;background:#8063df26}
 /* A new message takes the panel; the account choice and the draft share the composer slot. */
 .ui-compose-view{display:flex;flex-direction:column;justify-content:flex-end;min-height:100%;padding-bottom:8px}
 .ui-compose-view .ui-compose-menu{margin:0 0 10px}

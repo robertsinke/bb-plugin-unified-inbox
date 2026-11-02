@@ -449,12 +449,29 @@ test('a draft takes attachments, refuses one that would make it too big, and can
   assert.equal(session.attach({ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) }), true, 'a small file is taken');
   assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.pdf']);
 
-  assert.equal(session.attach({ name: 'huge.zip', mimeType: 'application/zip', size: 11 * 1024 * 1024, data: bytes(11 * 1024 * 1024) }), false, 'a draft that would be too big is refused');
+  assert.equal(session.attach({ name: 'huge.zip', mimeType: 'application/zip', size: 20 * 1024 * 1024, data: bytes(20 * 1024 * 1024) }), false, 'a draft that would be too big is refused');
   assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.pdf'], 'the refused file is not added');
   assert.match(session.snapshot().mailStatus, /too large/i, 'and the composer is told why');
 
   session.detach(0);
   assert.deepEqual(session.snapshot().mail?.attachments, [], 'an attachment can be taken back off the draft');
+});
+
+test('a size is judged by the bytes Gmail encodes, and the refusal names that ceiling', async () => {
+  const rpc = fakeRpc({ cached: () => ({ items: [] }), sync: () => ({ items: [] }) });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  session.startMail('new', 'personal');
+
+  // base64 spends four bytes on three, so Gmail's 25 MB of message is 18.75 MB of file: that one fits.
+  const atCeiling = 25 * 1024 * 1024 / 4 * 3;
+  assert.equal(session.attach({ name: 'plan.zip', mimeType: 'application/zip', size: atCeiling, data: bytes(atCeiling) }), true, 'a file that encodes to exactly the ceiling is taken');
+
+  assert.equal(session.attach({ name: 'one-more.txt', mimeType: 'text/plain', size: 1, data: bytes(1) }), false, 'the next file would cross it');
+  assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.zip'], 'the refused file is not added');
+  assert.match(session.snapshot().mailStatus, /too large/i, 'and the composer is told why');
+  assert.match(session.snapshot().mailStatus, /25 MB/, 'naming the ceiling the draft hit');
 });
 
 test('a draft with an attachment and no body is still worth sending, and the file travels with it', async () => {

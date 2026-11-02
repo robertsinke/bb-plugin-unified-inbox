@@ -29,8 +29,13 @@ export interface MailAttachment {
 }
 
 /** What one draft may carry, and why: Gmail refuses a message over 25 MB once it is encoded. */
-const ATTACHMENT_LIMIT_BYTES = 10 * 1024 * 1024;
+const ATTACHMENT_ENCODED_LIMIT_BYTES = 25 * 1024 * 1024;
 const ATTACHMENT_LIMIT_COUNT = 20;
+
+/** The room a file takes in the encoded message Gmail measures: base64 spends four bytes on three. */
+function encodedBytes(raw: number): number {
+  return Math.ceil(raw / 3) * 4;
+}
 
 export interface MailDraft {
   account: GmailAccount;
@@ -534,9 +539,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       notify();
       return false;
     }
-    const carried = mail.attachments.reduce((total, one) => total + one.size, 0);
-    if (carried + file.size > ATTACHMENT_LIMIT_BYTES) {
-      state.mailStatus = `That attachment is too large: a draft carries up to ${Math.round(ATTACHMENT_LIMIT_BYTES / (1024 * 1024))} MB in total.`;
+    const encoded = [...mail.attachments, file].reduce((total, one) => total + encodedBytes(one.size), 0);
+    if (encoded > ATTACHMENT_ENCODED_LIMIT_BYTES) {
+      state.mailStatus = `That attachment is too large: a draft carries up to ${Math.round(ATTACHMENT_ENCODED_LIMIT_BYTES / (1024 * 1024))} MB once its files are encoded for Gmail.`;
       notify();
       return false;
     }
