@@ -398,3 +398,13 @@ Proved live, in the panel, after a reload: 131 rows → **201** on one press (Wh
 business 10), no error marker. Two things this cost me to learn: the panel renders session errors only as
 a marker on the ⋯ menu, and a browser script that polls every 500 ms starves the page it is measuring —
 read once after a sleep, not in a tight loop.
+
+### The lesson the audit column taught, one day after it shipped
+
+`bcc` was in the table, printed by the CLI, and invisible in the panel: the `send_audit` output schema
+never declared it, and a zod object strips a key it does not know. The test that should have caught it
+asserted only that `safeParse` succeeded — which is precisely what a schema that drops the field does.
+
+The schema declares `bcc` and `approvalId` now, and the test **parses and reads the values back**, so a
+schema that loses a field fails. `approvalId: null` is the panel's way of saying "delivered, never
+approved", which is the whole point of `observe`.
