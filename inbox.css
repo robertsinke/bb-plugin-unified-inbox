@@ -36,8 +36,8 @@
 .ui-mail-fields input:focus-visible{outline:2px solid #007aff;outline-offset:1px}
 .ui-mail-body{width:100%;resize:vertical;min-height:96px;padding:9px 10px;border-radius:9px;border:1px solid #8883;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}
 .ui-mail-body:focus-visible{outline:2px solid #007aff;outline-offset:1px}
-.ui-mail-actions{display:flex;align-items:center;gap:8px}
-.ui-mail-actions .ui-notice{order:-1;flex:1;margin:0;font-size:11px;opacity:.7;text-align:left}
+.ui-mail-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.ui-mail-composer .ui-notice{margin:0;font-size:11px;opacity:.7;text-align:left}
 .ui-mail-composer .ui-prompt-send{opacity:.5}
 /* A new message takes the panel; the account choice and the draft share the composer slot. */
 .ui-compose-view{display:flex;flex-direction:column;justify-content:flex-end;min-height:100%;padding-bottom:8px}

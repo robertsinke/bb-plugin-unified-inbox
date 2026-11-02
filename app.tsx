@@ -249,7 +249,7 @@ function MailComposer({ mail, busy, mailStatus, session }: { mail: MailDraft; bu
       <button type="button" className="ui-text-button" disabled={busy} onClick={() => { if ((!mail.text.trim() && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}>Discard</button>
       <button type="submit" className="ui-prompt-send" disabled title="Gmail sending is not enabled yet" aria-label="Send (not enabled yet)"><Icon name="ArrowUp" aria-hidden="true" /></button>
     </div>
-    <p className="ui-notice">{mailStatus || 'Sending is not enabled yet. This draft stays on this machine; attachments and rich formatting are not included.'}</p>
+    <p className="ui-notice">{mailStatus || 'Your draft stays on this machine; Gmail sending and attachments are not enabled yet.'}</p>
   </form>;
 }
 function MessageText({ text, onOpenLink }: { text: string; onOpenLink: (url: string) => void }) {
