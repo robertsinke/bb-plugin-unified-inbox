@@ -103,6 +103,11 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     assert.equal(older.items[0].attachments, undefined, 'a metadata read cannot name attachments, so an older row does not pretend it has none');
     assert.deepEqual(first.items[0].attachments, [], 'the newest row still carries the attachment list the cache and search expect');
     assert.deepEqual(f.cache.list().map(item => item.id), ['t1'], 'an older page is a read: the cache is untouched');
+
+    // The gateway asks for a smaller older page than the twenty-row first load, because a Gmail
+    // row is one CLI read and twenty of them per account did not fit the panel's ceiling.
+    await adapter.list('page-2', { limit: 10 });
+    assert.equal(params(f.calls.gmail.filter(args => args[2] === 'list').at(-1)!).maxResults, 10, 'the page size the gateway names is the page size Gmail is asked for');
   } finally {
     f.close();
   }
