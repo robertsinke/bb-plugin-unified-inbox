@@ -20,6 +20,18 @@ export type InboxItem = Conversation;
 export type InboxFilter = 'all' | 'unread' | Account;
 
 /** A Gmail draft. Kept in memory only: mail drafts are deliberately not persisted. */
+/** A file the owner attached to a draft. `data` is base64 with no data-url prefix. */
+export interface MailAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+  data: string;
+}
+
+/** What one draft may carry, and why: Gmail refuses a message over 25 MB once it is encoded. */
+const ATTACHMENT_LIMIT_BYTES = 10 * 1024 * 1024;
+const ATTACHMENT_LIMIT_COUNT = 20;
+
 export interface MailDraft {
   account: GmailAccount;
   to: string;
@@ -27,6 +39,7 @@ export interface MailDraft {
   bcc: string;
   subject: string;
   text: string;
+  attachments: MailAttachment[];
   threadId?: string;
   inReplyTo?: string;
   references?: string;
@@ -93,6 +106,9 @@ export interface InboxSession {
   hideAudit(): void;
   submit(): Promise<void>;
   startMail(mode: MailMode, account: GmailAccount): void;
+  /** Take a file onto the draft, or refuse it and say why in `mailStatus`. */
+  attach(file: MailAttachment): boolean;
+  detach(index: number): void;
   setMail(patch: Partial<MailDraft>): void;
   discardMail(): void;
   sendMail(): Promise<void>;
@@ -493,6 +509,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       to: mode === 'reply' || mode === 'replyAll' ? replyTo : '',
       cc,
       bcc: '',
+      attachments: [],
       subject: mode === 'new' ? '' : mode === 'forward' ? `Fwd: ${subject.replace(/^fwd:\s*/i, '')}` : `Re: ${subject.replace(/^re:\s*/i, '')}`,
       text: mode === 'forward' ? `\n\n---------- Forwarded message ----------\nFrom: ${last?.sender || ''}\n\n${last?.text || ''}` : '',
       ...(mode === 'reply' || mode === 'replyAll'
@@ -509,6 +526,33 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     notify();
   }
 
+  function attach(file: MailAttachment): boolean {
+    const mail = state.mail;
+    if (!mail) return false;
+    if (mail.attachments.length >= ATTACHMENT_LIMIT_COUNT) {
+      state.mailStatus = `A draft carries at most ${ATTACHMENT_LIMIT_COUNT} attachments.`;
+      notify();
+      return false;
+    }
+    const carried = mail.attachments.reduce((total, one) => total + one.size, 0);
+    if (carried + file.size > ATTACHMENT_LIMIT_BYTES) {
+      state.mailStatus = `That attachment is too large: a draft carries up to ${Math.round(ATTACHMENT_LIMIT_BYTES / (1024 * 1024))} MB in total.`;
+      notify();
+      return false;
+    }
+    state.mail = { ...mail, attachments: [...mail.attachments, file] };
+    state.mailStatus = '';
+    notify();
+    return true;
+  }
+
+  function detach(index: number): void {
+    const mail = state.mail;
+    if (!mail) return;
+    state.mail = { ...mail, attachments: mail.attachments.filter((_, at) => at !== index) };
+    notify();
+  }
+
   function discardMail(): void {
     state.mail = null;
     notify();
@@ -516,7 +560,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
 
   async function sendMail(): Promise<void> {
     const mail = state.mail;
-    if (!mail || state.busy || !mail.to.trim() || !mail.text.trim()) return;
+    if (!mail || state.busy || !mail.to.trim() || (!mail.text.trim() && mail.attachments.length === 0)) return;
     state.busy = true;
     state.mailStatus = 'Sending…';
     notify();
@@ -672,6 +716,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     answer,
     submit,
     startMail,
+    attach,
+    detach,
     setMail,
     discardMail,
     sendMail,

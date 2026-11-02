@@ -436,3 +436,42 @@ test('a blind copy the owner types reaches send_gmail with the rest of the draft
   );
   assert.equal(session.snapshot().mail, null, 'a sent draft leaves the composer');
 });
+
+const bytes = (size: number) => Buffer.alloc(size, 'a').toString('base64');
+
+test('a draft takes attachments, refuses one that would make it too big, and can drop them again', async () => {
+  const rpc = fakeRpc({ cached: () => ({ items: [] }), sync: () => ({ items: [] }) });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  session.startMail('new', 'personal');
+
+  assert.equal(session.attach({ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) }), true, 'a small file is taken');
+  assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.pdf']);
+
+  assert.equal(session.attach({ name: 'huge.zip', mimeType: 'application/zip', size: 11 * 1024 * 1024, data: bytes(11 * 1024 * 1024) }), false, 'a draft that would be too big is refused');
+  assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.pdf'], 'the refused file is not added');
+  assert.match(session.snapshot().mailStatus, /too large/i, 'and the composer is told why');
+
+  session.detach(0);
+  assert.deepEqual(session.snapshot().mail?.attachments, [], 'an attachment can be taken back off the draft');
+});
+
+test('a draft with an attachment and no body is still worth sending, and the file travels with it', async () => {
+  const rpc = fakeRpc({
+    cached: () => ({ items: [] }),
+    sync: () => ({ items: [] }),
+    send_gmail: () => ({ status: 'Sent.' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  session.startMail('new', 'personal');
+  session.setMail({ to: 'a@example.com', subject: 'The plan' });
+  session.attach({ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) });
+  await session.sendMail();
+
+  const sent = rpc.calls.filter(call => call.name === 'send_gmail').at(-1)!;
+  assert.deepEqual((sent.input as any).attachments, [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) }], 'the file is sent exactly as it was attached');
+  assert.equal(session.snapshot().mail, null);
+});

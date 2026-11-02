@@ -85,7 +85,9 @@ export function writeMailDraft(
 ): boolean {
   let raw: string;
   try {
-    raw = JSON.stringify(draft);
+    // File bytes are never written down: a draft on this machine is the words the owner typed.
+    // Restoring one brings the words back and leaves the attachments empty, which the composer says.
+    raw = JSON.stringify({ ...draft, attachments: [] });
   } catch {
     return false;
   }
