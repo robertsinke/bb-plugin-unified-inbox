@@ -125,3 +125,30 @@ test('submitting and discarding are the panel’s decisions, and the form only r
     done();
   }
 });
+
+test('the send control is dead until there is a recipient and something to say, then it is the panel’s to confirm', () => {
+  const empty = mount({});
+  try {
+    const send = empty.document.querySelector('.ui-prompt-send') as any;
+    assert.equal(send.disabled, true, 'nothing to send yet');
+  } finally {
+    empty.done();
+  }
+
+  const ready = mount({ to: 'a@example.com', text: 'Hello' });
+  try {
+    const send = ready.document.querySelector('.ui-prompt-send') as any;
+    assert.equal(send.disabled, false, 'Gmail sending is enabled, so the control is live');
+    (ready.document.querySelector('.ui-mail-composer') as any).dispatchEvent(new (ready.dom.window as any).Event('submit', { bubbles: true, cancelable: true }));
+    assert.equal(ready.calls.sent, 1, 'and the form only reports the press');
+  } finally {
+    ready.done();
+  }
+
+  const fileOnly = mount({ to: 'a@example.com', attachments: [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 4, data: 'aGVsbG8=' }] });
+  try {
+    assert.equal((fileOnly.document.querySelector('.ui-prompt-send') as any).disabled, false, 'a file with no words is still a message');
+  } finally {
+    fileOnly.done();
+  }
+});
