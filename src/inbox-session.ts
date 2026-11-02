@@ -12,6 +12,12 @@ import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage 
 import { messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { Account, Conversation, GmailAccount, Message } from './adapters/types.ts';
+// The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
+// method or a reshaped input is a compile error here, where the session calls it, and
+// again at every fake that claims to be a gateway. Type-only, so a unit test never
+// loads the panel runtime.
+import type { PluginRpcClient } from '@get-bb/plugin-sdk';
+import type { rpcContract } from './rpc-contract.ts';
 
 /** One row of the list, as `cached` and `sync` return it. */
 export type InboxItem = Conversation;
@@ -79,17 +85,19 @@ export interface InboxSnapshot {
   auditOpen: boolean;
 }
 
-/** One send decision, as the gate recorded it: no message text, ever. */
+/** One send decision, as the gate recorded it: no message text, ever. `reason` is null
+ * in the log when the gate recorded none, which is why it is nullable here too. */
 export interface SendAuditEntry {
   at: number;
   account: Account;
   conversationId: string;
   decision: 'allowed' | 'refused';
-  reason?: string;
+  reason?: string | null;
 }
 
 export interface InboxSessionDeps {
-  rpc: { call(name: string, input: unknown): Promise<any> };
+  /** What `useRpc<typeof rpcContract>()` hands the panel: the same contract, both sides. */
+  rpc: Pick<PluginRpcClient<typeof rpcContract>, 'call'>;
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
   now?: () => number;
 }
