@@ -419,3 +419,27 @@ nothing had been thrown away.
 
 And a bug report about the harness needs the number that moved: the handler counter went from 31 to 44
 errors across one working hour in which nothing failed visibly (`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`).
+
+## 2026-11-03 — the architecture pass, four cards
+
+The review (`architecture-review-20261103-000616.html`, written outside the repo) ranked five deepenings.
+Four were implemented by child threads, each proved by `tsc --noEmit` and the suite, each green on its own
+branch before the parent merged it onto a settled `main`:
+
+| card | landed as | what it bought |
+|---|---|---|
+| the handler table behind one seam | `createGateway(deps)` in `src/gateway.ts`, `server.ts` reduced to wiring | 25 handlers now callable in-process; six gateway tests where the only earlier assertion was a regex over `server.ts` as text |
+| the panel↔gateway seam typed by the contract | `rpc: Pick<PluginRpcClient<typeof rpcContract>, 'call'>` | a renamed method is a compile error; the hand-written list of two dead method names deleted |
+| one conversation identity for LinkedIn | `src/linkedin-conversation.ts` | five regexes for one urn became one; `linkedin-ui` and `linkedin-write` can no longer disagree about the id the gate compares |
+| one declaration says what a source is | `Adapter.source` (`label`, `icon`, `pollIntervalMs`, `watchIntervalMs`, `pageSize`), a `sources` RPC, `InboxSnapshot.errors: { account?, kind, message }[]` | four label tables became one per adapter; `Inhouse Gmail` is now the only spelling; clearing an error stops matching text against a label |
+
+Two cards were ranked but not taken, and remain open:
+
+- **The panel decides render facts inside a 116-line JSX return** (`app.tsx`): `filtered`, `chat`,
+  `sendable`, `composer`, `group` are only testable by grepping. ADR-0001 named this as its own follow-up.
+- **`Message` is a union of five sources' optionals**, so the panel renders by sniffing which are set.
+  A contract change, not a refactor; speculative until a sixth source exists.
+
+Measured after the merges: 335/335 tests, `tsc` clean, the live plugin reloaded, `sources` answering with
+the five declarations and `sync`/`send_audit` unchanged. The panel was **not** pixel-checked — its render
+path is covered by jsdom tests and the data path was proved against the live plugin.
