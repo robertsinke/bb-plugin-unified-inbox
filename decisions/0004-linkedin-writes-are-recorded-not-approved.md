@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-02
+- **Verified against the code:** 2026-11-03 — see the current-state note below
 - Amends: the single-entry-point claim in `src/adapters/policy.ts`. OQ-1 still owns the token.
 
 > **Current state (2026-11-03): the decision holds; the row's conversation id now comes from one read.**

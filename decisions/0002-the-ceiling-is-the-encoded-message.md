@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-03
+- **Verified against the code:** 2026-11-03 — see the current-state note below
 - Supersedes: nothing. Amends the attachment limit introduced with the mail composer.
 
 > **Current state (2026-11-03): still holds, checked against the code.** The encoded ceiling is
