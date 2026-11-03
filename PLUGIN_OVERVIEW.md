@@ -54,11 +54,10 @@ unencrypted SQLite storage on the BB server.
 
 ## For agents
 
-One RPC surface: `list`, `cached`, `sync`, `open`, `cached_open`, `search`,
-`media`, `capabilities`, `sources`, `action`, `send_gmail`, `send_audit`, plus the LinkedIn
-page driver (`linkedin_ui`, `linkedin_record`, `linkedin_writes`,
-`linkedin_replay`, `linkedin_signin`). A reply without `allow: 'send'` is refused
-and recorded; a refusal is visible in the Send log, not only in a terminal.
+One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeated here, so it cannot fall
+behind): reads and the cache, search, `media`, `capabilities` and `sources`, the `action`/`send_gmail` writes,
+`send_audit`, and the LinkedIn page driver. Which module owns which of those is `src/CONTEXT.md`. A reply
+without `allow: 'send'` is refused and recorded; a refusal is visible in the Send log, not only in a terminal.
 
 Tagging is how a conversation reaches a thread: type `#` in a composer, search by
 name or preview, and pick the row. The tag carries the conversation's latest
