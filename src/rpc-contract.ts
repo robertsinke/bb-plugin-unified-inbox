@@ -24,6 +24,9 @@ export const mailAttachment = z.object({
   data: z.string().min(1).max(40_000_000),
 }).strict();
 
+const timestamp = z.number().int().nonnegative().nullable();
+const freshness = z.record(account, z.object({ lastAttemptAt: timestamp, lastSuccessAt: timestamp, lastError: z.string().nullable(), cacheFallback: z.boolean() }));
+const threadResult = z.object({ messages: z.array(message), updatedAt: timestamp.optional(), cacheFallback: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 export const rpcContract = defineRpcContract({
   // `null` is the call every existing consumer makes (the panel's poll, the CLI, the mention
@@ -32,15 +35,16 @@ export const rpcContract = defineRpcContract({
   // source, which is how the panel grows the list as each answers instead of waiting for the
   // slowest. `more` answers for the scope the call named.
   list: { input: z.object({ older: z.boolean().optional(), account: account.optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
-  cached: { input: z.null(), output: z.object({ items: z.array(item) }) },
+  cached: { input: z.null(), output: z.object({ items: z.array(item), freshness: freshness.optional(), more: z.record(account, z.boolean()).optional() }) },
+  freshness: { input: z.null(), output: freshness },
   search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
-  cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
+  cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
   // One refresh primitive for every source: the adapter for the account decides
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
-  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ messages: z.array(message) }) },
+  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
   linkedin_ui: { input: z.object({

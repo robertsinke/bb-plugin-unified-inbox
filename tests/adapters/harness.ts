@@ -96,6 +96,8 @@ export interface Harness {
 }
 
 export interface HarnessOptions {
+  gmailCall?: (account: Account, args: string[]) => unknown;
+  linkedInThread?: () => Promise<unknown>;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
 }
@@ -112,7 +114,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       call: async (account, args) => {
         const action = args[2] && !args[2].startsWith('--') ? `:${args[2]}` : '';
         calls.push(`gmail:${account}:${args[1]}${action}`);
-        return gmailResponse(args);
+        return options.gmailCall ? options.gmailCall(account, args) : gmailResponse(args);
       },
       send: async (account, message) => {
         calls.push(`gmail:${account}:send`);
@@ -145,7 +147,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       },
       thread: async () => {
         calls.push('linkedin:thread');
-        return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
+        return options.linkedInThread ? await options.linkedInThread() as { messages: unknown[] } : { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
       },
       probe: async mailbox => {
         calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');

@@ -155,7 +155,7 @@ test('two failures that say exactly the same words are cleared by the source tha
   assert.equal(remaining[0].message, 'could not refresh. the token expired Previously loaded messages may be stale.');
 });
 
-test('one tick fires each due list call once, even with two subscribers', async () => {
+test('one tick reads the backend cache once, never syncing providers, even with two subscribers', async () => {
   const rpc = fakeRpc();
   const session = createInboxSession({ rpc, now: () => 1_000 });
   const seen: string[] = [];
@@ -175,12 +175,14 @@ test('one tick fires each due list call once, even with two subscribers', async 
     .filter(call => call.name === 'sync')
     .map(call => (call.input as { account: Account }).account)
     .sort();
-  assert.deepEqual(refreshed, ['business', 'imessage', 'personal', 'whatsapp']);
+  assert.deepEqual(refreshed, []);
+  assert.equal(rpc.calls.filter(call => call.name === 'cached').length, 1);
   assert.ok(seen.length > 0, 'both subscribers were told');
 
   const notifications = seen.length;
   session.tick(at);
-  assert.equal(rpc.calls.filter(call => call.name === 'sync').length, 4, 'a second tick at the same instant fires nothing');
+  assert.equal(rpc.calls.filter(call => call.name === 'sync').length, 0, 'a panel never schedules provider sync');
+  assert.equal(rpc.calls.filter(call => call.name === 'cached').length, 1, 'a second tick at the same instant fires nothing');
   assert.equal(seen.length, notifications, 'and notifies nobody');
 });
 
@@ -239,7 +241,7 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
 
   assert.deepEqual(
     rpc.calls.slice(before).map(call => call.name),
-    ['action', 'open', 'sync', 'send_audit'],
+    ['action', 'open', 'sync', 'open', 'send_audit'],
     'one reply, the reconciliation, then the decision log the panel shows',
   );
   assert.deepEqual(
@@ -556,7 +558,7 @@ test('show older appends the next page, drops a row already on screen, and stops
   const repeated = row({ account: 'personal', id: 't2', date: 20 });
   const older = row({ account: 'personal', id: 't3', date: 10 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest, repeated] }),
+    cached: () => ({ items: [newest, repeated], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest, repeated] : [], more: input.account === 'personal' }),
     list: () => ({ items: [repeated, older], errors: [], more: false }),
   });
@@ -584,7 +586,7 @@ test('show older grows the list as each source answers, not when the slowest doe
   const olderMail = row({ account: 'personal', id: 't2', date: 10 });
   let release: () => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [] }),
+    cached: () => ({ items: [mine, chat], more: { personal: true, whatsapp: true } }),
     sync: input => ({
       items: input.account === 'personal' ? [mine] : input.account === 'whatsapp' ? [chat] : [],
       more: input.account === 'personal' || input.account === 'whatsapp',
@@ -614,7 +616,7 @@ test('an older page that misses its ceiling is given up with a line, and the row
   const late = row({ account: 'personal', id: 't2', date: 10 });
   let answer: (value: unknown) => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest] }),
+    cached: () => ({ items: [newest], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
     list: () => new Promise(resolve => { answer = resolve; }),
   });
@@ -643,7 +645,7 @@ test('a page that adds nothing while the source says more is a line, not a silen
   const newest = row({ account: 'personal', id: 't1', date: 30 });
   const shown = row({ account: 'personal', id: 't2', date: 20 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest, shown] }),
+    cached: () => ({ items: [newest, shown], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest, shown] : [], more: input.account === 'personal' }),
     // The source re-serves rows the list already holds and still claims there is more.
     list: () => ({ items: [shown], errors: [], more: true }),
@@ -666,7 +668,7 @@ test('show older is one request at a time', async () => {
   const newest = row({ account: 'personal', id: 't1', date: 30 });
   let release: () => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest] }),
+    cached: () => ({ items: [newest], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
     list: () => new Promise(resolve => { release = () => resolve({ items: [row({ account: 'personal', id: 't3', date: 10 })], errors: [], more: false }); }),
   });
@@ -689,7 +691,7 @@ test('show older is one request at a time', async () => {
 test('a failed show older lands in errors and the rows already shown survive', async () => {
   const newest = row({ account: 'personal', id: 't1', date: 30 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest] }),
+    cached: () => ({ items: [newest], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
     list: () => { throw new Error('Gmail thread list request failed (403).'); },
   });
@@ -708,7 +710,7 @@ test('a refresh keeps the rows show older loaded, and an archived one does not r
   const newest = row({ account: 'personal', id: 't1', date: 30, unread: false });
   const older = row({ account: 'personal', id: 't3', date: 10, unread: false });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest] }),
+    cached: () => ({ items: [newest], more: { personal: true } }),
     sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
     list: () => ({ items: [older], errors: [], more: true }),
   });
@@ -725,6 +727,40 @@ test('a refresh keeps the rows show older loaded, and an archived one does not r
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1']);
   await session.refresh(['personal']);
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1'], 'an archived row does not come back with the older pages');
+});
+
+test('backend freshness drives the panel, including failures, without any sync call', async () => {
+  let failed = false;
+  const target = row({ account: 'linkedin' });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target], freshness: Object.fromEntries(accounts.map(account => [account, {
+      lastAttemptAt: failed ? 200 : 100, lastSuccessAt: 100,
+      lastError: failed && account === 'linkedin' ? 'LinkedIn unavailable.' : null,
+      cacheFallback: failed,
+    }])) }),
+  });
+  const session = createInboxSession({ rpc, now: () => 999 });
+  session.start();
+  await settle();
+  assert.equal(session.snapshot().refreshedAt.linkedin, 100);
+  failed = true;
+  session.tick(0);
+  session.tick(5_000);
+  await settle();
+  assert.equal(session.snapshot().refreshedAt.linkedin, 100, 'cache observation cannot advance live success');
+  assert.equal(session.snapshot().items[0].id, target.id);
+  assert.ok(session.snapshot().errors.some(error => error.account === 'linkedin' && error.message.includes('stale')));
+  assert.equal(rpc.calls.filter(call => call.name === 'sync').length, 0);
+  await session.refresh();
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'sync').map(call => (call.input as { account: Account }).account).sort(), [...accounts].sort(), 'manual refresh includes LinkedIn');
+});
+
+test('cached body fallback is visible in the thread', async () => {
+  const rpc = fakeRpc({ open: () => ({ messages: [cachedMessage], cacheFallback: true, updatedAt: 123 }) });
+  const session = createInboxSession({ rpc });
+  await session.open(row({ unread: false }));
+  assert.deepEqual(session.snapshot().messages, [cachedMessage]);
+  assert.match(session.snapshot().status, /cached messages.*stale/);
 });
 
 // Type-level: the seam to the gateway is `rpcContract`, so these lines are the

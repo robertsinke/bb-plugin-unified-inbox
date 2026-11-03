@@ -11,6 +11,7 @@
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
 import { messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
+import { accounts } from './adapters/types.ts';
 import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
 // The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
 // method or a reshaped input is a compile error here, where the session calls it, and
@@ -153,12 +154,8 @@ export interface InboxSession {
   notify(text: string): void;
 }
 
-/**
- * The sources the initial load and the heartbeat refresh; LinkedIn is refreshed only when the
- * owner asks, because one of its reads drives a browser. Which interval each one is polled at,
- * and which ones are watched while open, is the source's own declaration (`sources`).
- */
-const DEFAULT_SOURCES: Account[] = ['whatsapp', 'personal', 'business', 'imessage'];
+/** Manual refresh includes every source. Automatic provider refresh belongs to the backend. */
+const DEFAULT_SOURCES: Account[] = [...accounts];
 
 /** Search waits for the typing to pause; the draft waits for the writer to. */
 const SEARCH_DEBOUNCE_MS = 150;
@@ -255,11 +252,28 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   /** Bumped when a round is given up, so the answers it was still waiting for are dropped. */
   let olderSeq = 0;
 
-  /** When each polled source is next due. Armed on the first tick whose declaration has arrived. */
-  const listDue = new Map<Account, number>();
-  /** How often a source is polled, as that source declared; null until the gateway has answered. */
-  function pollInterval(account: Account): number | null {
-    return state.sources?.[account]?.pollIntervalMs ?? null;
+  let cacheDue: number | null = null;
+  let cacheReading = false;
+  async function readCache(): Promise<void> {
+    if (cacheReading) return;
+    cacheReading = true;
+    try {
+      const cached = await deps.rpc.call('cached', null);
+      for (const account of accounts) {
+        mergeSource(account, cached.items.filter(item => item.account === account));
+        const status = cached.freshness?.[account];
+        if (status) {
+          if (status.lastSuccessAt !== null) state.refreshedAt[account] = status.lastSuccessAt;
+          else delete state.refreshedAt[account];
+          dropErrors(error => error.account === account && error.kind === 'refresh');
+          if (status.lastError) state.errors.push({ account, kind: 'refresh', message: `${status.lastError}${REFRESH_SUFFIX}` });
+        }
+        if (cached.more) olderLeft.set(account, cached.more[account]);
+      }
+      state.hasOlder = [...olderLeft.values()].some(Boolean);
+      notify();
+    } catch { /* a disconnected panel keeps its last snapshot, without advancing freshness */ }
+    finally { cacheReading = false; }
   }
   let watchDue: number | null = null;
   let watchRunning = false;
@@ -301,12 +315,19 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     state.selected = current;
     if (!followsList(state.capabilities, current.account)) return;
     void deps.rpc.call('open', { account: current.account, id: current.id })
-      .then((result: { messages: Message[] }) => {
+      .then(result => {
         if (seq !== request) return;
-        state.messages = result.messages;
+        showMessages(result);
         notify();
       })
       .catch(() => { /* the messages already on screen stay */ });
+  }
+
+  function showMessages(result: { messages: Message[]; cacheFallback?: boolean }): void {
+    state.messages = result.messages;
+    const stale = 'Could not verify this conversation. Showing cached messages; they may be stale.';
+    if (result.cacheFallback) state.status = stale;
+    else if (state.status === stale) state.status = '';
   }
 
   function setItems(next: InboxItem[]): void {
@@ -346,13 +367,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         state.sources = await deps.rpc.call('sources', null);
         notify();
       } catch { /* a source with no declaration is named by its account key and polled not at all */ }
-      try {
-        const cached = await deps.rpc.call('cached', null);
-        setItems(cached.items);
-        notify();
-      } catch { /* the next sync still fills the list */ }
+      await readCache();
       void loadAudit();
-      void refresh();
     })();
   }
 
@@ -397,7 +413,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         try {
           const listed = await deps.rpc.call('sync', { account });
           mergeSource(account, listed.items);
-          state.refreshedAt = { ...state.refreshedAt, [account]: clock() };
+          state.refreshedAt = { ...state.refreshedAt, [account]: listed.updatedAt };
           // Clearing is a lookup on the account, not a match on the text: a failure line and the
           // source that owns it are the same pair whoever phrased it.
           dropErrors(error => error.account === account && error.kind === 'refresh');
@@ -502,7 +518,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       }
       const result = await deps.rpc.call('open', { account: item.account, id: item.id });
       if (seq !== request) return;
-      state.messages = result.messages;
+      showMessages(result);
       state.opening = false;
       notify();
       // Opening a conversation is what marks it read. The row clears only once
@@ -729,23 +745,11 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       if (now >= due) persistDraft(key);
     }
 
-    // List refresh: each scheduled source has its own due time, and a source
-    // already in flight is skipped by `refresh` itself.
-    const dueSources = DEFAULT_SOURCES.filter(account => {
-      const interval = pollInterval(account);
-      if (interval === null) return false;
-      const due = listDue.get(account);
-      // A source with no due time yet is armed here rather than at construction: the interval is
-      // the source's to declare, and the declaration arrives over RPC after the session exists.
-      if (due === undefined) { listDue.set(account, now + interval); return false; }
-      return now >= due;
-    });
-    if (dueSources.length) {
-      for (const account of dueSources) {
-        const interval = pollInterval(account);
-        if (interval !== null) listDue.set(account, now + interval);
-      }
-      void refresh(dueSources);
+    // This only reads the backend snapshot; panel visibility never drives source sync.
+    if (cacheDue === null) cacheDue = now + 5_000;
+    else if (now >= cacheDue) {
+      cacheDue = now + 5_000;
+      void readCache();
     }
 
     // Thread watch: one loop for every source that has one, keyed by its own
@@ -763,9 +767,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         watchRunning = true;
         const seq = request;
         void deps.rpc.call('open', { account: selected.account, id: selected.id })
-          .then((result: { messages: Message[] }) => {
+          .then(result => {
             if (seq !== request) return;
-            state.messages = result.messages;
+            showMessages(result);
             notify();
           })
           .catch(() => { /* a missed watch tick is retried next interval */ })

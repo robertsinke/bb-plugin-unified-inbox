@@ -156,15 +156,8 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       }));
       return { items, ...nextCursor(page) };
     }
-    let historyId = '';
-    try {
-      const profile = await gmail(['users', 'getProfile', '--params', JSON.stringify({ userId: 'me' })]);
-      historyId = String(profile.historyId ?? '');
-    } catch (error) {
-      const fallback = storedItems.slice(0, limit);
-      if (fallback.length) return { items: fallback };
-      throw error;
-    }
+    const profile = await gmail(['users', 'getProfile', '--params', JSON.stringify({ userId: 'me' })]);
+    const historyId = String(profile.historyId ?? '');
     // The listing runs even when the cached rows are still current, because it is what says
     // whether a page exists beyond this one: "show older" is offered on evidence, not guessed.
     const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit })]);
@@ -193,16 +186,11 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     const raw = cache.readThread(account, id);
     const parsed = raw === null ? null : cachedMessage.array().safeParse(raw);
     const cachedMessages: Message[] = parsed?.success ? parsed.data as Message[] : [];
-    if (cachedMessages.length) {
-      try {
-        const profile = await gmail(['users', 'getProfile', '--params', JSON.stringify({ userId: 'me' })]);
-        if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(String(profile.historyId ?? ''))) && cachedMessages.every(message => Array.isArray(message.attachments) && typeof message.gmailId === 'string')) return { messages: cachedMessages };
-      } catch { /* a full thread read still answers the open */ }
-    }
+    // A list's mailbox cursor cannot validate an independently cached conversation body.
     let t: any;
     try { t = await thread(id); }
     catch (error) {
-      if (cachedMessages.length) return { messages: cachedMessages };
+      if (cachedMessages.length) return { messages: cachedMessages, cacheFallback: true };
       throw error;
     }
     const messages: Message[] = await Promise.all((t.messages ?? []).map(async (m: any) => {

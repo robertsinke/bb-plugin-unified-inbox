@@ -33,9 +33,8 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false,
 const ACCOUNT = 'linkedin';
 
 /**
- * What a person knows LinkedIn by, and how the panel paces it. A LinkedIn read drives a browser,
- * so the panel refreshes it when the owner asks; the interval is the one a polled read would use,
- * and there is no page size because the walk never advances past the newest conversations.
+ * Background refresh uses the persistent browser profile, just like a manual sync.
+ * There is no page size because the walk never advances past the newest conversations.
  */
 const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 };
 
@@ -146,7 +145,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       } catch (error) {
         // A browser that cannot start must not hide messages this plugin already has.
         const cached = keep();
-        if (cached.messages.length) return cached;
+        if (cached.messages.length) return { ...cached, cacheFallback: true };
         throw error;
       }
       cache.saveThread(ACCOUNT, id, live);

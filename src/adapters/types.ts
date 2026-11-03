@@ -208,7 +208,7 @@ export interface SourceDeclaration {
   label: string;
   /** The icon name the panel's filter and the `#` picker draw beside the source. */
   icon: string;
-  /** How often the panel re-asks this source for its newest rows, in milliseconds. */
+  /** Background refresh cadence for this source's newest rows, in milliseconds. */
   pollIntervalMs: number;
   /**
    * How often the open conversation is re-read, when this source's read is cheap enough to follow
@@ -249,6 +249,8 @@ export interface OpenOptions {
 
 export interface OpenResult {
   messages: Message[];
+  /** The provider failed; these messages were not verified live. */
+  cacheFallback?: boolean;
   cursor?: string;
 }
 
