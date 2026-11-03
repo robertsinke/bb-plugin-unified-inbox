@@ -5,6 +5,10 @@
 - **Verified against the code:** 2026-11-03 — see the current-state note below
 - Amends: the single-entry-point claim in `src/adapters/policy.ts`. OQ-1 still owns the token.
 
+> **Continued risk acceptance (2026-11-03):** [0005](0005-keep-sends-enabled-until-verified-approval.md)
+> keeps these routes enabled pending a verified authority, removes agent send recipes, and records
+> the enforcement gaps and reversal conditions. Recording a send is not verified human approval.
+
 > **Current state (2026-11-03): the decision holds; the row's conversation id now comes from one read.**
 > The transport reads the page once (`readSendTarget`), writes the row, then clicks on the same answer;
 > `sendClickRecord(step, page?)` uses `pageConfirmedConversation`, so a reply's row carries the

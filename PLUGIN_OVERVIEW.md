@@ -35,11 +35,17 @@ do — `send`, `markRead`, `archive`, `invitations`, `media`, `attachments`,
 which account it is looking at, so a control appears only where the source
 supports it.
 
-One send gate sits in front of every send (`src/adapters/policy.ts`). The caller
-states `allow: 'send'`; the approval covers one conversation, lasts five minutes
-and is spent by its first attempt; the gate writes the row before delivery and
-never stores a body. `bb unified-inbox send-audit [limit]` prints those rows,
-newest first, and the inbox menu's Send log shows the same list.
+The send gate (`src/adapters/policy.ts`) records attempts before delivery, without
+storing message bodies. Normal sends mint a new approval from the caller's
+`allow: 'send'` flag on each request; this is not verified human approval and does
+not prevent a caller requesting another send. LinkedIn page clicks and replays
+use a recording-only path, with no approval id. Sends stay enabled pending the
+isolated authority: [decision 0005](decisions/0005-keep-sends-enabled-until-verified-approval.md)
+records the open enforcement gaps and reversal conditions. `npm run check` warns
+on allowed attempts without an approval id in the last seven days, with counts
+and audit row ids; it does not fail on history or detect caller-minted approvals.
+There is no push alert. `bb unified-inbox send-audit [limit]` and the inbox menu's
+Send log show attempts, not proof of delivery.
 
 What each source needs, and what stays local: Gmail calls the `gws` CLI with
 credentials in `~/.config/gws` and `~/.config/gws-inhouse`. WhatsApp attaches to
@@ -80,6 +86,7 @@ One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeate
 behind): reads and the cache, search, `media`, `capabilities` and `sources`, the `action`/`send_gmail` writes,
 `send_audit`, and the LinkedIn page driver. Which module owns which of those is `src/CONTEXT.md`. A reply
 without `allow: 'send'` is refused and recorded; a refusal is visible in the Send log, not only in a terminal.
+Inbox mentions provide conversation context and draft-first instructions, not authorization to send.
 
 Tagging is how a conversation reaches a thread: type `#` in a composer, search by
 name or preview, and pick the row. The tag carries the conversation's latest
