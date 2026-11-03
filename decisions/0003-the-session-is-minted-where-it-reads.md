@@ -4,6 +4,10 @@
 - Date: 2026-11-03 (finding measured 2026-10-31)
 - Evidence: `docs/research/linkedin/obscura-as-linkedin-browser.md` and its three probe logs.
 
+> **Current state (2026-11-03): still holds, checked against the code.** `IDLE_MS = 90_000` in
+> `src/linkedin-chrome.ts`, the profile is prewarmed at start, and no module reads or exports the
+> session. The watch item (re-measure if a sign-in window ships) is unchanged.
+
 ## Context
 
 LinkedIn has no API for reading DMs, InMail and invitations, so the inbox reads them from a page. That

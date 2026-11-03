@@ -4,6 +4,10 @@
 - Date: 2026-11-03
 - Supersedes: nothing. Amends the attachment limit introduced with the mail composer.
 
+> **Current state (2026-11-03): still holds, checked against the code.** The encoded ceiling is
+> `ATTACHMENT_ENCODED_LIMIT_BYTES = 25 * 1024 * 1024` and the count is `ATTACHMENT_LIMIT_COUNT = 20`,
+> both in `src/inbox-session.ts` — the one file-bearing source is still the mail composer.
+
 ## Context
 
 A draft may carry files. The first limit was 10 MB of raw bytes per draft, chosen as a round number

@@ -53,7 +53,8 @@ The inbox already unifies Gmail and WhatsApp but not personal Messages. Research
 
 - [`server.ts`](../../server.ts) owns validated RPC contracts, Gmail and WhatsAgent dispatch, cache and WhatsApp proposals. Non-WhatsApp currently falls through to Gmail.
 - [`app.tsx`](../../app.tsx) owns source filters, refresh, conversation rendering and composer; its non-WhatsApp checks currently imply Gmail. [`src/inbox-cache.ts`](../../src/inbox-cache.ts) owns local sensitive cache.
-- [`src/whatsapp-confirm.ts`](../../src/whatsapp-confirm.ts) constructs a confirmation request to WhatsAgent's own authorization boundary; it is not a general BB approval mechanism. Gmail sending is deliberately disabled pending verification.
+- ~~[`src/whatsapp-confirm.ts`](../../src/whatsapp-confirm.ts)~~ *(deleted; the gate is now
+  `src/adapters/policy.ts`)* constructs a confirmation request to WhatsAgent's own authorization boundary; it is not a general BB approval mechanism. Gmail sending is deliberately disabled pending verification.
 - [`docs/research/imessage/imessage-integration-research.md`](../research/imessage/imessage-integration-research.md) records the user-granted Full Disk Access and successful bounded list/history checks; automation and sending remain untested.
 - [`imsg` RPC reference](../research/imessage/sources/imsg-rpc.md) describes stdio JSON-RPC, process lifetime, history, watch, send and bridge capability distinctions. [`imsg` send guide](../research/imessage/sources/imsg-send.md) documents UI tapback target ambiguity and unknown outcomes.
 - The existing [`LinkedIn plan`](2026-10-28-002-feat-linkedin-inbox-source-plan.md) is adjacent but unimplemented; coordinate account enumeration and avoid assuming it has shipped.
@@ -172,7 +173,8 @@ Reads are isolated from other sources. Mutations cannot pass to the adapter unti
 
 **Execution note:** Characterize the existing WhatsAgent confirmation boundary before integrating a new one.
 
-**Patterns to follow:** `src/whatsapp-confirm.ts`, `tests/whatsapp-confirm.test.ts`, disabled Gmail send in `server.ts`.
+**Patterns to follow:** *(both files are deleted — the shipped equivalent is `src/adapters/policy.ts`
+and `tests/send-gate.test.ts`)* ~~`src/whatsapp-confirm.ts`, `tests/whatsapp-confirm.test.ts`~~, disabled Gmail send in `server.ts`.
 
 **Test scenarios:**
 - Happy path: approved exact operation is dispatched once and only once.
