@@ -36,14 +36,21 @@ which account it is looking at, so a control appears only where the source
 supports it.
 
 The send gate (`src/adapters/policy.ts`) records attempts before delivery, without
-storing message bodies. Normal sends mint a new approval from the caller's
+storing message bodies. Chat sends and compatibility-mode legacy mail mint a new approval from the caller's
 `allow: 'send'` flag on each request; this is not verified human approval and does
-not prevent a caller requesting another send. LinkedIn page clicks and replays
+not prevent a caller requesting another send. Mail also accepts enrolled-key
+envelopes through `send_gmail`: exact parameters and file bytes are bound, and a
+unique spend plus audit commit before dispatch. Empty inbox pins reject all keys.
+The default is compatibility, so the old mail panel still works; Require mode
+must wait for the Home/panel signing handoff. Bad envelopes never fall back to
+legacy consent. [Mail approval contract](docs/mail-approval.md) covers settings,
+read-only readiness/status, error codes and recovery. LinkedIn page clicks and replays
 use a recording-only path, with no approval id. Sends stay enabled pending the
 isolated authority: [decision 0005](decisions/0005-keep-sends-enabled-until-verified-approval.md)
 records the open enforcement gaps and reversal conditions. `npm run check` warns
-on allowed attempts without an approval id in the last seven days, with counts
-and audit row ids; it does not fail on history or detect caller-minted approvals.
+on allowed attempts without an approval id or with an explicit legacy-mail marker
+in the last seven days, with counts and audit row ids; it does not fail on history
+or infer approval from unmarked historical UUIDs.
 There is no push alert. `bb unified-inbox send-audit [limit]` and the inbox menu's
 Send log show attempts, not proof of delivery.
 

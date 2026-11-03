@@ -23,6 +23,7 @@ import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
 import { accounts } from './src/adapters/types';
 import { runInboxRefresh } from './src/inbox-refresh';
+import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
 // the gateway (src/gateway.ts) as one plain object, and registers the result with the host. The
@@ -37,7 +38,16 @@ export default function plugin(bb: BbPluginApi) {
   // Every send attempt is written here: one table in the plugin's own database.
   const sendAudit = createSendAudit(db);
   const now = () => Date.now();
-  const sendGate = createSendGate({ now, store: sendAudit });
+  const mailSettings = bb.settings.define({
+    mailApprovalMode: { type: 'select', label: 'Mail approval rollout', options: ['prepare', 'compatibility', 'require'], default: 'compatibility' },
+    mailApprovalKeyIds: { type: 'string', label: 'Enrolled mail signing key ids', default: '', experimental_multiline: true,
+      description: 'Deliberately configure trusted SHA-256 key ids. Empty authorizes no signing keys.',
+      experimental_schema: z.string().refine(value => { try { parseMailKeyIds(value); return true; } catch { return false; } }, 'Use lowercase SHA-256 ids separated by commas or whitespace') },
+  });
+  const sendGate = createSendGate({ now, store: sendAudit, mail: { db, lastRefusal: sendAudit.lastMailRefusal, policy: async () => {
+    const settings = await mailSettings.get();
+    return { mode: settings.mailApprovalMode as MailMode, allowedKeyIds: parseMailKeyIds(settings.mailApprovalKeyIds) };
+  } } });
   const imsgPath = [join(homedir(), '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
