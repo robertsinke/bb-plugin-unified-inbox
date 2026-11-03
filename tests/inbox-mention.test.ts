@@ -35,6 +35,18 @@ test('a media-only message keeps its placeholder', () => {
   assert.match(context, /Vendor: \[image\]/);
 });
 
+test('WhatsApp mentions explain that placeholders and captions do not supply media content', () => {
+  for (const caption of ['', 'Pickup details']) {
+    const context = inboxMentionContext({ account: 'whatsapp', label: 'WhatsApp', id: 'synthetic', messages: [{ sender: 'Contact', text: caption, date: 1_700_000_000_000, media: { kind: 'image' } }] });
+    assert.ok(context.includes(`Contact: ${caption || '[image]'}`));
+    assert.match(context, /text and media placeholders, not media content/);
+    assert.match(context, /Do not infer its contents/);
+    assert.match(context, /Ask the user to attach the image or provide its text/);
+    assert.match(context, /separate, verified media retrieval/);
+    assert.match(context, /not to all platform media access/);
+  }
+});
+
 test('mentions never teach self-approval or provide a send recipe, for any source', () => {
   for (const account of ['personal', 'business', 'whatsapp', 'imessage', 'linkedin'] as const) {
     const context = inboxMentionContext({ account, label: account, id: 'conversation', messages: [] });
@@ -51,4 +63,5 @@ test('long threads stay inside the context budget', () => {
   const context = inboxMentionContext({ account: 'whatsapp', label: 'WhatsApp', id: 'abc', title: 'Alice', messages });
   assert.ok(context.length <= 4000, `context was ${context.length} characters`);
   assert.match(context, /does not authorize sending/, 'budgeting keeps the safety footer');
+  assert.match(context, /text and media placeholders, not media content/, 'budgeting keeps the media notice');
 });
