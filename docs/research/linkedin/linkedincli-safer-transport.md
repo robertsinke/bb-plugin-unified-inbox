@@ -4,7 +4,7 @@
 **Scope:** static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external LinkedIn endpoint was accessed.
 
 
-> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): no cookie store
+> **Closed by** [`decisions/0003`](../../../decisions/0003-the-session-is-minted-where-it-reads.md): no cookie store
 > or session is read out of a browser, so this patched cookie transport was not taken. Kept for its finding.
 ## Finding
 

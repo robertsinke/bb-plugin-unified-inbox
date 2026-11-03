@@ -4,7 +4,7 @@
 **Scope:** inspection of installed `mcp-server-linkedin` 4.28.0 source and documented CLI only. No sidecar was started, no browser or session data opened, and no LinkedIn request made.
 
 
-> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): no sidecar session
+> **Closed by** [`decisions/0003`](../../../decisions/0003-the-session-is-minted-where-it-reads.md): no sidecar session
 > is copied or restarted; the plugin owns its browser profile.
 ## Finding: no verified stock restart meets all constraints
 

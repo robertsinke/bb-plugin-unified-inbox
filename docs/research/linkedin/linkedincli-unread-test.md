@@ -4,7 +4,7 @@
 **Reviewed revision:** [`88f775ef95c5b8ad1d3b6d1056f94ef92282b8bb`](https://github.com/bcharleson/linkedincli/tree/88f775ef95c5b8ad1d3b6d1056f94ef92282b8bb). Static inspection only: no credentials accessed, package installed, or LinkedIn requests made.
 
 
-> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): the CLI's cookie
+> **Closed by** [`decisions/0003`](../../../decisions/0003-the-session-is-minted-where-it-reads.md): the CLI's cookie
 > transport is not used; reads happen in the plugin's own Chrome page.
 ## Authentication and security findings
 
