@@ -7,6 +7,12 @@
 - **Deciders:** repo owner, design grilling session
 - **Tags:** inbox, app.tsx, testing, polling
 
+> **Current state (2026-11-03): the decision holds; two numbers in this record have moved.**
+> `app.tsx` is 519 lines, not 740, and the session's dependency is no longer a loose
+> `{ rpc, storage?, now? }` — `rpc` is typed by `rpcContract` (`src/inbox-session.ts`). The
+> named follow-up, splitting the panel's render decisions out of its 116-line JSX return, is still open.
+> Nothing below is rewritten: an ADR records what was decided, not what the code looks like today.
+
 ## Context
 
 `app.tsx` carries the `Inbox` panel as a single 740-line component. Thirty-three

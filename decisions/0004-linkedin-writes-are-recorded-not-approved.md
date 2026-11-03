@@ -4,6 +4,12 @@
 - Date: 2026-11-02
 - Amends: the single-entry-point claim in `src/adapters/policy.ts`. OQ-1 still owns the token.
 
+> **Current state (2026-11-03): the decision holds; the row's conversation id now comes from one read.**
+> The transport reads the page once (`readSendTarget`), writes the row, then clicks on the same answer;
+> `sendClickRecord(step, page?)` uses `pageConfirmedConversation`, so a reply's row carries the
+> conversation key rather than a recipient's name. The rule that a delivery leaves its row *before* it
+> happens is unchanged, which is why a click the driver then refuses still leaves an `allowed` row.
+
 ## Context
 
 `createSendGate` is the one gate every send goes through, and its promise is exact: the row is
