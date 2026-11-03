@@ -2,7 +2,7 @@
 title: Full-featured Messages integration research
 description: Feasibility of reading and acting on Messages conversations from Unified Inbox
 type: research-note
-status: draft
+status: settled
 date: 2026-10-28
 tags: [research, provisional, imessage]
 sources:
@@ -32,6 +32,12 @@ sources:
   - resource: ./sources/apple-automation.html
   - resource: ./sources/apple-privacy.html
 ---
+
+> **Settled (2026-11-03).** The Messages source shipped on `imsg`: a supervised `imsg rpc` child, read as a
+> thread source with attachments, and `send` is the one permitted mutation — every send is refused without
+> `allow: 'send'` and recorded before delivery (`src/adapters/policy.ts`, `src/send-audit.ts`). The other
+> paths weighed below were not taken: Spectrum (local and advanced remote), BlueBubbles, Photon hosting, and
+> cloud relays. This note is kept as the evidence for that choice.
 
 ## Question
 
