@@ -10,6 +10,24 @@ which question, so a reader stops at one shelf instead of walking the whole tree
 | `bugs/` | a defect, its evidence, and the proposed fix | as current as its last measurement | each records when it was re-checked |
 | `solutions/` | a solved problem and the trap it taught | stable once solved | read before debugging the same area again |
 
+## The status vocabulary
+
+`status:` is what makes `docs/_index.md` a status board and not just a file list. Seven words, one meaning each:
+
+| status | means | who reads it |
+|---|---|---|
+| `current` | describes the system as it is today | a reader who needs behaviour, not history |
+| `open` | a live question or defect with no answer yet | whoever picks the work up next |
+| `proposal` | a design nobody has accepted | the person deciding whether to build it |
+| `settled` | the question it asked was answered; kept as evidence | someone re-arguing the same choice |
+| `historical` | what happened, in order; nothing depends on it being current | someone reconstructing why |
+| `shipped` | a spec whose work is in the code | someone reading the scoping, not the contract |
+| `superseded` | replaced by a named successor | someone who followed an old link |
+
+`decisions/` uses the ADR set instead — `accepted`, `superseded`, `deprecated` — because a decision is not a
+document about work, it is a record of a choice. `docs/CONTEXT.md` and `docs/_index.md` declare no status:
+they are the catalogue, not content.
+
 ## The line between a shelf and a decision
 
 A shelf records **what happened and what was measured**. A decision (`decisions/`) records **what was chosen**.

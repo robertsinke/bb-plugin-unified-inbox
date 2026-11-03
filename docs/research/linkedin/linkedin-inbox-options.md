@@ -2,8 +2,8 @@
 title: LinkedIn as an inbox source — access options
 description: Which LinkedIn surfaces can feed unified-inbox, which access paths exist, and what each costs in maintenance and account risk
 type: research-note
-status: draft
-date: 2026-10-28
+status: settled
+date: 2026-11-03
 tags:
   - research
   - provisional

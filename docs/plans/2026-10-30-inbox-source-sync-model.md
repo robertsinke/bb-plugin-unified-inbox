@@ -1,3 +1,9 @@
+---
+title: "Unified Inbox source synchronization model"
+status: historical
+date: 2026-10-30
+---
+
 # Unified Inbox source synchronization model
 
 ## Purpose

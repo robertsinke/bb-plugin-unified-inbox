@@ -1,7 +1,7 @@
 ---
 title: feat: Add LinkedIn messages, InMail, and invites as an inbox source
 type: feat
-status: active
+status: superseded
 date: 2026-10-28
 deepened: 2026-10-28
 ---

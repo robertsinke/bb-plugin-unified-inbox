@@ -1,3 +1,9 @@
+---
+title: "Sidecar restart without session copying: offline review"
+status: settled
+date: 2026-11-03
+---
+
 # Sidecar restart without session copying: offline review
 
 **Date:** 2026-10-29  

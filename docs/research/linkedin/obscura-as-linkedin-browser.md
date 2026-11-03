@@ -8,8 +8,8 @@
 title: Obscura as the browser for LinkedIn reads — can it replace Chrome for Testing?
 description: Protocol, persistence, macOS support, measured startup and memory, and containment for obscura 0.2.5 against the unified-inbox LinkedIn read path
 type: research-note
-status: draft
-date: 2026-10-31
+status: settled
+date: 2026-11-02
 tags:
   - research
   - provisional

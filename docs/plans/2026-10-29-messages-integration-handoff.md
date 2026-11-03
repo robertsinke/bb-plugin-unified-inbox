@@ -1,3 +1,9 @@
+---
+title: "Messages read-only integration handoff"
+status: historical
+date: 2026-10-29
+---
+
 # Messages read-only integration handoff
 
 ## Current state

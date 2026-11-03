@@ -1,3 +1,9 @@
+---
+title: "Unified Inbox branch consolidation"
+status: historical
+date: 2026-10-29
+---
+
 # Unified Inbox branch consolidation
 
 Date: 2026-10-29 · Status: steps 1–5 done; production is 4320de8 · Owner: robert

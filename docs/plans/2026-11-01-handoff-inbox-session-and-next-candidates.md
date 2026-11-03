@@ -1,3 +1,9 @@
+---
+title: "Handoff — inbox session shipped, three deepening candidates left"
+status: historical
+date: 2026-11-01
+---
+
 # Handoff — inbox session shipped, three deepening candidates left
 
 Written 2026-11-01 before a context compaction. Read this first next session; it is the

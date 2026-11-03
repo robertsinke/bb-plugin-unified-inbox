@@ -1,3 +1,9 @@
+---
+title: "Next slices: one toolbox, source adapters, and the writes we turned on"
+status: current
+date: 2026-11-02
+---
+
 # Next slices: one toolbox, source adapters, and the writes we turned on
 
 Owner decisions on 2026-11-02, taken from the outstanding list:

@@ -1,3 +1,9 @@
+---
+title: "LinkedIn authenticated-browser diagnostic: offline review"
+status: historical
+date: 2026-10-29
+---
+
 # LinkedIn authenticated-browser diagnostic: offline review
 
 **Date:** 2026-10-29  

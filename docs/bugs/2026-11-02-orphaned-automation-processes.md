@@ -1,3 +1,9 @@
+---
+title: "Bug report — automation browsers and MCP children outlive their owner"
+status: open
+date: 2026-11-02
+---
+
 # Bug report — automation browsers and MCP children outlive their owner
 
 **Filed:** 2026-11-02 · **Owner:** BB / agent tooling (not this plugin) · **Status:** evidence + proposed fix, no workaround added here

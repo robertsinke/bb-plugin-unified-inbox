@@ -1,3 +1,9 @@
+---
+title: "LinkedIn MCP sidecar spike"
+status: settled
+date: 2026-10-29
+---
+
 # LinkedIn MCP sidecar spike
 
 **Date:** 2026-10-29  

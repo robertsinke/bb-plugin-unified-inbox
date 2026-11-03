@@ -67,7 +67,10 @@ export async function render(): Promise<{ index: string; count: number; captured
   for (const path of files) {
     const text = await readFile(join(ROOT, path), 'utf8');
     const { title, description, status, date } = facts(text);
-    rows.push({ path, title: clean(title || path), description: clean(description), status: clean(status), date });
+    // The two root documents have no frontmatter and need none: docs/CONTEXT.md says they are the ones that
+    // must stay current, so the index states that for them rather than asking them to declare it.
+    const declared = path.endsWith('README.md') || path === 'PLUGIN_OVERVIEW.md' ? 'current' : status;
+    rows.push({ path, title: clean(title || path), description: clean(description), status: clean(declared), date });
   }
 
   const sources = (await readdir(join(ROOT, 'docs/research'), { withFileTypes: true }))
