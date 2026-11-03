@@ -19,7 +19,7 @@ import type {
 import type { MediaRequest } from './media.ts';
 
 /** Largest attachment a media request will hand a frame. */
-export const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
+import { ATTACHMENT_LIMIT } from './media.ts';
 
 /** Largest HTML body kept on a message; larger bodies are dropped, not truncated. */
 const HTML_LIMIT = 800_000;

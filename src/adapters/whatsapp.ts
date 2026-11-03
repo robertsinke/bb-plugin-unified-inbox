@@ -7,7 +7,8 @@ import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappTitle } from '../whatsapp-chat.ts';
 import { composerSendRequest } from '../whatsapp-send.ts';
-import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from '../whatsapp-media.ts';
+import { whatsAppMedia } from '../whatsapp-media.ts';
+import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT } from './media.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {

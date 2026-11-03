@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { linkedinCdnUrl, readLinkedInImage } from '../src/linkedin-media.ts';
-import { IMAGE_LIMIT } from '../src/whatsapp-media.ts';
+import { IMAGE_LIMIT } from '../src/adapters/media.ts';
 
 const PHOTO = 'https://media.licdn.com/dms/image/v2/D4E22AQphoto/900/0/1700000000000?e=1&v=beta&t=signature';
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);

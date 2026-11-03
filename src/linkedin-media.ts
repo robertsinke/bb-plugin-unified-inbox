@@ -8,7 +8,7 @@
  * carries the same 6 MiB bound every other image in the inbox carries.
  */
 import type { MediaPayload } from './adapters/types.ts';
-import { IMAGE_LIMIT, mediaDataUrl } from './whatsapp-media.ts';
+import { IMAGE_LIMIT, mediaDataUrl } from './adapters/media.ts';
 
 const FETCH_TIMEOUT = 10_000;
 
