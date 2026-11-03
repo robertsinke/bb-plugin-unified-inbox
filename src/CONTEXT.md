@@ -22,7 +22,7 @@ unsettled rather than guessing.
 | the panel's state and timing | `src/inbox-session.ts` | the snapshot, every intent, cache observation and open-thread watch, draft and attachment rules, `olderRows` |
 | a conversation's identity | `src/linkedin-conversation.ts` | urn → short key → mailbox, one spelling per conversation; `pageConfirmedConversation` in `src/linkedin-ui.ts` decides what value a row may take from the page |
 | what a LinkedIn write may replay | `src/linkedin-page-session.ts` and `src/linkedin-write.ts` | the page envelope, the recorded request, and the rule that a replay needs `confirm: true` |
-| the LinkedIn session's life | `src/linkedin-chrome.ts` | profile dir, prewarm, and the idle stop; the session is never exported |
+| the LinkedIn session's life | `src/linkedin-chrome.ts` | profile dir, prewarm, idle stop, shared operation gate; list/probe failures preserve the interactive page, interactive failures reset it; the session is never exported |
 | what is remembered between runs | `src/inbox-cache.ts`, `src/inbox-drafts.ts`, `src/send-audit.ts` | cached rows, stored drafts (words, never bytes), and the audit table |
 | the size of a draft | `src/inbox-session.ts` beside the composer | the encoded-message ceiling, not the raw byte count (`decisions/0002`) |
 | what the panel draws | `src/inbox-appearance.ts`, `src/composer-mode.ts`, `src/format.ts` | bubble geometry per source, composer mode, and text shaping — not the components |

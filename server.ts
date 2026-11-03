@@ -8,7 +8,7 @@ import { createSearchIndex, createSearchStore } from './src/search-index';
 import { createSendAudit } from './src/send-audit';
 import { ImsgClient } from './src/imsg-client';
 import {
-  armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
+  armLinkedInWriteRecorder, clickNamedControl, evaluateInLinkedInProfile, evaluateLinkedInListRead, inspectLinkedInPage, linkedinProfileDir, openInLinkedInProfile,
   openLinkedInSignIn, prewarmLinkedInBrowser, pressKeyInLinkedInPage, readSendTarget,
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
@@ -50,7 +50,7 @@ export default function plugin(bb: BbPluginApi) {
     gmail: createGwsRunner(),
     whatsapp: createWhatsAgent(),
     imsg,
-    linkedInPage: createLinkedInPageSession(expression => evaluateInLinkedInProfile(expression)),
+    linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),
     armLinkedInRecorder: armLinkedInWriteRecorder,
     providerError: toProviderError,
   });

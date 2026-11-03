@@ -14,6 +14,7 @@ export const unknownFreshness = (): SourceFreshness => ({ lastAttemptAt: null, l
 export function createInboxRefresh(deps: {
   sync(account: Account, limit?: number): Promise<SyncResult>;
   read(account: Account): SourceFreshness;
+  hasCachedRows(account: Account): boolean;
   save(account: Account, state: SourceFreshness): void;
   error(account: Account, cause: unknown): string;
   now(): number;
@@ -31,7 +32,7 @@ export function createInboxRefresh(deps: {
       return { ...result, updatedAt };
     }).catch(cause => {
       const message = deps.error(account, cause);
-      deps.save(account, { ...attempt, lastError: message, cacheFallback: true });
+      deps.save(account, { ...attempt, lastError: message, cacheFallback: deps.hasCachedRows(account) });
       throw new Error(message);
     }).finally(() => { flights.delete(account); });
     flights.set(account, flight);
@@ -40,12 +41,17 @@ export function createInboxRefresh(deps: {
   return { refresh };
 }
 
-/** Host-owned lifetime; no UI and no mark-read/open calls. Retry on the source's own cadence. */
-export async function runInboxRefresh(refresh: () => Promise<unknown>, intervalMs: number, signal: AbortSignal): Promise<void> {
+/** Host-owned lifetime; failures back off up to one hour, success restores the source cadence. */
+export async function runInboxRefresh(
+  refresh: () => Promise<unknown>, intervalMs: number, signal: AbortSignal,
+  wait: (ms: number, signal: AbortSignal) => Promise<unknown> = (ms, signal) => sleep(ms, undefined, { signal }),
+): Promise<void> {
+  let delay = intervalMs;
   while (!signal.aborted) {
-    try { await refresh(); } catch { /* the refresh owner persisted the failure */ }
+    try { await refresh(); delay = intervalMs; }
+    catch { delay = Math.min(delay * 2, Math.max(intervalMs, 3_600_000)); } // refresh persisted the failure
     if (signal.aborted) return;
-    try { await sleep(intervalMs, undefined, { signal }); }
+    try { await wait(delay, signal); }
     catch (error) { if (!signal.aborted) throw error; }
   }
 }
