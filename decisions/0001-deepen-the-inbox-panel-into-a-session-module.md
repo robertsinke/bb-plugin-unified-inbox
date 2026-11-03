@@ -4,6 +4,7 @@
 - **Description:** Move the `Inbox` panel's state and timing into `src/inbox-session.ts`, a headless session with a snapshot and intents.
 - **Status:** accepted
 - **Date:** 2026-11-01
+- **Verified against the code:** 2026-11-03 — see the current-state note below
 - **Deciders:** repo owner, design grilling session
 - **Tags:** inbox, app.tsx, testing, polling
 

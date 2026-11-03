@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-03 (finding measured 2026-10-31)
+- **Verified against the code:** 2026-11-03 — see the current-state note below
 - Evidence: `docs/research/linkedin/obscura-as-linkedin-browser.md` and its three probe logs.
 
 > **Current state (2026-11-03): still holds, checked against the code.** `IDLE_MS = 90_000` in

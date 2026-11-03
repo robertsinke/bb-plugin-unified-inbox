@@ -22,6 +22,10 @@ sources:
   - resource: ./sources/2026-10-28-github-candidate-metadata.csv
 ---
 
+> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): the plugin reads
+> LinkedIn inside a Chrome it starts with its own profile, and the session never leaves that browser. The
+> sidecar, cookie-auth and commercial-intermediary paths argued below were not taken; the reasoning is kept.
+
 ## Question
 
 Can LinkedIn message threads be pulled into the Unified Inbox plugin — and if so, which access path is actually viable for an unattended local connector, at what maintenance cost and what account risk?

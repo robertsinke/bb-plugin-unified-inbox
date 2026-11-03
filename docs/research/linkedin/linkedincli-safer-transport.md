@@ -3,6 +3,9 @@
 **Date:** 2026-10-29  
 **Scope:** static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external LinkedIn endpoint was accessed.
 
+
+> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): no cookie store
+> or session is read out of a browser, so this patched cookie transport was not taken. Kept for its finding.
 ## Finding
 
 The most direct candidate is a **small, locally patched copy of linkedincli's curl-impersonate transport**, limited to the initial GET-only experiment: pass sensitive request headers to curl's `--config -` through a private stdin pipe instead of `-H` command-line arguments. This addresses the specific process-argument leak in [the reviewed implementation](https://github.com/bcharleson/linkedincli/blob/88f775ef95c5b8ad1d3b6d1056f94ef92282b8bb/src/core/transport.ts); it does **not** make the session or account risk-free. No patch has been implemented or tested with linkedincli or curl-impersonate.

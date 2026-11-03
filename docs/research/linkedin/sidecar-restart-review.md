@@ -3,6 +3,9 @@
 **Date:** 2026-10-29  
 **Scope:** inspection of installed `mcp-server-linkedin` 4.28.0 source and documented CLI only. No sidecar was started, no browser or session data opened, and no LinkedIn request made.
 
+
+> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): no sidecar session
+> is copied or restarted; the plugin owns its browser profile.
 ## Finding: no verified stock restart meets all constraints
 
 The installed sidecar's existing-profile browser path uses its persistent profile, but it is not a no-session-access/no-export path. In `drivers/browser.py`, `_authenticate_existing_profile` starts the browser, calls `_restore_portable_session_if_the_store_lost_it`, then calls `_feed_auth_succeeds` (a LinkedIn feed navigation). The restore function reads browser-context cookies and can import the sidecar's portable cookie file into the profile. Browser shutdown in the same module can export cookies to a portable file. These are upstream session-lifecycle operations even if our diagnostic never asks to see a cookie value.

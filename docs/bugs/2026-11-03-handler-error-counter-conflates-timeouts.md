@@ -19,6 +19,19 @@ failed, when, which method they were, or whether they threw or were abandoned.
 what time, or whether anything enforced a deadline on it. A 2.7-minute RPC from a panel is a frozen UI;
 if a deadline exists it did not bound that call.
 
+## Checked again, 2026-11-03 (later the same day)
+
+| measurement | at filing | now |
+|---|---|---|
+| `count` | 6933 | 11714 |
+| `errorCount` | 44 | **44** |
+| `maxMs` | 161930 | 161930 |
+
+Four thousand seven hundred and eighty-one more handler calls, and not one new error. So the counter has not
+moved and there is no live incident here — which is exactly the problem: the same 44 unattributed errors have
+now survived a working day in which every call the operator cared about succeeded, and the number still cannot
+say whether they were timeouts, refusals or a real break someone fixed hours ago.
+
 ## Why this is worth fixing
 
 The counter is the only signal an operator has that a plugin is misbehaving, and it answers a question

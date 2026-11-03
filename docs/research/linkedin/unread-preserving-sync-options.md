@@ -3,6 +3,10 @@
 **Date:** 2026-10-29  
 **Question:** Can we sync real LinkedIn conversations automatically without marking them read, while retaining a path to future replies and other actions? Read-only is a safety boundary for initial testing, not the product's permanent scope.
 
+
+> **Closed by** [`decisions/0003`](../decisions/0003-the-session-is-minted-where-it-reads.md): none of the
+> candidates below (sidecar, linkedincli, Unipile, Beeper bridge) was adopted — reads happen in the plugin's own
+> Chrome page, and the delta check keeps unread state through the mailbox marker (`src/linkedin-delta.ts`).
 ## Conclusion
 
 **A preserving alternative is plausible, but not yet verified on the account.** The sidecar tested in [the spike](./spike-sidecar.md) is not proof that all integrations mark conversations read: its `get_inbox` implementation obtains thread IDs by clicking conversation rows. The account owner's controlled before/after check found that one unread conversation became read after this call. Upstream source explicitly warns that row clicks may mark rows read. We cannot yet recommend accepting that limitation as unavoidable.

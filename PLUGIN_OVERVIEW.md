@@ -1,6 +1,19 @@
 Five mail and chat sources behind one inbox tab, beside the thread you are
 already working in.
 
+## How to read this repo
+
+Four kinds of document, and they age at different speeds. Read the first for behaviour, the rest for reasons:
+
+| document | answers | is it current? |
+|---|---|---|
+| this file, and `README.md` | how it works now | **yes — maintain it** |
+| `decisions/` | why a choice was made | frozen; each opens with a `Verified against the code` date and a current-state note when a detail moved (`decisions/README.md`) |
+| `specs/` | how a feature was scoped | historical once shipped; opens with a status block |
+| `docs/plans/`, `docs/research/` | how work was planned, what was measured | historical; a finished plan says "Superseded", a closed research path says what closed it |
+
+If a decision and the code disagree, the code wins and the decision needs a current-state note, not an edit.
+
 ## What you get
 
 - An **Inbox** page on the sidebar rail: the sources in one list, the open
