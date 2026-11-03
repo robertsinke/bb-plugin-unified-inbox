@@ -19,6 +19,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | [`decisions/0002-the-ceiling-is-the-encoded-message.md`](../decisions/0002-the-ceiling-is-the-encoded-message.md) | accepted | 2026-11-03 |  |
 | [`decisions/0003-the-session-is-minted-where-it-reads.md`](../decisions/0003-the-session-is-minted-where-it-reads.md) | accepted | 2026-11-03 |  |
 | [`decisions/0005-keep-sends-enabled-until-verified-approval.md`](../decisions/0005-keep-sends-enabled-until-verified-approval.md) | accepted | 2026-11-03 |  |
+| [`decisions/0006-the-inbox-owns-the-pin-list.md`](../decisions/0006-the-inbox-owns-the-pin-list.md) | accepted | 2026-11-03 |  |
 | [`decisions/0004-linkedin-writes-are-recorded-not-approved.md`](../decisions/0004-linkedin-writes-are-recorded-not-approved.md) | accepted | 2026-11-02 |  |
 | [`decisions/0001-deepen-the-inbox-panel-into-a-session-module.md`](../decisions/0001-deepen-the-inbox-panel-into-a-session-module.md) | accepted | 2026-11-01 |  |
 
@@ -34,6 +35,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/plans/2026-11-03-001-fix-mail-approval-rollout-plan.md`](plans/2026-11-03-001-fix-mail-approval-rollout-plan.md) | active | 2026-11-03 |  |
 | [`docs/plans/2026-11-02-next-slices.md`](plans/2026-11-02-next-slices.md) | current | 2026-11-02 |  |
 | [`docs/plans/2026-11-02-slice-b-work-units.md`](plans/2026-11-02-slice-b-work-units.md) | historical | 2026-11-02 |  |
 | [`docs/plans/2026-11-01-handoff-inbox-session-and-next-candidates.md`](plans/2026-11-01-handoff-inbox-session-and-next-candidates.md) | historical | 2026-11-01 |  |

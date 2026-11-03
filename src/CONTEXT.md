@@ -13,6 +13,7 @@ unsettled rather than guessing.
 | invariant | owner | what it decides |
 |---|---|---|
 | whether a send happens | `src/adapters/policy.ts` | the policy per account, the 5-minute window, single spend, and that the `allowed` audit row is written *before* delivery; `.observe` for page-confirmed LinkedIn sends |
+| whether mail approval matches the actual send | `src/mail-approval.ts`, reached only through `createSendGate.mail` | exact frozen mail binding, required pins, prepare/compatibility/require, atomic unique spend plus audit before dispatch; `src/send-approval/canonical.ts` mirrors Home's shared vectors |
 | what a source is | each adapter's `source` declaration, typed by `src/adapters/source.ts` | label, icon, poll interval, page size — the one place a source describes itself |
 | what a source can do | `src/adapters/capability.ts` (`CAPABILITY_KEYS`) | the vocabulary; every adapter declares every key, so a missing capability is a type error, not a runtime surprise |
 | how a source delivers a message | `src/adapters/index.ts` (`createRegistry`) | one `sync`, one `media`, one `send` per account — transport differences are absorbed here, never in the gateway |

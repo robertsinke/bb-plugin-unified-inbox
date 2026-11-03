@@ -21,7 +21,7 @@ export const mailAttachment = z.object({
   name: z.string().min(1).max(255).refine(v => !/[\r\n\0]/.test(v), 'Invalid attachment name'),
   mimeType: z.string().min(1).max(255),
   size: z.number().int().min(0).max(25_000_000),
-  data: z.string().min(1).max(40_000_000),
+  data: z.string().max(40_000_000),
 }).strict();
 
 const timestamp = z.number().int().nonnegative().nullable();
@@ -72,7 +72,10 @@ export const rpcContract = defineRpcContract({
             // The audience the conversation id cannot name: who was blind-copied.
             bcc: z.string().nullable().optional(),
             // Null means delivered without an approval (a page-confirmed replay): the row says so.
-            approvalId: z.string().nullable().optional() })) }) },
+            approvalId: z.string().nullable().optional(), payloadHash: z.string().nullable().optional(),
+            assertionHash: z.string().nullable().optional(), keyId: z.string().nullable().optional(),
+            authorizationModel: z.enum(['legacy_mail_allow','envelope_mail']).nullable().optional(),
+            assertionTrust: z.enum(['unverified','signature_verified']).nullable().optional() })) }) },
   media: {
     input: z.discriminatedUnion('kind', [
       messageMediaRequestSchema.extend({ account }),
@@ -85,9 +88,21 @@ export const rpcContract = defineRpcContract({
   // refuses and records the attempt: a send is never approved by merely happening.
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
-    // The same send statement a chat reply carries. Gmail is refused by SEND_POLICY today;
-    // when the owner enables it, that is the one line that changes — not this path.
-    allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string() }) },
+    // Legacy flag remains a migration input, never a fallback from envelope refusal.
+    allow: z.literal('send').optional(), envelope: z.unknown().optional(),
+    draft: z.object({ draftId: z.string().min(1).max(512), revision: z.number().int().min(1), sourceVersion: z.string().max(512) }).strict().optional(),
+  }).strict(), output: z.object({ status: z.string(), authorizationModel: z.enum(['legacy_mail_allow','envelope_mail']).optional(),
+    warning: z.string().optional(), approvalId: z.string().optional(), state: z.literal('accepted').optional() }) },
+  mail_approval_policy: { input: z.null(), output: z.object({ mode: z.enum(['prepare','compatibility','require']), allowedKeyIds: z.array(z.string()) }) },
+  mail_approval_status: { input: z.object({ approvalId: z.string().min(1).max(512).optional(), keyId: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(), output: z.object({
+    mode: z.enum(['prepare','compatibility','require']), pinnedKeyCount: z.number().int().nonnegative(),
+    keyPinned: z.boolean().nullable(), legacyAllowed: z.boolean(), envelopeDeliveryEnabled: z.boolean(),
+    lastRefusalCode: z.string().nullable(), lastRefusalAt: z.number().nullable(), lastRefusalWasKeyMismatch: z.boolean(),
+    lastRefusalAccount: z.string().nullable(), lastRefusalScope: z.literal('mail_global'),
+    spend: z.object({
+    approvalId: z.string(), payloadHash: z.string(), keyId: z.string(), account: z.string(),
+    state: z.enum(['spent','accepted','uncertain']), spentAt: z.number(),
+  }).nullable() }) },
   capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
   // What each source *is*, as opposed to what it can do: the name a person knows it by, its icon,
   // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its

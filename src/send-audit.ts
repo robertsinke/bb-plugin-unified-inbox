@@ -29,16 +29,22 @@ export function createSendAudit(db: Database.Database) {
   const present = new Set(
     (db.prepare('PRAGMA table_info(inbox_send_audit)').all() as { name: string }[]).map(column => column.name),
   );
-  for (const column of ['approval_id', 'bcc']) {
+  for (const column of ['approval_id', 'bcc', 'payload_hash', 'assertion_hash', 'key_id', 'authorization_model', 'assertion_trust']) {
     if (!present.has(column)) db.exec(`ALTER TABLE inbox_send_audit ADD COLUMN ${column} TEXT`);
   }
-  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason, bcc) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason, @bcc)');
-  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason, bcc FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
+  const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason, bcc, payload_hash, assertion_hash, key_id, authorization_model, assertion_trust) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason, @bcc, @payloadHash, @assertionHash, @keyId, @authorizationModel, @assertionTrust)');
+  const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason, bcc, payload_hash AS payloadHash, assertion_hash AS assertionHash, key_id AS keyId, authorization_model AS authorizationModel, assertion_trust AS assertionTrust FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
   const spentRow = db.prepare("SELECT 1 FROM inbox_send_audit WHERE approval_id = ? AND decision = 'allowed' LIMIT 1");
   return {
+    /** Last mail-envelope refusal across both Gmail accounts; historical and reload-persistent. */
+    lastMailRefusal(): { reason: string; at: number; account: string } | null {
+      return db.prepare("SELECT reason, at, account FROM inbox_send_audit WHERE decision = 'refused' AND authorization_model = 'envelope_mail' ORDER BY id DESC LIMIT 1").get() as { reason: string; at: number; account: string } | undefined ?? null;
+    },
     /** One row per attempted send. Never a body, never bytes. */
     record(row: AuditRow) {
-      insert.run({ ...row, approvalId: row.approvalId ?? null, reason: row.reason ?? null, bcc: row.bcc ?? null });
+      insert.run({ ...row, approvalId: row.approvalId ?? null, reason: row.reason ?? null, bcc: row.bcc ?? null,
+        payloadHash: row.payloadHash ?? null, assertionHash: row.assertionHash ?? null,
+        keyId: row.keyId ?? null, authorizationModel: row.authorizationModel ?? null, assertionTrust: row.assertionTrust ?? null });
     },
     /**
      * Whether this approval was already spent, read from the rows themselves rather than

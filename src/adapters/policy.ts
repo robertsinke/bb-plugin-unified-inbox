@@ -5,6 +5,7 @@
 // What this is: one choke point and one audit trail. What it is not: containment.
 // A local process can still reach the source directly; OQ-1 owns that boundary.
 import { randomUUID } from 'node:crypto';
+import { createMailGate, type MailGateDeps, type MailRequest } from '../mail-approval.ts';
 import type { Account, SendReceipt } from './types.ts';
 
 /** One attempted send as the gate saw it: no body, no attachment bytes, ever. */
@@ -19,6 +20,11 @@ export interface AuditRow {
    * spend survive a reload, so a restart cannot revive an approval already used.
    */
   approvalId?: string;
+  payloadHash?: string;
+  assertionHash?: string;
+  keyId?: string;
+  authorizationModel?: 'legacy_mail_allow' | 'envelope_mail';
+  assertionTrust?: 'unverified' | 'signature_verified';
   /** Why a refusal happened, in words a person can read. */
   reason?: string;
   /** Who was blind-copied, when anyone was. Empty when the send had no blind copy. */
@@ -47,6 +53,8 @@ export interface SendRequest {
    * record with no trace of the audience it reached.
    */
   bcc?: string;
+  /** Internal mail migration marker, never authorization supplied by the RPC caller. */
+  authorizationModel?: 'legacy_mail_allow';
 }
 
 /**
@@ -64,6 +72,9 @@ export interface ObservedSend {
 /** The one gate, as a call and as the entry point that records without approving. */
 export interface SendGate {
   (request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt>;
+  mail: ReturnType<typeof createMailGate>['send'];
+  mailPolicy: ReturnType<typeof createMailGate>['policy'];
+  mailStatus: ReturnType<typeof createMailGate>['status'];
   /**
    * Record a delivery no approval authorised, then deliver: the row lands before the call, so a
    * delivery that throws still leaves it. No policy check, no window, no spend — the authorisation
@@ -103,6 +114,7 @@ export interface SendAuditStore {
 export interface SendGateDeps {
   now: () => number;
   store: SendAuditStore;
+  mail?: Pick<MailGateDeps, 'db' | 'policy' | 'lastRefusal'>;
 }
 
 /**
@@ -122,10 +134,10 @@ export function approvalFor(allow: 'send' | undefined, conversationId: string, a
   return allow === 'send' ? { id: randomUUID(), conversationId, issuedAt: at } : undefined;
 }
 
-export function createSendGate({ now, store }: SendGateDeps): SendGate {
+export function createSendGate({ now, store, mail }: SendGateDeps): SendGate {
   /** The refusal record and the refusal itself, so a refusal can never skip its row. */
   function refuse(request: SendRequest, reason: string, approval?: SendApproval): never {
-    store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason, ...(approval ? { approvalId: approval.id } : {}) });
+    store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason, ...(request.authorizationModel ? { authorizationModel: request.authorizationModel } : {}), ...(approval ? { approvalId: approval.id } : {}) });
     throw new Error(reason);
   }
 
@@ -154,6 +166,7 @@ export function createSendGate({ now, store }: SendGateDeps): SendGate {
       conversationId: request.conversationId,
       decision: 'allowed',
       approvalId: approval.id,
+      ...(request.authorizationModel ? { authorizationModel: request.authorizationModel } : {}),
       // Only a blind copy is kept: it is the one audience nothing else in the row can name.
       ...(request.bcc?.trim() ? { bcc: request.bcc.trim() } : {}),
     })
@@ -178,5 +191,16 @@ export function createSendGate({ now, store }: SendGateDeps): SendGate {
     return deliver();
   }
 
-  return Object.assign(send, { observe });
+  const mailGate = createMailGate({
+    db: mail?.db,
+    policy: mail?.policy ?? (() => ({ mode: 'compatibility', allowedKeyIds: [] })),
+    now, enabled: account => SEND_POLICY[account].state === 'enabled',
+    record: row => store.record(row), lastRefusal: mail?.lastRefusal,
+    legacy: (request: MailRequest, deliver) => send(
+      { account: request.account, conversationId: request.threadId ?? request.to, text: request.text,
+        bcc: request.bcc, authorizationModel: 'legacy_mail_allow' },
+      approvalFor(request.allow, request.threadId ?? request.to, now()), deliver,
+    ),
+  });
+  return Object.assign(send, { observe, mail: mailGate.send, mailPolicy: mailGate.policy, mailStatus: mailGate.status });
 }

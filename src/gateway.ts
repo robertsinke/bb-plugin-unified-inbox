@@ -219,16 +219,12 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async send_audit({ limit }) {
       return { rows: audit.list(limit ?? 5) };
     },
+    async mail_approval_policy() { return gate.mailPolicy(); },
+    async mail_approval_status(input) { return gate.mailStatus(input); },
     async send_gmail(input) {
       const deliver = registry[input.account].send;
       if (!deliver) throw new Error('This source cannot send from the inbox.');
-      // Gmail is enabled by SEND_POLICY; the approval is what makes this send one the owner asked
-      // for, and the gate writes its row before the adapter is reached.
-      return gate(
-        { account: input.account, conversationId: input.threadId ?? input.to, text: input.text, bcc: input.bcc },
-        approvalFor(input.allow, input.threadId ?? input.to, now()),
-        () => deliver({ kind: 'gmail', ...input }, {}),
-      );
+      return gate.mail(input, mail => deliver({ kind: 'gmail', ...mail }, {}));
     },
     async list(options) {
       const older = options?.older === true;

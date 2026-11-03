@@ -24,8 +24,8 @@ function fixture() {
 
 function seed(path: string, at: number) {
   const db = new Database(path);
-  db.exec('CREATE TABLE inbox_send_audit (id INTEGER PRIMARY KEY, at INTEGER, account TEXT, decision TEXT, approval_id TEXT)');
-  const insert = db.prepare('INSERT INTO inbox_send_audit VALUES (?, ?, ?, ?, ?)');
+  db.exec('CREATE TABLE inbox_send_audit (id INTEGER PRIMARY KEY, at INTEGER, account TEXT, decision TEXT, approval_id TEXT, authorization_model TEXT)');
+  const insert = db.prepare('INSERT INTO inbox_send_audit (id, at, account, decision, approval_id) VALUES (?, ?, ?, ?, ?)');
   insert.run(1, at, 'linkedin', 'allowed', null);
   insert.run(2, at, 'linkedin', 'allowed', '');
   insert.run(3, at, 'personal', 'allowed', 'caller-minted');
@@ -45,9 +45,20 @@ test('audit warning filters by age and missing approval; reports counts/ids with
     assert.match(warning, /counts=\{"linkedin":2,"business":1\}/);
     assert.match(warning, /audit row ids=1,2,6\./);
     assert.match(warning, /do not prove delivery or human approval/);
-    assert.match(warning, /does not detect caller-minted approval ids/);
+    assert.match(warning, /unmarked historical ids do not prove human approval/);
     assert.equal(sendAuditWarning(f.path, 101), null);
     assert.deepEqual(readFileSync(f.path), before);
+  } finally { f.close(); }
+});
+
+test('audit warning includes legacy mail even when the old gate minted an approval id', () => {
+  const f = fixture();
+  try {
+    seed(f.path, 100);
+    const db = new Database(f.path);
+    db.prepare("UPDATE inbox_send_audit SET authorization_model = 'legacy_mail_allow' WHERE id = 3").run();
+    db.close();
+    assert.match(sendAuditWarning(f.path, 100)!, /audit row ids=1,2,3,6\./);
   } finally { f.close(); }
 });
 
