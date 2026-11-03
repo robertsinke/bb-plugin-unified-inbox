@@ -6,10 +6,14 @@ A BB plugin: five message sources (Gmail ×2, WhatsApp, Messages, LinkedIn) behi
 ## Run and prove
 
 ```sh
-node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts   # the suite
-npx tsc --noEmit                                                                 # the type check
-npm ci   # in a fresh worktree: node_modules is not shared, jsdom needs it
+npm test          # the suite: node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts
+npm run typecheck # tsc --noEmit
+npm run check     # both, in the order a commit needs them
+npm ci            # in a fresh worktree: node_modules is not shared, jsdom needs it
 ```
+
+`git config core.hooksPath .githooks` (once per clone, already set here) makes the pre-commit hook refuse a
+commit whose `docs/_index.md` no longer matches the files on disk.
 
 The test runner strips types but **not JSX**; component tests go through `tests/jsdom-harness.ts`
 (`typescript.transpileModule`). Page expressions are TS template literals, so a lone `\s` reaches the page
@@ -25,6 +29,7 @@ as `s` — write `\\s`. Production CSS loads `inbox.css → chat.css → layout.
 | how work was planned, what was measured | `docs/plans/`, `docs/research/` — historical; a finished plan says "Superseded" |
 | a defect and its evidence | `docs/bugs/` |
 | every document, one page | `docs/_index.md` (generated — `node --experimental-strip-types _tools/docs-index.ts`) |
+| **which module owns which invariant** | **`src/CONTEXT.md`** — read this before grepping |
 | the shared adapter contract | `src/adapters/README.md`, `src/adapters/types.ts` |
 | the RPC surface | `src/rpc-contract.ts` (the gateway handlers are `createGateway` in `src/gateway.ts`) |
 
