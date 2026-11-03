@@ -13,7 +13,7 @@ npm ci            # in a fresh worktree: node_modules is not shared, jsdom needs
 ```
 
 `git config core.hooksPath .githooks` (once per clone, already set here) makes the pre-commit hook refuse a
-commit whose `docs/_index.md` no longer matches the files on disk.
+commit whose `docs/_index.md` is stale, and typecheck when a `.ts`/`.tsx` file is staged.
 
 The test runner strips types but **not JSX**; component tests go through `tests/jsdom-harness.ts`
 (`typescript.transpileModule`). Page expressions are TS template literals, so a lone `\s` reaches the page
