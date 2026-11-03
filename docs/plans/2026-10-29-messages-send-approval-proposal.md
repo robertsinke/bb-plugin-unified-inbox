@@ -1,6 +1,9 @@
 # Messages send approval: smallest enforceable boundary
 
-Status: **proposal only; nothing implemented; Messages sending remains disabled; agent permissions unchanged.**
+Status: **proposal only at the time (2026-10-29); the send gate has since shipped.** Messages sending is
+enabled and every send is refused without `allow: 'send'` and recorded before delivery
+(`src/adapters/policy.ts`, `src/send-audit.ts`). The containment question this proposal raises is still
+open — see OQ-1 in `specs/001-unified-inbox-gateway/spec.md`.
 
 ## Framing
 
