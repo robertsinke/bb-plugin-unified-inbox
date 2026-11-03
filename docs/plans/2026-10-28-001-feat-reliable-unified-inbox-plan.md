@@ -5,6 +5,9 @@ status: active
 date: 2026-10-28
 ---
 
+> **Superseded.** This plan's outcome shipped; the current contract is `PLUGIN_OVERVIEW.md` and
+> `src/rpc-contract.ts`. Decisions that postdate it: `decisions/0001`–`0004`. Kept as history.
+
 # feat: Reliable unified inbox
 
 ## Summary

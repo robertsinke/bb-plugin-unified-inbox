@@ -6,6 +6,10 @@ date: 2026-10-28
 deepened: 2026-10-28
 ---
 
+> **Superseded.** LinkedIn reads and writes ship through the plugin's own Chrome profile
+> (`decisions/0003`), and observed sends are recorded rather than approved (`decisions/0004`).
+> Kept as history; the current contract is `PLUGIN_OVERVIEW.md`.
+
 # feat: Add LinkedIn messages, InMail, and invites as an inbox source
 
 ## Summary

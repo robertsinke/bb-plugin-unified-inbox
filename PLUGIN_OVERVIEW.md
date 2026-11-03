@@ -42,7 +42,7 @@ unencrypted SQLite storage on the BB server.
 ## For agents
 
 One RPC surface: `list`, `cached`, `sync`, `open`, `cached_open`, `search`,
-`media`, `capabilities`, `action`, `send_gmail`, `send_audit`, plus the LinkedIn
+`media`, `capabilities`, `sources`, `action`, `send_gmail`, `send_audit`, plus the LinkedIn
 page driver (`linkedin_ui`, `linkedin_record`, `linkedin_writes`,
 `linkedin_replay`, `linkedin_signin`). A reply without `allow: 'send'` is refused
 and recorded; a refusal is visible in the Send log, not only in a terminal.

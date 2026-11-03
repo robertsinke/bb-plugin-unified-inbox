@@ -7,6 +7,9 @@ created: 2026-10-29
 parent_spec: ./spec.md
 tags: [spec, tasks]
 ---
+> **Historical.** The gateway shipped and the code has moved past this document; read the status
+> block in `spec.md` for what changed, and `PLUGIN_OVERVIEW.md` for the current contract.
+
 
 # Tasks — Unified Inbox gateway and adapters
 

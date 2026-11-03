@@ -9,6 +9,22 @@ parent_proposal: none — see DL-1
 tags: [spec, gateway, adapters, containment]
 ---
 
+> **Status: historical design, kept for its reasoning — not the current contract.**
+> The gateway shipped, and the code has moved past this document. Where the two disagree, the code wins:
+>
+> | this document says | the code says today |
+> |---|---|
+> | `rpcContract` defines eleven methods | nineteen, including `sources` and `sync` — `src/rpc-contract.ts` |
+> | `capabilities` is `{send, markRead, archive, media, search?, attachments}` | eight keys: `send`, `markRead`, `archive`, `invitations`, `media`, `attachments`, `threads`, `followsList` — `src/adapters/capability.ts` |
+> | "Enabling Messages sending — deferred" | enabled: `send` is the only permitted `imsg` mutation |
+> | a Gmail draft cannot be sent from the plugin | `send_gmail` delivers through one gate — `src/adapters/policy.ts` |
+> | the gateway is `server.ts` | the handler table is `createGateway(deps)` in `src/gateway.ts`; `server.ts` is wiring |
+> | a source's name lives in a table beside the handlers | each adapter declares `source` (label, icon, poll cadence, page size), delivered over `sources` |
+> | one page per source, no paging | older pages: `list {older: true}` paged per source under a 15 s ceiling |
+> | every LinkedIn write needs an approval | LinkedIn writes are recorded, not approved — `decisions/0004` |
+>
+> The current contract is `PLUGIN_OVERVIEW.md`, `src/rpc-contract.ts`, and `decisions/0001`–`0004`.
+
 # Unified Inbox gateway and adapters
 
 ## Goals
@@ -20,7 +36,8 @@ tags: [spec, gateway, adapters, containment]
 
 ## Non-goals
 
-1. **Enabling Messages sending** — deferred; blocked on the human-gesture question tracked in [GH #6556](https://github.com/get-bb/bb/issues/6556) and [the send-approval proposal](../../docs/plans/2026-10-29-messages-send-approval-proposal.md).
+1. ~~**Enabling Messages sending** — deferred;~~ since enabled: the gate refuses a send without `allow: 'send'` and
+   records it before delivering. The original note read: blocked on the human-gesture question tracked in [GH #6556](https://github.com/get-bb/bb/issues/6556) and [the send-approval proposal](../../docs/plans/2026-10-29-messages-send-approval-proposal.md).
 2. **Choosing the agent containment mechanism** (separate macOS user vs sandbox profile vs VM) — deferred to OQ-1; this spec designs *for* a boundary without deciding which one.
 3. **New providers** — deferred; the adapter interface is validated against the three existing sources first.
 4. **Outgoing reactions, threaded replies, edit history, video/document attachments** — deferred; still unavailable or partial per [the Messages plan](../../docs/plans/2026-10-28-003-feat-local-messages-inbox-plan.md).
@@ -32,7 +49,7 @@ tags: [spec, gateway, adapters, containment]
 
 One plugin, one server file, provider logic inlined per source.
 
-- `server.ts` — the whole surface. `rpcContract` (L34–46) defines eleven methods: `list`, `cached`, `search`, `cached_open`, `clear_cache`, `list_source`, `open`, `media`, `imsg_media`, `action`, `send_gmail`. Provider dispatch is by `account` string with early branches; `gmail()` (L50) shells out to the `gws` CLI, `wa()` (L92) talks to the WhatsApp runtime, `listGmail()` (L133) and `listWa()` (L182) each build their own item shape, `confirmInWhatsAgent()` (L232) is a provider-specific approval path. `send_gmail` (L45) is registered but its handler is disabled fail-closed (L334) pending the owner-confirmation boundary.
+- `server.ts` — the whole surface. `rpcContract` (L34–46) defined eleven methods at the time (see the status block above): `list`, `cached`, `search`, `cached_open`, `clear_cache`, `list_source`, `open`, `media`, `imsg_media`, `action`, `send_gmail`. Provider dispatch is by `account` string with early branches; `gmail()` (L50) shells out to the `gws` CLI, `wa()` (L92) talks to the WhatsApp runtime, `listGmail()` (L133) and `listWa()` (L182) each build their own item shape, `confirmInWhatsAgent()` (L232) is a provider-specific approval path. `send_gmail` (L45) is registered but its handler is disabled fail-closed (L334) pending the owner-confirmation boundary.
 - `src/inbox-cache.ts` — `createInboxCache(db)` owns a single SQLite cache shared by all accounts; rows are keyed by `account`/`id`, so provider identity is a column, not a type.
 - The `search` handler in `server.ts` + `src/bm25.ts` — pure BM25 ranking over cached rows, built in-memory per query.
 - `src/sync-plan.ts` — pure functions (`gmailCursorUnchanged`, `gmailIdsToFetch`, `whatsappListUnchanged`) deciding what to refetch. Already adapter-shaped, but named per provider.

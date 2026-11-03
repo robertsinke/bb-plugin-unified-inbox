@@ -5,6 +5,10 @@ status: active
 date: 2026-10-28
 ---
 
+> **Superseded.** Messages ships read and send: `send` is the one permitted `imsg` mutation, and the
+> gate in `src/adapters/policy.ts` replaced the `src/whatsapp-confirm.ts` this plan cites as its model
+> (that file no longer exists). Current contract: `PLUGIN_OVERVIEW.md`.
+
 # feat: Add local Messages to Unified Inbox
 
 ## Summary
