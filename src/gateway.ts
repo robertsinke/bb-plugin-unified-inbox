@@ -73,6 +73,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
+    hasCachedRows: account => cache.list().some(row => row.account === account),
     save: (account, state) => cache.saveFreshness(account, state),
     error: (account, cause) => listError(registry, account, cause),
     now,

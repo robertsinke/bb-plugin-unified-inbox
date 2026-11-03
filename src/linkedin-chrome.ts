@@ -30,11 +30,14 @@ import {
 import { writeRecorderExpression } from './linkedin-write.ts';
 import { createAsyncGate } from './async-gate.ts';
 
-/** The signed-in profile is reused by every read; the gate keeps two browser starts apart. */
-const gate = createAsyncGate();
+/** All operations share one gate, but read failures must not tear down an in-progress compose. */
+const { gate, write: withLinkedInPage, read: withLinkedInRead } = createLinkedInPageAccess({
+  load: warmPage, stop: stopLinkedInBrowser, pauseIdle, keepWarm,
+});
 const START_URL = 'https://www.linkedin.com/feed/';
 const START_TIMEOUT = 20_000;
 const READ_TIMEOUT = 60_000;
+const LIST_READ_TIMEOUT = 10_000;
 const NAVIGATE_TIMEOUT = 30_000;
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
 
@@ -219,32 +222,42 @@ async function startBrowser(profile: string): Promise<Browser> {
   return browser;
 }
 
-/**
- * Runs one sequence against the warm page while holding the gate, so a lookup and the input that
- * follows it see the same page. A failure drops the browser: a page that failed mid-action is not
- * trusted for the next one.
- */
-async function withLinkedInPage<T>(run: (page: Page) => Promise<T>): Promise<T> {
-  return gate(async () => {
-    const page = await warmPage();
-    keepWarm();
-    try {
-      return await run(page);
-    } catch (error) {
-      await stopLinkedInBrowser();
-      throw error;
-    }
-  });
+/** Serializes page use and suspends idle teardown during it. Only failed writes reset the page. */
+export function createLinkedInPageAccess<P>(deps: {
+  load(): Promise<P>;
+  stop(): Promise<void>;
+  pauseIdle(): void;
+  keepWarm(): void;
+}) {
+  const gate = createAsyncGate();
+  function run<T>(operation: (page: P) => Promise<T>, resetOnError: boolean): Promise<T> {
+    return gate(async () => {
+      deps.pauseIdle();
+      try {
+        const page = await deps.load();
+        try { return await operation(page); }
+        catch (error) {
+          if (resetOnError) await deps.stop();
+          throw error;
+        }
+      } finally { deps.keepWarm(); }
+    });
+  }
+  return {
+    gate,
+    read: <T>(operation: (page: P) => Promise<T>) => run(operation, false),
+    write: <T>(operation: (page: P) => Promise<T>) => run(operation, true),
+  };
 }
 
-async function evaluate(page: Page, expression: string): Promise<unknown> {
+async function evaluate(page: Page, expression: string, timeout = READ_TIMEOUT): Promise<unknown> {
   const evaluated = await withTimeout(
     page.client.send<{ result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: unknown } } }>(
       'Runtime.evaluate',
       { expression, awaitPromise: true, returnByValue: true },
       page.sessionId,
     ),
-    READ_TIMEOUT,
+    timeout,
     'LinkedIn did not answer in time.',
   );
   const description = evaluated.exceptionDetails?.exception?.description;
@@ -258,6 +271,11 @@ export async function evaluateInLinkedInProfile(expression: string): Promise<unk
 }
 
 /** Moves the plugin's LinkedIn tab to one allowlisted path. A refused path throws before navigating. */
+/** List/probe scripts only issue GETs. Failure or timeout preserves the interactive page/recorder. */
+export async function evaluateLinkedInListRead(expression: string): Promise<unknown> {
+  return withLinkedInRead(page => evaluate(page, expression, LIST_READ_TIMEOUT));
+}
+
 /**
  * The recorder that survives a page load. A web app captures `fetch` (or XHR) when it boots, so a
  * wrapper installed afterwards is never called — the recorder has to be in place before the app's
@@ -510,8 +528,14 @@ async function warmPage(): Promise<Page> {
   }
 }
 
-function keepWarm(): void {
+function pauseIdle(): void {
   if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+function keepWarm(): void {
+  pauseIdle();
+  if (!warm) return;
   idleTimer = setTimeout(() => { void stopLinkedInBrowser(); }, IDLE_MS);
   idleTimer.unref?.();
 }

@@ -9,7 +9,7 @@ function fixture(sync: Parameters<typeof createInboxRefresh>[0]['sync']) {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   let now = 100;
-  const refresh = createInboxRefresh({ sync, read: cache.freshness, save: cache.saveFreshness, error: () => 'Source unavailable.', now: () => now });
+  const refresh = createInboxRefresh({ sync, read: cache.freshness, hasCachedRows: account => cache.list().some(row => row.account === account), save: cache.saveFreshness, error: () => 'Source unavailable.', now: () => now });
   return { db, cache, refresh: refresh.refresh, time: (value: number) => { now = value; } };
 }
 
@@ -29,6 +29,19 @@ test('success, failed attempt and recovery persist independently; cached rows su
     f.time(300);
     await f.refresh('personal');
     assert.deepEqual(reloaded.freshness('personal'), { lastAttemptAt: 300, lastSuccessAt: 300, lastError: null, cacheFallback: false });
+  } finally { f.db.close(); }
+});
+
+test('failed refresh only reports cache fallback when this source has cached rows', async () => {
+  const f = fixture(async () => { throw new Error('offline'); });
+  try {
+    f.cache.save('business', [{ account: 'business', id: 't', title: 'Other source', preview: '', date: 1, unread: false }]);
+    await assert.rejects(f.refresh('personal'));
+    assert.equal(f.cache.freshness('personal').cacheFallback, false);
+    assert.equal(f.cache.freshness('personal').lastSuccessAt, null);
+    assert.equal(f.cache.freshness('personal').lastError, 'Source unavailable.');
+    await assert.rejects(f.refresh('business'));
+    assert.equal(f.cache.freshness('business').cacheFallback, true);
   } finally { f.db.close(); }
 });
 
@@ -66,6 +79,33 @@ test('workers refresh every source without a UI and stop on host abort', async (
     await runInboxRefresh(async () => { seen.push('unexpected'); }, 1, controller.signal);
     assert.equal(seen.length, count);
   } finally { f.db.close(); }
+});
+
+test('consecutive failures back off to one hour; success resets the delay', async () => {
+  const controller = new AbortController();
+  const delays: number[] = [];
+  let attempts = 0;
+  await runInboxRefresh(async () => {
+    attempts++;
+    if (attempts !== 10 && attempts !== 11) throw new Error('offline');
+  }, 45_000, controller.signal, async (delay, signal) => {
+    assert.equal(signal, controller.signal);
+    delays.push(delay);
+    if (delays.length === 13) controller.abort();
+  });
+  assert.equal(attempts, 13);
+  assert.deepEqual(delays, [90_000, 180_000, 360_000, 720_000, 1_440_000, 2_880_000,
+    3_600_000, 3_600_000, 3_600_000, 45_000, 45_000, 90_000, 180_000]);
+});
+
+test('abort cancels a pending worker sleep without another refresh', async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  const worker = runInboxRefresh(async () => { attempts++; }, 3_600_000, controller.signal);
+  await Promise.resolve();
+  controller.abort();
+  await worker;
+  assert.equal(attempts, 1);
 });
 
 test('worker retries failure on cadence and cancels its sleep', async () => {

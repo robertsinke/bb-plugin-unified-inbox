@@ -173,10 +173,13 @@ function dumpedWrites(value: unknown): RecordedWrite[] {
  * One session over whatever evaluates expression strings in the signed-in LinkedIn page. Each method
  * builds its own expression and parses its own answer; the caller never sees either.
  */
-export function createLinkedInPageSession(evaluate: (expression: string) => Promise<unknown>): LinkedInPageSession {
+export function createLinkedInPageSession(
+  evaluate: (expression: string) => Promise<unknown>,
+  evaluateListRead: (expression: string) => Promise<unknown> = evaluate,
+): LinkedInPageSession {
   return {
     async list() {
-      return listPayload(await evaluate(linkedinPageExpression({ mode: 'list' })));
+      return listPayload(await evaluateListRead(linkedinPageExpression({ mode: 'list' })));
     },
     async thread(id: string) {
       // The boundary is the urn, not the caller: nothing that is not a conversation reaches the page.
@@ -184,7 +187,7 @@ export function createLinkedInPageSession(evaluate: (expression: string) => Prom
       return threadPayload(await evaluate(linkedinPageExpression({ mode: 'thread', id })));
     },
     async probe(mailbox?: string) {
-      return listPayload(await evaluate(linkedinProbeExpression(mailbox)));
+      return listPayload(await evaluateListRead(linkedinProbeExpression(mailbox)));
     },
     async replay(write: RecordedWrite) {
       // The expression is built first, so a write that cannot be replayed never reaches the page.
