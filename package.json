@@ -56,5 +56,12 @@
     "tailwind-merge": "^3.4.0",
     "typescript": "^5.7.0",
     "vaul": "^1.1.2"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "docs:index": "node --experimental-strip-types _tools/docs-index.ts",
+    "docs:check": "node --experimental-strip-types _tools/docs-index.ts --check"
   }
 }

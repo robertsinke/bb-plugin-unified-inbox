@@ -1,0 +1,10 @@
+#!/bin/sh
+# Run by git when core.hooksPath = .githooks (see AGENTS.md). One job, fast: the generated docs index must
+# match the files on disk, because a stale catalogue is worse than none — an agent reads it and stops looking.
+set -e
+root="$(git rev-parse --show-toplevel)"
+if ! node --experimental-strip-types "$root/_tools/docs-index.ts" --check >/dev/null 2>&1; then
+  echo "docs/_index.md is stale — run: node --experimental-strip-types _tools/docs-index.ts" >&2
+  echo "(staged anyway with: git commit --no-verify)" >&2
+  exit 1
+fi
