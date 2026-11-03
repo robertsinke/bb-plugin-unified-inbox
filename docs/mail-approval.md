@@ -51,7 +51,7 @@ Successful envelope response: `{status, authorizationModel:"envelope_mail", appr
 
 ## Errors and recovery
 
-Expected mail errors reject the RPC. The BB error category is `forbidden`, or `conflict` for `already_spent`, `spend_commit_failed` and `delivery_uncertain`. The exact mail code is in `error.issues[0].message` with path `["envelope"]`, and the human message begins `[mail:<code>]`. Existing UI catches the error and preserves its draft. Input-schema violations use BB's `invalid_input` and occur before the gate audit.
+Expected mail errors reject the RPC. The BB error category is `forbidden`, or `conflict` for `already_spent`, `spend_commit_failed` and `delivery_uncertain`. The exact mail code is in `error.issues[0].message` with path `["envelope"]`, and the human message begins `[mail:<code>]`. Existing UI catches the error and preserves its draft. Input-schema violations use BB's **invalid_input** transport error and occur before the gate audit.
 
 | Code | Meaning / action |
 | --- | --- |
