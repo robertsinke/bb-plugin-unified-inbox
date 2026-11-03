@@ -1,4 +1,4 @@
-# Deepen the inbox panel into a session module
+# 0001 — Deepen the inbox panel into a session module
 
 - **Type:** architecture decision
 - **Description:** Move the `Inbox` panel's state and timing into `src/inbox-session.ts`, a headless session with a snapshot and intents.
