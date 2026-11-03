@@ -48,8 +48,19 @@ and fails closed when discovery fails rather than opening a second connection.
 Messages runs a supervised `imsg rpc` child and needs Full Disk Access. LinkedIn
 is read and written inside a Chrome the plugin starts with its own profile: no
 cookie store, Keychain entry or session export leaves that browser
-(`decisions/0003`), and it refreshes only when asked. The inbox cache — list
-rows, opened threads, unread marks, and the send audit — is this plugin's own
+(`decisions/0003`). Every source, including LinkedIn, refreshes in a backend
+service while the plugin is loaded, even with the inbox closed. Manual refresh
+shares the same per-source flight. The `freshness` RPC exposes persisted
+`lastAttemptAt`, `lastSuccessAt`, `lastError`, and `cacheFallback`; only a
+successful live read or live delta check advances success. Failed refreshes
+retain previous rows. The panel reads this state rather than owning sync.
+
+Opened bodies have independent `updatedAt` timestamps; legacy bodies have unknown
+age. `cached_open` and failed Gmail/LinkedIn opens explicitly report
+`cacheFallback: true`. A fresh list never certifies cached bodies as current.
+Background list refresh never opens or marks conversations read. Refresh stops
+when BB or the plugin stops; authentication and provider failures remain visible.
+The inbox cache, freshness, unread marks, and send audit live in this plugin's
 unencrypted SQLite storage on the BB server.
 
 ## For agents

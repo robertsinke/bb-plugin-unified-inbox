@@ -14,6 +14,7 @@ import { isSourceAccount } from './inbox-mention.ts';
 import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord } from './linkedin-ui.ts';
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
+import { createInboxRefresh } from './inbox-refresh.ts';
 import { message, rpcContract } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
 import type { createSendAudit } from './send-audit.ts';
@@ -52,7 +53,7 @@ export interface GatewayDriver {
  * `driver` is the page. A test passes fakes for all of it.
  */
 export interface GatewayDeps {
-  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear'>;
+  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
@@ -69,6 +70,14 @@ export interface GatewayDeps {
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
 export function createGateway({ cache, search, audit, gate, registry, now, driver }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+  const refresh = createInboxRefresh({
+    sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
+    read: account => cache.freshness(account),
+    save: (account, state) => cache.saveFreshness(account, state),
+    error: (account, cause) => listError(registry, account, cause),
+    now,
+  });
+  const freshness = () => Object.fromEntries(accounts.map(account => [account, cache.freshness(account)])) as Record<Account, ReturnType<InboxCache['freshness']>>;
   /** Rows the cache holds for a source this build understands. */
   const cachedRows = () => cache.list().filter(row => isSourceAccount(row.account)) as Conversation[];
 
@@ -94,8 +103,9 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       return registrySources(registry);
     },
     cached() {
-      return { items: decorated(cachedRows()) };
+      return { items: decorated(cachedRows()), freshness: freshness(), more: Object.fromEntries(accounts.map(account => [account, typeof olderCursor[account] === 'string'])) as Record<Account, boolean> };
     },
+    freshness() { return freshness(); },
     search({ query }) {
       const ranked = search.search(query);
       return { ids: ranked.slice(0, 50).flatMap(row => {
@@ -110,11 +120,11 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       const parsed = z.array(message).safeParse(cache.readThread(account, id) ?? []);
       if (!parsed.success) return { messages: [] };
       const repair = registry[account].repairThread;
-      return { messages: repair ? await repair(id, parsed.data) : parsed.data };
+      return { messages: repair ? await repair(id, parsed.data) : parsed.data, cacheFallback: true, updatedAt: cache.threadUpdatedAt(account, id) };
     },
     clear_cache() { cache.clear(); return { cleared: true }; },
     async sync({ account, limit }) {
-      const { cursor, ...result } = await registry[account].sync({ limit });
+      const { cursor, ...result } = await refresh.refresh(account, limit);
       // The newest page is what seeds the walk; once `older` has advanced it, a refresh leaves it
       // alone, or every poll would drop the owner back to page two.
       if (olderCursor[account] === undefined) olderCursor[account] = cursor ?? null;
@@ -124,7 +134,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async open({ account, id }) {
       const result = await registry[account].open(id);
       search.warm();
-      return result;
+      return { ...result, cacheFallback: result.cacheFallback ?? false, updatedAt: cache.threadUpdatedAt(account, id) };
     },
     // Slice D, observation first: arming watches the page's own fetch, and `writes` reports only
     // what a real action produced. Nothing here sends anything.

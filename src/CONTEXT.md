@@ -18,7 +18,8 @@ unsettled rather than guessing.
 | how a source delivers a message | `src/adapters/index.ts` (`createRegistry`) | one `sync`, one `media`, one `send` per account — transport differences are absorbed here, never in the gateway |
 | the RPC surface | `src/rpc-contract.ts` | every input and output schema; the handlers in `src/gateway.ts` are checked against it, and the panel's client is typed by it |
 | what the panel may ask for | `src/gateway.ts` (`createGateway(deps)`) | method bodies, paging cursors, and the older-page deadline |
-| the panel's state and timing | `src/inbox-session.ts` | the snapshot, every intent, poll cadence, draft and attachment rules, `olderRows` |
+| source refresh and freshness | `src/inbox-refresh.ts`, wired by `server.ts` and `src/gateway.ts` | backend service lifetime, per-source single flight, attempts versus live success; `src/inbox-cache.ts` persists status and independent body timestamps |
+| the panel's state and timing | `src/inbox-session.ts` | the snapshot, every intent, cache observation and open-thread watch, draft and attachment rules, `olderRows` |
 | a conversation's identity | `src/linkedin-conversation.ts` | urn → short key → mailbox, one spelling per conversation; `pageConfirmedConversation` in `src/linkedin-ui.ts` decides what value a row may take from the page |
 | what a LinkedIn write may replay | `src/linkedin-page-session.ts` and `src/linkedin-write.ts` | the page envelope, the recorded request, and the rule that a replay needs `confirm: true` |
 | the LinkedIn session's life | `src/linkedin-chrome.ts` | profile dir, prewarm, and the idle stop; the session is never exported |

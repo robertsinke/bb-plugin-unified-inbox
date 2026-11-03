@@ -8,6 +8,7 @@ import { createSendGate, type AuditRow, type SendAuditStore } from '../src/adapt
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Adapter, Conversation, ListResult } from '../src/adapters/types.ts';
 import { createGateway, type GatewayDeps, type GatewayDriver } from '../src/gateway.ts';
+import { unknownFreshness, type SourceFreshness } from '../src/inbox-refresh.ts';
 import { rpcContract } from '../src/rpc-contract.ts';
 
 
@@ -52,7 +53,11 @@ function fixture(options: FixtureOptions = {}) {
     record(row) { calls.push('audit:record'); auditRows.push(row); },
     hasSpent() { return false; },
   };
+  const freshness = new Map<Account, SourceFreshness>();
   const cache: GatewayDeps['cache'] = {
+    freshness: account => freshness.get(account) ?? unknownFreshness(),
+    saveFreshness: (account, state) => { freshness.set(account, state); },
+    threadUpdatedAt: () => null,
     list: () => cacheRows,
     readThread: () => null,
     clear: () => { cacheRows.length = 0; },

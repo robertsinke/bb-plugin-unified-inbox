@@ -116,7 +116,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
           previewChanged = true;
         }
       }
-      if (threadChanged) cache.saveThread(ACCOUNT, item.id, messages);
+      if (threadChanged) cache.saveThread(ACCOUNT, item.id, messages, cache.threadUpdatedAt(ACCOUNT, item.id));
     }
     if (previewChanged) cache.save(ACCOUNT, items.filter(item => item.account === ACCOUNT));
   }
@@ -304,7 +304,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
           }
         }
       }
-      if (changed) cache.saveThread(ACCOUNT, id, repaired);
+      if (changed) cache.saveThread(ACCOUNT, id, repaired, cache.threadUpdatedAt(ACCOUNT, id));
       return repaired;
     },
   };

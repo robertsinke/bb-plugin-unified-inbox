@@ -21,6 +21,8 @@ import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
+import { accounts } from './src/adapters/types';
+import { runInboxRefresh } from './src/inbox-refresh';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
 // the gateway (src/gateway.ts) as one plain object, and registers the result with the host. The
@@ -53,7 +55,7 @@ export default function plugin(bb: BbPluginApi) {
     providerError: toProviderError,
   });
 
-  bb.rpc.register(rpcContract, createGateway({
+  const gateway = createGateway({
     cache,
     search: searchIndex,
     audit: sendAudit,
@@ -70,7 +72,13 @@ export default function plugin(bb: BbPluginApi) {
       typeIntoNamedControl,
       openLinkedInSignIn,
     },
-  }));
+  });
+  bb.rpc.register(rpcContract, gateway);
+  for (const account of accounts) {
+    bb.background.service(`refresh-${account}`, {
+      start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
+    });
+  }
 
   bb.cli.register({
     name: 'unified-inbox',
