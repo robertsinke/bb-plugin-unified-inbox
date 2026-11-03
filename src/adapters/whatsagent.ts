@@ -27,6 +27,20 @@ function runtimeUrl(value: unknown): URL {
   return url;
 }
 
+// Only known status codes cross the provider boundary; error text can contain private data.
+export function whatsAgentError(tool: string, result: { content?: Array<{ type: string; text?: unknown }> }): Error {
+  const text = result.content?.find(item => item.type === 'text')?.text;
+  let status: unknown;
+  try { status = typeof text === 'string' ? JSON.parse(text)?.status : undefined; } catch { /* unknown response */ }
+  if (tool === 'load-media') {
+    if (status === 404) return new Error('WhatsAgent: message not found.');
+    if (status === 410) return new Error('WhatsAgent: media is no longer available.');
+    if (status === 502) return new Error('WhatsAgent: media download temporarily failed.');
+    if (status === 503) return new Error('WhatsAgent: WhatsApp connection is unavailable.');
+  }
+  return new Error('WhatsAgent rejected the request.');
+}
+
 export function createWhatsAgent(): WhatsAgentClient {
   const gate = createAsyncGate();
   const mediaGate = createAsyncGate();
@@ -61,7 +75,7 @@ export function createWhatsAgent(): WhatsAgentClient {
         try {
           const client = await connect();
           const result = await client.callTool({ name: tool, arguments: args });
-          if (result.isError) throw new Error('WhatsAgent rejected the request');
+          if (result.isError) throw whatsAgentError(tool, { content: Array.isArray(result.content) ? result.content : [] });
           const text = Array.isArray(result.content) ? result.content.find((x: any) => x.type === 'text') as any : null;
           if (!text || typeof text.text !== 'string') throw new Error('Unexpected WhatsAgent response');
           return JSON.parse(text.text);
