@@ -4,7 +4,7 @@
 // must not touch.
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { ATTACHMENT_LIMIT } from './adapters/gmail.ts';
+import { ATTACHMENT_LIMIT } from './adapters/media.ts';
 import { accounts } from './adapters/types.ts';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';

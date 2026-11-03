@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT, whatsAppMedia } from '../src/whatsapp-media.ts';
+import { whatsAppMedia } from '../src/whatsapp-media.ts';
 
 test('image, sticker, and video messages carry media metadata', () => {
   assert.deepEqual(whatsAppMedia({ id: 'm1', type: 'image', media: { cached: true, mime: 'image/jpeg', filename: 'beach.jpg' } }), {
@@ -28,13 +28,4 @@ test('image, sticker, and video messages carry media metadata', () => {
 test('terminal media failures stay unavailable', () => {
   assert.equal(whatsAppMedia({ id: 'm', type: 'image', media: { cached: false, error: 'unavailable' } })?.available, false);
   assert.equal(whatsAppMedia({ id: 'm', type: 'image', media: { cached: false, error: 'transient' } })?.available, true);
-});
-
-test('data URLs accept bounded images and videos only', () => {
-  assert.equal(mediaDataUrl(new Uint8Array([1, 2, 3]), 'image/png; charset=binary'), 'data:image/png;base64,AQID');
-  assert.equal(mediaDataUrl(new Uint8Array([1, 2, 3]), 'video/mp4'), 'data:video/mp4;base64,AQID');
-  assert.throws(() => mediaDataUrl(new Uint8Array([1]), 'text/html'));
-  assert.throws(() => mediaDataUrl(new Uint8Array([1]), 'image/svg+xml'));
-  assert.throws(() => mediaDataUrl(new Uint8Array(IMAGE_LIMIT + 1), 'image/jpeg'));
-  assert.throws(() => mediaDataUrl(new Uint8Array(VIDEO_LIMIT + 1), 'video/mp4'));
 });

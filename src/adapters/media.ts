@@ -4,6 +4,22 @@
 // source by an RPC name.
 import { z } from 'zod';
 
+// Attachment responses retain the existing 5 MiB ceiling; image/video limits are separate.
+export const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
+export const IMAGE_LIMIT = 6 * 1024 * 1024;
+export const VIDEO_LIMIT = 30 * 1024 * 1024;
+
+/** A bounded, renderable data URL; the frame must never render arbitrary bytes. */
+export function mediaDataUrl(bytes: Uint8Array, mime: string): string {
+  const type = mime.split(';')[0].trim().toLowerCase();
+  if (!type.startsWith('image/') && !type.startsWith('video/')) throw new Error('Unsupported media type.');
+  if (type === 'image/svg+xml') throw new Error('Unsupported media type.');
+  const limit = type.startsWith('video/') ? VIDEO_LIMIT : IMAGE_LIMIT;
+  if (bytes.byteLength > limit) throw new Error('This media is too large to show here.');
+  return `data:${type};base64,${Buffer.from(bytes).toString('base64')}`;
+}
+
+
 /** A media slot on one message, indexed from the first attachment. */
 export const messageMediaRequestSchema = z.object({
   kind: z.literal('message'),
