@@ -6,6 +6,9 @@ date: 2026-11-02
 
 # Slice B, broken into work units
 
+> **Superseded** — every unit below landed; the registry is `src/adapters/index.ts`, the handlers are
+> `src/gateway.ts`, and `src/CONTEXT.md` says who owns what now.
+
 Source: `docs/plans/2026-11-02-next-slices.md`, slice B. One toolbox of
 primitives — search, read, draft, update, send — with per-source adapters
 behind it. `server.ts` becomes transport, `app.tsx` asks for capabilities.

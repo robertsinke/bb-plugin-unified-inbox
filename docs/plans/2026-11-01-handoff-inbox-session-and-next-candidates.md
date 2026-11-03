@@ -6,8 +6,11 @@ date: 2026-11-01
 
 # Handoff — inbox session shipped, three deepening candidates left
 
-Written 2026-11-01 before a context compaction. Read this first next session; it is the
-whole state, not a summary of a conversation.
+Written 2026-11-01 before a context compaction.
+
+> **Superseded** — the session it hands off shipped, and the three candidates it left open were taken
+> (`src/gateway.ts`, the typed RPC seam, the adapter source declaration). Current state lives in
+> `docs/plans/2026-11-02-next-slices.md`; which module owns what is `src/CONTEXT.md`.
 
 ## Where the repo is
 
