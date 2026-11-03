@@ -21,16 +21,23 @@ The architecture note that comes with #5 is the constraint for all of the above:
 **one toolbox of primitives — search, read, draft, update, send — and per-source
 adapters behind it.** Callers and UI must not branch on `account` to decide what a
 primitive means; they ask the toolbox, and the adapter decides how that source
-implements it. Today `server.ts` and `app.tsx` branch on `account` in several
-places, which is the drift this plan removes.
+implements it. At the time this plan opened, `server.ts` and `app.tsx` branched on
+`account` in several places, which is the drift this plan removed.
 
-## Where things stand
+## Where things stood when this plan opened — all three now false
 
-- `src/adapters/types.ts` already describes the contract (adapter, capabilities,
-  drafts, receipts) but nothing imports it yet: migration state 1 of 3.
-- `server.ts` dispatches `action`/`send_gmail` per account inline.
-- `app.tsx` renders one composer, WhatsApp-only, inline in a ternary, and hides
-  read/unread buttons per account.
+Kept because a reader needs to know what the plan started from; do not read it as current.
+
+- `src/adapters/types.ts` already described the contract (adapter, capabilities,
+  drafts, receipts) but nothing imported it yet: migration state 1 of 3. **Now state 3
+  of 3**: `src/adapters/index.ts` builds the registry and `src/gateway.ts` calls it.
+- `server.ts` dispatched `action`/`send_gmail` per account inline. **Now** a 121-line
+  wiring file: `createGateway(deps)` holds the handlers (`src/gateway.ts`).
+- `app.tsx` rendered one composer, WhatsApp-only, inline in a ternary, and hid
+  read/unread buttons per account. **Now** capability-driven (`src/ui-capabilities.ts`),
+  with the composer in `src/mail-composer.tsx`.
+
+Which module owns what today: `src/CONTEXT.md`.
 
 ## Slice A — Messages send (done in this slice)
 
@@ -376,13 +383,13 @@ feature backlog empty and three things left: a trust boundary we knowingly left 
 described a plugin we no longer ship, and no paging. Each went to a child on its own worktree; the
 parent merged, and verified live.
 
-**1. The send log sees the LinkedIn writes** (`0ad6e59` merge). `linkin_replay` and a `linkedin_ui` send
+**1. The send log sees the LinkedIn writes** (`0ad6e59` merge). `linkedin_replay` and a `linkedin_ui` send
 click reached the page without passing the gate — no approval, no row — so an agent-driven LinkedIn send
 left no trace while a panel send did. The gate now has a second entry point, `observe`, which records
 `allowed` with **no `approvalId`** and a reason naming the real authorisation (the page-confirmed target
 and the caller's `confirm`), then delivers. No policy, no window, no spend. A read-only `linkedin_ui`
 step records nothing — proved live: 11 rows before a snapshot step, 11 after. Recorded in
-`decisions/0004-linkin-writes-are-recorded-not-approved.md`.
+`decisions/0004-linkedin-writes-are-recorded-not-approved.md`.
 
 **2. The docs match the product** (`742c6b7`). `README.md` claimed Gmail reply/compose, group replies
 and WhatsApp playback were missing (all shipped) and that LinkedIn never sends (it does). The brief
