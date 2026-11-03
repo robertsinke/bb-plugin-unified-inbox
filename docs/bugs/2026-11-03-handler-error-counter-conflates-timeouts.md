@@ -1,3 +1,9 @@
+---
+title: "Bug report — the plugin handler counter cannot tell a contract break from a timeout"
+status: open
+date: 2026-11-03
+---
+
 # Bug report — the plugin handler counter cannot tell a contract break from a timeout
 
 **Filed:** 2026-11-03 · **Owner:** BB host (not this plugin) · **Status:** evidence + proposed fix, no workaround added here

@@ -1,3 +1,9 @@
+---
+title: "LinkedIn sync and unread-state alternatives"
+status: settled
+date: 2026-11-03
+---
+
 # LinkedIn sync and unread-state alternatives
 
 **Date:** 2026-10-29  

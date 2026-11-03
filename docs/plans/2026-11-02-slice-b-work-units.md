@@ -1,3 +1,9 @@
+---
+title: "Slice B, broken into work units"
+status: historical
+date: 2026-11-02
+---
+
 # Slice B, broken into work units
 
 Source: `docs/plans/2026-11-02-next-slices.md`, slice B. One toolbox of

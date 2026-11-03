@@ -1,3 +1,9 @@
+---
+title: "Messages send approval: smallest enforceable boundary"
+status: historical
+date: 2026-10-29
+---
+
 # Messages send approval: smallest enforceable boundary
 
 Status: **proposal only at the time (2026-10-29); the send gate has since shipped.** Messages sending is

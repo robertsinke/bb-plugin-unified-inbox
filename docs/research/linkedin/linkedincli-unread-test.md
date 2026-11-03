@@ -1,3 +1,9 @@
+---
+title: "linkedincli authentication review and unread-state test"
+status: settled
+date: 2026-11-03
+---
+
 # linkedincli authentication review and unread-state test
 
 **Date:** 2026-10-29  

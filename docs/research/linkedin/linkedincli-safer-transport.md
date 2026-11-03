@@ -1,3 +1,9 @@
+---
+title: "Safer transport for the linkedincli unread-state experiment"
+status: settled
+date: 2026-11-03
+---
+
 # Safer transport for the linkedincli unread-state experiment
 
 **Date:** 2026-10-29  

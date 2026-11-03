@@ -1,3 +1,9 @@
+---
+title: "Icon names that do not exist draw a lightning bolt"
+status: current
+date: 2026-11-01
+---
+
 # Icon names that do not exist draw a lightning bolt
 
 `experimental_Icon` resolves a name against the host's own vocabulary, and a name outside it

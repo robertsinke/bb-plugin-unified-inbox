@@ -14,6 +14,7 @@ root_cause: logic_error
 resolution_type: code_fix
 severity: high
 tags: [linkedin, cdp, page-expressions, recorder, shape-assertions]
+status: settled
 ---
 
 # A full recorder buffer read back as empty

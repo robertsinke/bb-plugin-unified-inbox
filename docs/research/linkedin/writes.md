@@ -1,3 +1,9 @@
+---
+title: "LinkedIn writes: what is recorded, and how a replay is allowed"
+status: current
+date: 2026-11-01
+---
+
 # LinkedIn writes: what is recorded, and how a replay is allowed
 
 LinkedIn's GraphQL writes are unversioned and their shapes move. This plugin therefore never authors

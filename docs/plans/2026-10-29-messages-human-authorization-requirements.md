@@ -1,6 +1,12 @@
+---
+title: "Messages human authorization: host requirements"
+status: historical
+date: 2026-10-29
+---
+
 # Messages human authorization: host requirements
 
-Status: **blocked; sending remains disabled.** This is a host integration and verification requirement, not an implementation or evidence of an existing authorization API.
+Status: **historical — sending shipped behind one gate (`src/adapters/policy.ts`); the host-permission question this describes is still open (OQ-1).** This is a host integration and verification requirement, not an implementation or evidence of an existing authorization API.
 
 ## Required behavior
 

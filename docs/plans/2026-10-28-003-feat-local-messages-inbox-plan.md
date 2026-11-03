@@ -1,7 +1,7 @@
 ---
 title: 'feat: Add local Messages to Unified Inbox'
 type: feat
-status: active
+status: superseded
 date: 2026-10-28
 ---
 

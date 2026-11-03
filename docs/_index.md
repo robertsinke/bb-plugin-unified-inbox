@@ -9,8 +9,8 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`README.md`](../README.md) | unstated | 2026-11-02 |  |
-| [`PLUGIN_OVERVIEW.md`](../PLUGIN_OVERVIEW.md) | unstated |  |  |
+| [`README.md`](../README.md) | current | 2026-11-02 |  |
+| [`PLUGIN_OVERVIEW.md`](../PLUGIN_OVERVIEW.md) | current |  |  |
 
 ## Decisions
 
@@ -25,50 +25,50 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`specs/001-unified-inbox-gateway/plan.md`](../specs/001-unified-inbox-gateway/plan.md) | shipped | 2026-10-29 | Build phases and risks for the Unified Inbox gateway and adapter refactor |
+| [`specs/001-unified-inbox-gateway/plan.md`](../specs/001-unified-inbox-gateway/plan.md) | shipped | 2026-11-03 | Build phases and risks for the Unified Inbox gateway and adapter refactor |
+| [`specs/001-unified-inbox-gateway/tasks.md`](../specs/001-unified-inbox-gateway/tasks.md) | shipped | 2026-11-03 | Task breakdown for the Unified Inbox gateway and adapter refactor |
 | [`specs/001-unified-inbox-gateway/spec.md`](../specs/001-unified-inbox-gateway/spec.md) | shipped | 2026-10-29 | Restructure Unified Inbox into one gateway with per-provider adapters, so agent-reachable surfaces narrow to o |
-| [`specs/001-unified-inbox-gateway/tasks.md`](../specs/001-unified-inbox-gateway/tasks.md) | shipped | 2026-10-29 | Task breakdown for the Unified Inbox gateway and adapter refactor |
 
 ## Plans
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`docs/plans/2026-11-02-next-slices.md`](plans/2026-11-02-next-slices.md) | unstated | 2026-11-02 |  |
-| [`docs/plans/2026-11-02-slice-b-work-units.md`](plans/2026-11-02-slice-b-work-units.md) | unstated | 2026-11-02 |  |
-| [`docs/plans/2026-11-01-handoff-inbox-session-and-next-candidates.md`](plans/2026-11-01-handoff-inbox-session-and-next-candidates.md) | unstated | 2026-11-01 |  |
-| [`docs/plans/2026-10-29-inbox-branch-consolidation.md`](plans/2026-10-29-inbox-branch-consolidation.md) | unstated | 2026-10-29 |  |
-| [`docs/plans/2026-10-29-messages-integration-handoff.md`](plans/2026-10-29-messages-integration-handoff.md) | unstated | 2026-10-29 |  |
-| [`docs/plans/2026-10-29-messages-send-approval-proposal.md`](plans/2026-10-29-messages-send-approval-proposal.md) |  | 2026-10-29 |  |
-| [`docs/plans/2026-10-28-001-feat-reliable-unified-inbox-plan.md`](plans/2026-10-28-001-feat-reliable-unified-inbox-plan.md) | active | 2026-10-28 |  |
-| [`docs/plans/2026-10-28-002-feat-linkedin-inbox-source-plan.md`](plans/2026-10-28-002-feat-linkedin-inbox-source-plan.md) | active | 2026-10-28 |  |
-| [`docs/plans/2026-10-28-003-feat-local-messages-inbox-plan.md`](plans/2026-10-28-003-feat-local-messages-inbox-plan.md) | active | 2026-10-28 |  |
-| [`docs/plans/2026-10-29-messages-human-authorization-requirements.md`](plans/2026-10-29-messages-human-authorization-requirements.md) |  |  | A plugin gate alone cannot stop an agent with independent OS access from running `imsg` or otherwise automatin |
-| [`docs/plans/2026-10-30-inbox-source-sync-model.md`](plans/2026-10-30-inbox-source-sync-model.md) | unstated |  |  |
+| [`docs/plans/2026-11-02-next-slices.md`](plans/2026-11-02-next-slices.md) | current | 2026-11-02 |  |
+| [`docs/plans/2026-11-02-slice-b-work-units.md`](plans/2026-11-02-slice-b-work-units.md) | historical | 2026-11-02 |  |
+| [`docs/plans/2026-11-01-handoff-inbox-session-and-next-candidates.md`](plans/2026-11-01-handoff-inbox-session-and-next-candidates.md) | historical | 2026-11-01 |  |
+| [`docs/plans/2026-10-30-inbox-source-sync-model.md`](plans/2026-10-30-inbox-source-sync-model.md) | historical | 2026-10-30 |  |
+| [`docs/plans/2026-10-29-inbox-branch-consolidation.md`](plans/2026-10-29-inbox-branch-consolidation.md) | historical | 2026-10-29 |  |
+| [`docs/plans/2026-10-29-messages-human-authorization-requirements.md`](plans/2026-10-29-messages-human-authorization-requirements.md) | historical | 2026-10-29 | A plugin gate alone cannot stop an agent with independent OS access from running `imsg` or otherwise automatin |
+| [`docs/plans/2026-10-29-messages-integration-handoff.md`](plans/2026-10-29-messages-integration-handoff.md) | historical | 2026-10-29 |  |
+| [`docs/plans/2026-10-29-messages-send-approval-proposal.md`](plans/2026-10-29-messages-send-approval-proposal.md) | historical | 2026-10-29 |  |
+| [`docs/plans/2026-10-28-001-feat-reliable-unified-inbox-plan.md`](plans/2026-10-28-001-feat-reliable-unified-inbox-plan.md) | superseded | 2026-10-28 |  |
+| [`docs/plans/2026-10-28-002-feat-linkedin-inbox-source-plan.md`](plans/2026-10-28-002-feat-linkedin-inbox-source-plan.md) | superseded | 2026-10-28 |  |
+| [`docs/plans/2026-10-28-003-feat-local-messages-inbox-plan.md`](plans/2026-10-28-003-feat-local-messages-inbox-plan.md) | superseded | 2026-10-28 |  |
 
 ## Research
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`docs/research/linkedin/writes.md`](research/linkedin/writes.md) | unstated | 2026-11-02 |  |
-| [`docs/research/linkedin/obscura-as-linkedin-browser.md`](research/linkedin/obscura-as-linkedin-browser.md) | draft | 2026-10-31 | Protocol, persistence, macOS support, measured startup and memory, and containment for obscura 0.2.5 against t |
-| [`docs/research/linkedin/browser-session-diagnostic.md`](research/linkedin/browser-session-diagnostic.md) | the original sidecar diagnostic below was not run. A separately approved BB browser list check was performed;  | 2026-10-29 |  |
-| [`docs/research/linkedin/linkedincli-safer-transport.md`](research/linkedin/linkedincli-safer-transport.md) | unstated | 2026-10-29 | static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external L |
-| [`docs/research/linkedin/linkedincli-unread-test.md`](research/linkedin/linkedincli-unread-test.md) | unstated | 2026-10-29 |  |
-| [`docs/research/linkedin/sidecar-restart-review.md`](research/linkedin/sidecar-restart-review.md) | unstated | 2026-10-29 | inspection of installed `mcp-server-linkedin` 4.28.0 source and documented CLI only. No sidecar was started, n |
-| [`docs/research/linkedin/spike-sidecar.md`](research/linkedin/spike-sidecar.md) | unstated | 2026-10-29 |  |
-| [`docs/research/linkedin/unread-preserving-sync-options.md`](research/linkedin/unread-preserving-sync-options.md) | unstated | 2026-10-29 |  |
+| [`docs/research/linkedin/linkedin-inbox-options.md`](research/linkedin/linkedin-inbox-options.md) | settled | 2026-11-03 | Which LinkedIn surfaces can feed unified-inbox, which access paths exist, and what each costs in maintenance a |
+| [`docs/research/linkedin/linkedincli-safer-transport.md`](research/linkedin/linkedincli-safer-transport.md) | settled | 2026-11-03 | static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external L |
+| [`docs/research/linkedin/linkedincli-unread-test.md`](research/linkedin/linkedincli-unread-test.md) | settled | 2026-11-03 |  |
+| [`docs/research/linkedin/sidecar-restart-review.md`](research/linkedin/sidecar-restart-review.md) | settled | 2026-11-03 | inspection of installed `mcp-server-linkedin` 4.28.0 source and documented CLI only. No sidecar was started, n |
+| [`docs/research/linkedin/unread-preserving-sync-options.md`](research/linkedin/unread-preserving-sync-options.md) | settled | 2026-11-03 |  |
+| [`docs/research/linkedin/obscura-as-linkedin-browser.md`](research/linkedin/obscura-as-linkedin-browser.md) | settled | 2026-11-02 | Protocol, persistence, macOS support, measured startup and memory, and containment for obscura 0.2.5 against t |
+| [`docs/research/linkedin/writes.md`](research/linkedin/writes.md) | current | 2026-11-01 |  |
+| [`docs/research/linkedin/browser-session-diagnostic.md`](research/linkedin/browser-session-diagnostic.md) | historical | 2026-10-29 |  |
+| [`docs/research/linkedin/spike-sidecar.md`](research/linkedin/spike-sidecar.md) | settled | 2026-10-29 |  |
 | [`docs/research/imessage/imessage-integration-research.md`](research/imessage/imessage-integration-research.md) | settled | 2026-10-28 | Feasibility of reading and acting on Messages conversations from Unified Inbox |
-| [`docs/research/linkedin/linkedin-inbox-options.md`](research/linkedin/linkedin-inbox-options.md) | draft | 2026-10-28 | Which LinkedIn surfaces can feed unified-inbox, which access paths exist, and what each costs in maintenance a |
 
 ## Bugs
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`](bugs/2026-11-03-handler-error-counter-conflates-timeouts.md) | unstated | 2026-11-03 |  |
-| [`docs/bugs/2026-11-02-orphaned-automation-processes.md`](bugs/2026-11-02-orphaned-automation-processes.md) | unstated | 2026-11-02 |  |
+| [`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`](bugs/2026-11-03-handler-error-counter-conflates-timeouts.md) | open | 2026-11-03 |  |
+| [`docs/bugs/2026-11-02-orphaned-automation-processes.md`](bugs/2026-11-02-orphaned-automation-processes.md) | open | 2026-11-02 |  |
 
 ## Solutions
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`docs/solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md`](solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md) | unstated | 2026-11-02 |  |
+| [`docs/solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md`](solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md) | settled | 2026-11-02 |  |

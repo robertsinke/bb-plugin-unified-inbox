@@ -1,7 +1,7 @@
 ---
 title: "feat: Reliable unified inbox"
 type: feat
-status: active
+status: superseded
 date: 2026-10-28
 ---
 
