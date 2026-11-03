@@ -18,7 +18,8 @@ test('every decision carries the metadata a reader needs, including when it was 
   for (const name of files) {
     const text = await readFile(join(DIR, name), 'utf8');
     const number = name.slice(0, 4);
-    const first = text.split('\n').find(line => line.trim() !== '') ?? '';
+    const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+    const first = body.split('\n').find(line => line.trim() !== '') ?? '';
 
     // The file's number and its title have to agree, or a link says 0004 and the heading says something else.
     if (!first.startsWith(`# ${number}`)) problems.push(`${name}: title must start with "# ${number}"`);

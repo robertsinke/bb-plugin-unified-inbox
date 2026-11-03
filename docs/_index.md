@@ -18,6 +18,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | --- | --- | --- | --- |
 | [`decisions/0002-the-ceiling-is-the-encoded-message.md`](../decisions/0002-the-ceiling-is-the-encoded-message.md) | accepted | 2026-11-03 |  |
 | [`decisions/0003-the-session-is-minted-where-it-reads.md`](../decisions/0003-the-session-is-minted-where-it-reads.md) | accepted | 2026-11-03 |  |
+| [`decisions/0005-keep-sends-enabled-until-verified-approval.md`](../decisions/0005-keep-sends-enabled-until-verified-approval.md) | accepted | 2026-11-03 |  |
 | [`decisions/0004-linkedin-writes-are-recorded-not-approved.md`](../decisions/0004-linkedin-writes-are-recorded-not-approved.md) | accepted | 2026-11-02 |  |
 | [`decisions/0001-deepen-the-inbox-panel-into-a-session-module.md`](../decisions/0001-deepen-the-inbox-panel-into-a-session-module.md) | accepted | 2026-11-01 |  |
 
