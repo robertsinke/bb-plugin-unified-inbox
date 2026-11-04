@@ -11,7 +11,12 @@ import { sourceLabel } from './source-label.ts';
  * whole sentence of its own.
  */
 export function errorLine(error: InboxError, sources: SourceMap | null): string {
-  return error.account ? `${sourceLabel(sources, error.account)} ${error.message}` : error.message;
+  if (!error.account) return error.message;
+  const label = sourceLabel(sources, error.account);
+  // A failure read back from the cache keeps the sentence the source wrote, and a source may open
+  // that sentence with its own name ("LinkedIn did not answer in time."). The name goes in once, so
+  // no line reads "LinkedIn LinkedIn did not answer in time.".
+  return error.message.startsWith(`${label} `) ? error.message : `${label} ${error.message}`;
 }
 
 export function InboxErrors({ errors, sources }: { errors: readonly InboxError[]; sources: SourceMap | null }) {

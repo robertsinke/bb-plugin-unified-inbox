@@ -37,7 +37,14 @@ const { gate, write: withLinkedInPage, read: withLinkedInRead } = createLinkedIn
 const START_URL = 'https://www.linkedin.com/feed/';
 const START_TIMEOUT = 20_000;
 const READ_TIMEOUT = 60_000;
-const LIST_READ_TIMEOUT = 10_000;
+/**
+ * A full list read is `/me`, the inbox page, one profile lookup per counterpart and the invitations:
+ * measured at 4.2 s against a warm page, with about twenty lookups in flight. The cap is a bound on
+ * a wait, not a target, so it has to clear a read a few times slower than the measurement — at 10 s a
+ * read 2.4× slower failed, and one failed read costs the whole source until its next poll (and
+ * doubles that poll's delay). A read that misses the cap still becomes a line the owner can read.
+ */
+const LIST_READ_TIMEOUT = 20_000;
 const NAVIGATE_TIMEOUT = 30_000;
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
 
