@@ -35,7 +35,11 @@ export function whatsAgentError(tool: string, result: { content?: Array<{ type: 
   if (tool === 'load-media') {
     if (status === 404) return new Error('WhatsAgent: message not found.');
     if (status === 410) return new Error('WhatsAgent: media is no longer available.');
-    if (status === 502) return new Error('WhatsAgent: media download temporarily failed.');
+    // 502 covers two different things under one word: a momentary download failure and media whose
+    // WhatsApp-side URL has expired, which no retry can fetch. The measured case is the second one
+    // (see docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md), so the text names the
+    // possibility instead of promising that trying again will work.
+    if (status === 502) return new Error('WhatsAgent: media download failed; WhatsApp may no longer serve it.');
     if (status === 503) return new Error('WhatsAgent: WhatsApp connection is unavailable.');
   }
   return new Error('WhatsAgent rejected the request.');
