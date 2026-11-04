@@ -41,7 +41,16 @@ export function createInboxRefresh(deps: {
   return { refresh };
 }
 
-/** Host-owned lifetime; failures back off up to one hour, success restores the source cadence. */
+/**
+ * How far a failing source may back off, in multiples of its own cadence. Consecutive failures
+ * double the delay, but the delay stays near the source's poll interval rather than growing to an
+ * hour: a transient cause (a locked keychain, a cold browser) outlives an hour's wait, so a source
+ * that recovered ten minutes ago would still be reported as broken. Four intervals bounds the retry
+ * traffic while keeping the recovery visible (3 minutes at LinkedIn's 45-second cadence).
+ */
+const FAILURE_BACKOFF_CEILING = 4;
+
+/** Host-owned lifetime; failures back off near the source's own cadence, success restores it. */
 export async function runInboxRefresh(
   refresh: () => Promise<unknown>, intervalMs: number, signal: AbortSignal,
   wait: (ms: number, signal: AbortSignal) => Promise<unknown> = (ms, signal) => sleep(ms, undefined, { signal }),
@@ -49,7 +58,7 @@ export async function runInboxRefresh(
   let delay = intervalMs;
   while (!signal.aborted) {
     try { await refresh(); delay = intervalMs; }
-    catch { delay = Math.min(delay * 2, Math.max(intervalMs, 3_600_000)); } // refresh persisted the failure
+    catch { delay = Math.min(delay * 2, intervalMs * FAILURE_BACKOFF_CEILING); } // refresh persisted the failure
     if (signal.aborted) return;
     try { await wait(delay, signal); }
     catch (error) { if (!signal.aborted) throw error; }
