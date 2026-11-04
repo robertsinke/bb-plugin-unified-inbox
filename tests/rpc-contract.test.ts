@@ -96,3 +96,24 @@ test('a source refresh may say it has an older page, and may say nothing at all'
   assert.equal(rpcContract.sync.output.safeParse({ items: [], updatedAt: 1 }).success, true, 'a source that cannot page answers as it always did');
   assert.equal(rpcContract.sync.output.safeParse({ items: [], updatedAt: 1, more: true }).success, true);
 });
+
+test('a call that takes nothing parses as null and as an empty object', () => {
+  // The same calls arrive both ways in the log: the panel and the CLI pass null, a client that always
+  // sends a body passes {}. A refusal on the shape alone is a failure the caller cannot act on.
+  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources'] as const;
+  for (const method of noArg) {
+    assert.equal(rpcContract[method].input.safeParse(null).success, true, `${method} answers a null call`);
+    assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty-body call`);
+    assert.equal(rpcContract[method].input.safeParse({ limit: 5 }).success, false, `${method} still refuses a call that names something`);
+  }
+});
+
+test('the audit and approval-status reads survive a caller with nothing to ask', () => {
+  // Both fields are optional, so both methods are readable with no argument; the gateway must not
+  // read through a null it was handed.
+  for (const method of ['send_audit', 'mail_approval_status'] as const) {
+    assert.equal(rpcContract[method].input.safeParse(null).success, true, `${method} answers a null call`);
+    assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty call`);
+  }
+  assert.equal(rpcContract.send_audit.input.safeParse({ limit: 0 }).success, false, 'and a page size is still a page size');
+});

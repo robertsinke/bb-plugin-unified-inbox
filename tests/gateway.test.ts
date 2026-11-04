@@ -128,6 +128,15 @@ test('the panel receives each source\'s declaration, and the contract accepts it
   assert.equal(rpcContract.sources.output.safeParse(declared).success, true, 'and the wire carries exactly that');
 });
 
+test('a call with nothing to say answers the same for null, empty and missing', async () => {
+  const f = fixture();
+  // Both call shapes reach the handler now, so both must read the same defaults rather than throw
+  // on a null it destructured or on an object it never expected.
+  assert.deepEqual(await f.gateway.capabilities(null), await f.gateway.capabilities({}), 'capabilities reads both shapes alike');
+  assert.deepEqual(await f.gateway.send_audit(null), { rows: [] }, 'the audit answers its default page for a null call');
+  assert.deepEqual(await f.gateway.send_audit({}), { rows: [] }, 'and for an empty one');
+});
+
 test('an older page asks the source for the number of rows that source declares', async () => {
   const f = fixture();
   const asked: (number | undefined)[] = [];
