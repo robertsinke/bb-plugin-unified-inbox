@@ -28,6 +28,7 @@ as `s` — write `\\s`. Production CSS loads `inbox.css → chat.css → layout.
 | what a feature was scoped to | `specs/` — historical once shipped; opens with a status block |
 | how work was planned, what was measured | `docs/plans/`, `docs/research/` — historical; a finished plan says "Superseded" |
 | a defect and its evidence | `docs/bugs/` |
+| a problem already solved, and the trap it taught | `docs/solutions/` — relevant before debugging the same area again |
 | every document, one page | `docs/_index.md` (generated — `node --experimental-strip-types _tools/docs-index.ts`) |
 | **which module owns which invariant** | **`src/CONTEXT.md`** — read this before grepping |
 | the shared adapter contract | `src/adapters/README.md`, `src/adapters/types.ts` |
