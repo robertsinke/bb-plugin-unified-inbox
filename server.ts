@@ -23,6 +23,7 @@ import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
 import { accounts } from './src/adapters/types';
 import { runInboxRefresh } from './src/inbox-refresh';
+import { registerInboxAgentTools } from './src/inbox-agent-tools';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
 // the gateway (src/gateway.ts) as one plain object, and registers the result with the host. The
@@ -74,6 +75,7 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   bb.rpc.register(rpcContract, gateway);
+  registerInboxAgentTools(bb, gateway);
   for (const account of accounts) {
     bb.background.service(`refresh-${account}`, {
       start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),

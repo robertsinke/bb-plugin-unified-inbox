@@ -17,12 +17,13 @@ import type { MediaRequest } from './media.ts';
  * input. The tuple is the canonical list — `server.ts` builds its zod enum from
  * it, so a new source is one entry here plus one adapter.
  */
-export const accounts = ['personal', 'business', 'whatsapp', 'imessage', 'linkedin'] as const;
+export const gmailAccounts = ['gmail-personal', 'gmail-business'] as const;
+export const accounts = [...gmailAccounts, 'whatsapp', 'imessage', 'linkedin'] as const;
 
 export type Account = (typeof accounts)[number];
 
 /** Gmail accounts are the only ones with a `send_gmail` draft today. */
-export type GmailAccount = Extract<Account, 'personal' | 'business'>;
+export type GmailAccount = (typeof gmailAccounts)[number];
 
 /**
  * Conversation summary as cached and listed (rpcContract `list` item).
@@ -178,7 +179,7 @@ export interface SendReceipt {
 
 /**
  * Non-send operations (rpcContract `action`). Per-provider support today:
- * - gmail (personal, business): read, unread, archive
+ * - gmail (gmail-personal, gmail-business): read, unread, archive
  * - whatsapp: read, unread, reply (sends through the owner's composer endpoint)
  * - imessage: read, unread (local state), reply (sends through `imsg send`)
  * - linkedin: read, unread, reply, confirm / reject (an invitation answer)

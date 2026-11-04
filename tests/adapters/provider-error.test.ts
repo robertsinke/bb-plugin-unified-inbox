@@ -29,8 +29,8 @@ test('toProviderError never embeds raw stderr or stdout', () => {
     stderr: `PRIVATE: could not read /Users/robert/.config/gws/credentials.json ${TOKEN}`,
     stdout: `{"secret":"${BLOB}","conversation":"private text"}`,
   });
-  const err = toProviderError('personal', 'gmail', cause);
-  assert.equal(err.account, 'personal');
+  const err = toProviderError('gmail-personal', 'gmail', cause);
+  assert.equal(err.account, 'gmail-personal');
   assert.equal(err.source, 'gmail');
   assert.ok(!err.message.includes('PRIVATE'), 'stderr line must not survive');
   assert.ok(!err.message.includes('private text'), 'stdout content must not survive');
@@ -43,7 +43,7 @@ test('toProviderError never embeds raw stderr or stdout', () => {
 
 test('toProviderError classifies hints lowercased, deduped, and sorted', () => {
   const cause = Object.assign(new Error('Keyring LOCKED'), { code: 1, stderr: 'denied! denied again; token refresh needed' });
-  const err = toProviderError('business', 'gmail', cause);
+  const err = toProviderError('gmail-business', 'gmail', cause);
   const hints = err.message.slice(err.message.indexOf('(') + 1, err.message.indexOf(')'));
   assert.equal(hints, '1; denied, keyring, locked, token');
 });

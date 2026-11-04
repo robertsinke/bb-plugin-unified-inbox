@@ -3,7 +3,7 @@ import test from 'node:test';
 import { harness, LINKEDIN_ID } from './harness.ts';
 import { gmailSummaryCursor } from '../../src/sync-plan.ts';
 
-for (const account of ['personal', 'business'] as const) {
+for (const account of ['gmail-personal', 'gmail-business'] as const) {
   test(`${account}: failed profile read rejects sync without destroying cached rows`, async () => {
     const h = harness({ gmailCall: () => { throw new Error('offline'); } });
     try {

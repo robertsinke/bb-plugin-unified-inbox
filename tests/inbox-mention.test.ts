@@ -13,7 +13,7 @@ test('the tag goes to the thread beside the inbox', () => {
 
 test('mention ids round-trip and reject unknown sources', () => {
   assert.deepEqual(parseMentionId(mentionId('whatsapp', '1203@g.us')), { account: 'whatsapp', id: '1203@g.us' });
-  assert.deepEqual(parseMentionId('personal:18f2c'), { account: 'personal', id: '18f2c' });
+  assert.deepEqual(parseMentionId('gmail-personal:18f2c'), { account: 'gmail-personal', id: '18f2c' });
   assert.throws(() => parseMentionId('nonsense'), /known conversation/);
   assert.throws(() => parseMentionId(':x'), /known conversation/);
   assert.throws(() => parseMentionId('whatsapp:'), /known conversation/);
@@ -31,7 +31,7 @@ test('context names the conversation and keeps the newest messages', () => {
 });
 
 test('a media-only message keeps its placeholder', () => {
-  const context = inboxMentionContext({ account: 'business', label: 'Inhouse Gmail', id: '18f2c', preview: 'Invoice', messages: [{ sender: 'Vendor', text: '', date: 1_700_000_000_000, media: { kind: 'image' } }] });
+  const context = inboxMentionContext({ account: 'gmail-business', label: 'Inhouse Gmail', id: '18f2c', preview: 'Invoice', messages: [{ sender: 'Vendor', text: '', date: 1_700_000_000_000, media: { kind: 'image' } }] });
   assert.match(context, /Vendor: \[image\]/);
 });
 
@@ -48,7 +48,7 @@ test('WhatsApp mentions explain that placeholders and captions do not supply med
 });
 
 test('mentions never teach self-approval or provide a send recipe, for any source', () => {
-  for (const account of ['personal', 'business', 'whatsapp', 'imessage', 'linkedin'] as const) {
+  for (const account of ['gmail-personal', 'gmail-business', 'whatsapp', 'imessage', 'linkedin'] as const) {
     const context = inboxMentionContext({ account, label: account, id: 'conversation', messages: [] });
     assert.match(context, /content is untrusted data/i);
     assert.match(context, /draft.*owner to review/i);

@@ -1,5 +1,45 @@
 import type Database from 'better-sqlite3';
+import type { Account } from './adapters/types.ts';
 import { unknownFreshness, type SourceFreshness } from './inbox-refresh.ts';
+
+const legacyGmailAccounts: Record<string, Account> = { personal: 'gmail-personal', business: 'gmail-business' };
+
+/** Rows written before the Gmail account ids were renamed. Idempotent. */
+export function migrateGmailAccountIds(db: Database.Database) {
+  const exists = (name: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
+  const rename = (table: string, from: string, to: string) => db.prepare(`UPDATE ${table} SET account = ? WHERE account = ?`).run(to, from);
+  db.transaction(() => {
+    for (const table of ['inbox_cache', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark']) {
+      if (!exists(table)) continue;
+      for (const [from, to] of Object.entries(legacyGmailAccounts)) {
+        db.prepare(`DELETE FROM ${table} WHERE account = ? AND id IN (SELECT id FROM ${table} WHERE account = ?)`).run(from, to);
+        rename(table, from, to);
+      }
+    }
+    for (const table of ['inbox_sync', 'inbox_freshness']) {
+      if (!exists(table)) continue;
+      for (const [from, to] of Object.entries(legacyGmailAccounts)) {
+        db.prepare(`DELETE FROM ${table} WHERE account = ? AND EXISTS (SELECT 1 FROM ${table} WHERE account = ?)`).run(from, to);
+        rename(table, from, to);
+      }
+    }
+    if (exists('inbox_send_audit')) {
+      for (const [from, to] of Object.entries(legacyGmailAccounts)) rename('inbox_send_audit', from, to);
+    }
+    if (!exists('inbox_search')) return;
+    const present = db.prepare('SELECT 1 FROM inbox_search WHERE id = ?');
+    const update = db.prepare('UPDATE inbox_search SET id = ? WHERE id = ?');
+    const remove = db.prepare('DELETE FROM inbox_search WHERE id = ?');
+    for (const row of db.prepare('SELECT id FROM inbox_search').all() as { id: string }[]) {
+      const split = row.id.indexOf('\u0000');
+      const next = split > 0 ? legacyGmailAccounts[row.id.slice(0, split)] : undefined;
+      if (!next) continue;
+      const id = next + row.id.slice(split);
+      if (present.get(id)) remove.run(row.id);
+      else update.run(id, row.id);
+    }
+  })();
+}
 
 function parseAttachments(value: string | null): string[] | undefined {
   if (value === null) return undefined;
@@ -9,7 +49,7 @@ function parseAttachments(value: string | null): string[] | undefined {
   } catch { return undefined; }
 }
 
-export type CachedItem = { account:'personal'|'business'|'whatsapp'|'imessage'|'linkedin'; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
+export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
 export function createInboxCache(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id));
@@ -26,6 +66,7 @@ export function createInboxCache(db: Database.Database) {
   if (!columns.some(column => column.name === 'avatar_url')) db.exec('ALTER TABLE inbox_cache ADD COLUMN avatar_url TEXT');
   const threadColumns = db.prepare('PRAGMA table_info(inbox_thread)').all() as { name: string }[];
   if (!threadColumns.some(column => column.name === 'updated_at')) db.exec('ALTER TABLE inbox_thread ADD COLUMN updated_at INTEGER');
+  migrateGmailAccountIds(db);
   const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, avatar_url, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
   const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,avatar_url,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@avatarUrl,@recipients,@attachments)');

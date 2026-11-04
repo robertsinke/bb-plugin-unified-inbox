@@ -5,6 +5,7 @@ import {
   clearMailDraft,
   inboxDraftKey,
   mailDraftKey,
+  migrateDraftAccountIds,
   readInboxDraft,
   readMailDraft,
   writeInboxDraft,
@@ -43,7 +44,7 @@ test('draft text persists and clearing removes only that conversation', () => {
 test('a mail draft round-trips through storage, with and without reply context', () => {
   const storage = memoryStorage();
   const reply: InboxMailDraft = {
-    account: 'personal',
+    account: 'gmail-personal',
     to: 'ana@example.com',
     cc: 'bo@example.com',
     bcc:'',subject: 'Re: launch',
@@ -52,12 +53,12 @@ test('a mail draft round-trips through storage, with and without reply context',
     inReplyTo: '<m1@example.com>',
     references: '<m0@example.com> <m1@example.com>',
   };
-  const threadKey = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  const threadKey = mailDraftKey({ account: 'gmail-personal', threadId: 'thread-1' });
   assert.equal(writeMailDraft(storage, threadKey, reply), true);
   assert.deepEqual(readMailDraft(storage, threadKey), reply);
 
-  const fresh: InboxMailDraft = { account: 'business', to: '', cc: '', bcc:'',subject: 'Hello', text: 'Body' };
-  const composeKey = mailDraftKey({ account: 'business', newMessageKey: 'compose-1' });
+  const fresh: InboxMailDraft = { account: 'gmail-business', to: '', cc: '', bcc:'',subject: 'Hello', text: 'Body' };
+  const composeKey = mailDraftKey({ account: 'gmail-business', newMessageKey: 'compose-1' });
   assert.equal(writeMailDraft(storage, composeKey, fresh), true);
   assert.deepEqual(readMailDraft(storage, composeKey), fresh);
 
@@ -67,8 +68,8 @@ test('a mail draft round-trips through storage, with and without reply context',
 
 test('malformed or foreign stored values read as no mail draft instead of throwing', () => {
   const storage = memoryStorage();
-  const key = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
-  const corrupt = ['{not json', 'null', '[]', '"a draft"', '{}', '{"account":"personal","to":"a","cc":"b","subject":"c"}', '{"account":"personal","to":"a","cc":"b","subject":"c","text":"d","threadId":7}'];
+  const key = mailDraftKey({ account: 'gmail-personal', threadId: 'thread-1' });
+  const corrupt = ['{not json', 'null', '[]', '"a draft"', '{}', '{"account":"gmail-personal","to":"a","cc":"b","subject":"c"}', '{"account":"gmail-personal","to":"a","cc":"b","subject":"c","text":"d","threadId":7}'];
   for (const raw of corrupt) {
     storage.setItem(key, raw);
     assert.equal(readMailDraft(storage, key), undefined, raw);
@@ -76,7 +77,7 @@ test('malformed or foreign stored values read as no mail draft instead of throwi
 });
 
 test('an absent mail draft and a disabled storage both read as no draft', () => {
-  const key = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
+  const key = mailDraftKey({ account: 'gmail-personal', threadId: 'thread-1' });
   assert.equal(readMailDraft(memoryStorage(), key), undefined);
   const broken: InboxDraftStorage = {
     getItem() { throw new Error('disabled'); },
@@ -84,19 +85,19 @@ test('an absent mail draft and a disabled storage both read as no draft', () => 
     removeItem() { throw new Error('disabled'); },
   };
   assert.equal(readMailDraft(broken, key), undefined);
-  assert.equal(writeMailDraft(broken, key, { account: 'personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
+  assert.equal(writeMailDraft(broken, key, { account: 'gmail-personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
   assert.equal(clearMailDraft(broken, key), false);
-  assert.equal(writeMailDraft(undefined, key, { account: 'personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
+  assert.equal(writeMailDraft(undefined, key, { account: 'gmail-personal', to: '', cc: '', bcc:'',subject: 's', text: 't' }), false);
 });
 
 test('reply text and mail drafts for the same conversation never collide', () => {
   const storage = memoryStorage();
-  const replyKey = inboxDraftKey({ account: 'personal', id: 'thread-1' });
-  const threadKey = mailDraftKey({ account: 'personal', threadId: 'thread-1' });
-  const composeKey = mailDraftKey({ account: 'personal', newMessageKey: 'thread-1' });
+  const replyKey = inboxDraftKey({ account: 'gmail-personal', id: 'thread-1' });
+  const threadKey = mailDraftKey({ account: 'gmail-personal', threadId: 'thread-1' });
+  const composeKey = mailDraftKey({ account: 'gmail-personal', newMessageKey: 'thread-1' });
   assert.equal(new Set([replyKey, threadKey, composeKey]).size, 3);
 
-  const draft: InboxMailDraft = { account: 'personal', to: 'ana@example.com', cc: '', bcc:'',subject: 'Re: launch', text: 'body', threadId: 'thread-1' };
+  const draft: InboxMailDraft = { account: 'gmail-personal', to: 'ana@example.com', cc: '', bcc:'',subject: 'Re: launch', text: 'body', threadId: 'thread-1' };
   writeInboxDraft(storage, replyKey, 'chat reply text');
   writeMailDraft(storage, threadKey, draft);
   assert.equal(readInboxDraft(storage, replyKey), 'chat reply text');
@@ -121,19 +122,45 @@ test('storage failures degrade safely without losing the in-memory caller state'
 
 test('a blind copy survives a reload with the rest of the draft', () => {
   const storage = memoryStorage();
-  writeMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1', { account: 'personal', to: 'a@example.com', cc: 'b@example.com', bcc: 'c@example.com', subject: 'Hi', text: 'Hello' });
-  const back = readMailDraft(storage, 'unified-inbox.mail-draft.v1:personal:t1');
+  writeMailDraft(storage, 'unified-inbox.mail-draft.v1:gmail-personal:t1', { account: 'gmail-personal', to: 'a@example.com', cc: 'b@example.com', bcc: 'c@example.com', subject: 'Hi', text: 'Hello' });
+  const back = readMailDraft(storage, 'unified-inbox.mail-draft.v1:gmail-personal:t1');
   assert.equal(back?.bcc, 'c@example.com', 'the draft the owner returns to still knows who was blind-copied');
 });
 
 test('a stored draft keeps its words and leaves the file bytes behind', () => {
   const storage = memoryStorage();
-  const key = 'unified-inbox.mail-draft.v1:personal:t1';
+  const key = 'unified-inbox.mail-draft.v1:gmail-personal:t1';
     // exactly what the session hands the writer: a live draft, which carries files
-  const live: MailDraft = { account: 'personal', to: 'a@example.com', cc: '', bcc: '', subject: 'Hi', text: 'See attached', attachments: [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 4, data: 'aGVsbG8=' }] };
+  const live: MailDraft = { account: 'gmail-personal', to: 'a@example.com', cc: '', bcc: '', subject: 'Hi', text: 'See attached', attachments: [{ name: 'plan.pdf', mimeType: 'application/pdf', size: 4, data: 'aGVsbG8=' }] };
   writeMailDraft(storage, key, live);
   const raw = storage.getItem(key) ?? '';
   assert.equal(raw.includes('aGVsbG8='), false, 'a stored draft does not carry file bytes');
   const back = readMailDraft(storage, key);
   assert.equal(back?.text, 'See attached', 'the words survive; the file bytes do not');
+});
+
+test('drafts stored under the old gmail account ids are renamed', () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+    get length() { return values.size; },
+    key: (index: number) => [...values.keys()][index] ?? null,
+  };
+  const reply = 'unified-inbox.reply-draft.v1:personal:thread%201';
+  const mail = 'unified-inbox.mail-draft.v1:business:thread:t1';
+  const kept = mailDraftKey({ account: 'gmail-personal', threadId: 't1' });
+  const oldMail = 'unified-inbox.mail-draft.v1:personal:thread:t1';
+  storage.setItem(reply, 'see you');
+  storage.setItem(mail, JSON.stringify({ account: 'business', to: 'a@example.com', cc: '', bcc: '', subject: 'Hi', text: 'Hello' }));
+  storage.setItem(kept, JSON.stringify({ account: 'gmail-personal', to: 'a@example.com', cc: '', bcc: '', subject: 'Newer', text: 'Stay' }));
+  storage.setItem(oldMail, JSON.stringify({ account: 'personal', to: 'a@example.com', cc: '', bcc: '', subject: 'Old', text: 'Go' }));
+  migrateDraftAccountIds(storage);
+  assert.equal(readInboxDraft(storage, inboxDraftKey({ account: 'gmail-personal', id: 'thread 1' })), 'see you');
+  assert.equal(storage.getItem(reply), null);
+  assert.equal(readMailDraft(storage, mailDraftKey({ account: 'gmail-business', threadId: 't1' }))?.account, 'gmail-business');
+  assert.equal(readMailDraft(storage, mailDraftKey({ account: 'gmail-business', threadId: 't1' }))?.text, 'Hello');
+  assert.equal(readMailDraft(storage, kept)?.text, 'Stay');
+  assert.equal(storage.getItem(oldMail), null);
 });

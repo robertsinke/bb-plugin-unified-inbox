@@ -15,7 +15,7 @@ function declarations(overrides: Partial<Capabilities> = {}): CapabilityMap {
 
 /** What each source says it is. The cadences are the ones the adapters declare; a case may override one. */
 function sources(overrides: Partial<Record<Account, number | undefined>> = {}): SourceMap {
-  const poll: Record<Account, number> = { personal: 45_000, business: 45_000, whatsapp: 8_000, imessage: 8_000, linkedin: 45_000 };
+  const poll: Record<Account, number> = { 'gmail-personal': 45_000, 'gmail-business': 45_000, whatsapp: 8_000, imessage: 8_000, linkedin: 45_000 };
   return Object.fromEntries(accounts.map(account => [account, {
     label: account,
     icon: 'MessageCircle',
@@ -137,21 +137,21 @@ test('two failures that say exactly the same words are cleared by the source tha
   let failing = true;
   const rpc = fakeRpc({
     sync: input => {
-      if (failing && (input.account === 'personal' || input.account === 'business')) throw new Error('the token expired');
+      if (failing && (input.account === 'gmail-personal' || input.account === 'gmail-business')) throw new Error('the token expired');
       return { items: [], updatedAt: 0 };
     },
   });
   const session = createInboxSession({ rpc, now: () => 0 });
-  await session.refresh(['personal', 'business']);
+  await session.refresh(['gmail-personal', 'gmail-business']);
 
   const failed = session.snapshot().errors;
-  assert.deepEqual(failed.map(error => error.account).sort(), ['business', 'personal'], 'one line per failed source');
+  assert.deepEqual(failed.map(error => error.account).sort(), ['gmail-business', 'gmail-personal'], 'one line per failed source');
   assert.equal(failed[0].message, failed[1].message, 'and both say exactly the same thing');
 
   failing = false;
-  await session.refresh(['business']);
+  await session.refresh(['gmail-business']);
   const remaining = session.snapshot().errors;
-  assert.deepEqual(remaining.map(error => error.account), ['personal'], 'the source that answered is cleared, the other keeps its identical line');
+  assert.deepEqual(remaining.map(error => error.account), ['gmail-personal'], 'the source that answered is cleared, the other keeps its identical line');
   assert.equal(remaining[0].message, 'could not refresh. the token expired Previously loaded messages may be stale.');
 });
 
@@ -433,7 +433,7 @@ test('the send log is opened from the inbox menu, not sitting above the list', a
 });
 
 test('reply all seeds the addresses the thread already knows, and every mail draft starts with no blind copy', async () => {
-  const target = row({ account: 'personal', id: 't1', title: 'Plan' });
+  const target = row({ account: 'gmail-personal', id: 't1', title: 'Plan' });
   const liveMessage = { sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com', suggestedCc: 'bo@example.com' };
   const rpc = fakeRpc({
     cached: () => ({ items: [target] }),
@@ -445,20 +445,20 @@ test('reply all seeds the addresses the thread already knows, and every mail dra
   await settle();
   await session.open(target);
 
-  session.startMail('replyAll', 'personal');
+  session.startMail('replyAll', 'gmail-personal');
   assert.deepEqual(
     { to: session.snapshot().mail?.to, cc: session.snapshot().mail?.cc, bcc: session.snapshot().mail?.bcc },
     { to: 'ada@example.com', cc: 'bo@example.com', bcc: '' },
     'reply all fills what the thread knows; a blind copy is the owner’s to add',
   );
 
-  session.startMail('reply', 'personal');
+  session.startMail('reply', 'gmail-personal');
   assert.equal(session.snapshot().mail?.cc, '', 'a plain reply does not copy anyone');
   assert.equal(session.snapshot().mail?.bcc, '', 'and still starts with no blind copy');
 });
 
 test('a blind copy the owner types reaches send_gmail with the rest of the draft', async () => {
-  const target = row({ account: 'personal', id: 't1', title: 'Plan' });
+  const target = row({ account: 'gmail-personal', id: 't1', title: 'Plan' });
   const rpc = fakeRpc({
     cached: () => ({ items: [target] }),
     sync: () => ({ items: [] }),
@@ -469,7 +469,7 @@ test('a blind copy the owner types reaches send_gmail with the rest of the draft
   session.start();
   await settle();
   await session.open(target);
-  session.startMail('reply', 'personal');
+  session.startMail('reply', 'gmail-personal');
   session.setMail({ bcc: 'hidden@example.com', text: 'On it.' });
   await session.sendMail();
 
@@ -489,7 +489,7 @@ test('a draft takes attachments, refuses one that would make it too big, and can
   const session = createInboxSession({ rpc, now: () => 0 });
   session.start();
   await settle();
-  session.startMail('new', 'personal');
+  session.startMail('new', 'gmail-personal');
 
   assert.equal(session.attach({ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) }), true, 'a small file is taken');
   assert.deepEqual(session.snapshot().mail?.attachments.map(a => a.name), ['plan.pdf']);
@@ -507,7 +507,7 @@ test('a size is judged by the bytes Gmail encodes, and the refusal names that ce
   const session = createInboxSession({ rpc, now: () => 0 });
   session.start();
   await settle();
-  session.startMail('new', 'personal');
+  session.startMail('new', 'gmail-personal');
 
   // base64 spends four bytes on three, so Gmail's 25 MB of message is 18.75 MB of file: that one fits.
   const atCeiling = 25 * 1024 * 1024 / 4 * 3;
@@ -524,7 +524,7 @@ test('the words count against the same ceiling, because Gmail measures the encod
   const session = createInboxSession({ rpc, now: () => 0 });
   session.start();
   await settle();
-  session.startMail('new', 'personal');
+  session.startMail('new', 'gmail-personal');
 
   // What is left for files once the body is encoded into the message Gmail measures.
   const room = 25 * 1024 * 1024 - Math.ceil(1000 / 3) * 4;
@@ -543,7 +543,7 @@ test('a draft with an attachment and no body is still worth sending, and the fil
   const session = createInboxSession({ rpc, now: () => 0 });
   session.start();
   await settle();
-  session.startMail('new', 'personal');
+  session.startMail('new', 'gmail-personal');
   session.setMail({ to: 'a@example.com', subject: 'The plan' });
   session.attach({ name: 'plan.pdf', mimeType: 'application/pdf', size: 3, data: bytes(3) });
   await session.sendMail();
@@ -554,12 +554,12 @@ test('a draft with an attachment and no body is still worth sending, and the fil
 });
 
 test('show older appends the next page, drops a row already on screen, and stops offering more', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30 });
-  const repeated = row({ account: 'personal', id: 't2', date: 20 });
-  const older = row({ account: 'personal', id: 't3', date: 10 });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
+  const repeated = row({ account: 'gmail-personal', id: 't2', date: 20 });
+  const older = row({ account: 'gmail-personal', id: 't3', date: 10 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest, repeated], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest, repeated] : [], more: input.account === 'personal' }),
+    cached: () => ({ items: [newest, repeated], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest, repeated] : [], more: input.account === 'gmail-personal' }),
     list: () => ({ items: [repeated, older], errors: [], more: false }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
@@ -569,7 +569,7 @@ test('show older appends the next page, drops a row already on screen, and stops
 
   await session.more();
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2', 't3'], 'the older row lands after the rows already shown');
-  assert.deepEqual(rpc.calls.filter(call => call.name === 'list').map(call => call.input), [{ older: true, account: 'personal' }], 'one call answers that source; the sources that said nothing older are not asked');
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'list').map(call => call.input), [{ older: true, account: 'gmail-personal' }], 'one call answers that source; the sources that said nothing older are not asked');
   assert.equal(session.snapshot().hasOlder, false, 'the last page stops offering more');
   assert.equal(session.snapshot().loadingOlder, false);
 
@@ -580,18 +580,18 @@ test('show older appends the next page, drops a row already on screen, and stops
 });
 
 test('show older grows the list as each source answers, not when the slowest does', async () => {
-  const mine = row({ account: 'personal', id: 't1', date: 30 });
+  const mine = row({ account: 'gmail-personal', id: 't1', date: 30 });
   const chat = row({ account: 'whatsapp', id: 'c1', date: 20 });
   const olderChat = row({ account: 'whatsapp', id: 'c2', date: 5 });
-  const olderMail = row({ account: 'personal', id: 't2', date: 10 });
+  const olderMail = row({ account: 'gmail-personal', id: 't2', date: 10 });
   let release: () => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [mine, chat], more: { personal: true, whatsapp: true } }),
+    cached: () => ({ items: [mine, chat], more: { 'gmail-personal': true, whatsapp: true } }),
     sync: input => ({
-      items: input.account === 'personal' ? [mine] : input.account === 'whatsapp' ? [chat] : [],
-      more: input.account === 'personal' || input.account === 'whatsapp',
+      items: input.account === 'gmail-personal' ? [mine] : input.account === 'whatsapp' ? [chat] : [],
+      more: input.account === 'gmail-personal' || input.account === 'whatsapp',
     }),
-    list: input => input.account === 'personal'
+    list: input => input.account === 'gmail-personal'
       ? new Promise(resolve => { release = () => resolve({ items: [olderMail], errors: [], more: false }); })
       : { items: [olderChat], errors: [], more: false },
   });
@@ -612,12 +612,12 @@ test('show older grows the list as each source answers, not when the slowest doe
 });
 
 test('an older page that misses its ceiling is given up with a line, and the rows on screen stay', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30 });
-  const late = row({ account: 'personal', id: 't2', date: 10 });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
+  const late = row({ account: 'gmail-personal', id: 't2', date: 10 });
   let answer: (value: unknown) => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
     list: () => new Promise(resolve => { answer = resolve; }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
@@ -642,11 +642,11 @@ test('an older page that misses its ceiling is given up with a line, and the row
 });
 
 test('a page that adds nothing while the source says more is a line, not a silent click', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30 });
-  const shown = row({ account: 'personal', id: 't2', date: 20 });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
+  const shown = row({ account: 'gmail-personal', id: 't2', date: 20 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest, shown], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest, shown] : [], more: input.account === 'personal' }),
+    cached: () => ({ items: [newest, shown], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest, shown] : [], more: input.account === 'gmail-personal' }),
     // The source re-serves rows the list already holds and still claims there is more.
     list: () => ({ items: [shown], errors: [], more: true }),
   });
@@ -658,19 +658,19 @@ test('a page that adds nothing while the source says more is a line, not a silen
   const snapshot = session.snapshot();
   assert.deepEqual(snapshot.items.map(item => item.id), ['t1', 't2'], 'nothing is duplicated and nothing is lost');
   assert.ok(
-    snapshot.errors.some(error => error.account === 'personal' && error.message.startsWith('could not load older conversations: it answered with rows already on screen')),
+    snapshot.errors.some(error => error.account === 'gmail-personal' && error.message.startsWith('could not load older conversations: it answered with rows already on screen')),
     'a press that adds nothing says so',
   );
   assert.equal(snapshot.hasOlder, true, 'the source is still offered, because it says it has more');
 });
 
 test('show older is one request at a time', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
   let release: () => void = () => {};
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
-    list: () => new Promise(resolve => { release = () => resolve({ items: [row({ account: 'personal', id: 't3', date: 10 })], errors: [], more: false }); }),
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
+    list: () => new Promise(resolve => { release = () => resolve({ items: [row({ account: 'gmail-personal', id: 't3', date: 10 })], errors: [], more: false }); }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
   session.start();
@@ -689,10 +689,10 @@ test('show older is one request at a time', async () => {
 });
 
 test('a failed show older lands in errors and the rows already shown survive', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30 });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
     list: () => { throw new Error('Gmail thread list request failed (403).'); },
   });
   const session = createInboxSession({ rpc, now: () => 0 });
@@ -703,15 +703,15 @@ test('a failed show older lands in errors and the rows already shown survive', a
   const snapshot = session.snapshot();
   assert.deepEqual(snapshot.items.map(item => item.id), ['t1'], 'the list on screen is untouched');
   assert.equal(snapshot.loadingOlder, false);
-  assert.ok(snapshot.errors.some(error => error.account === 'personal' && error.message.startsWith('could not load older conversations')), 'the failure is a line in the panel, owned by the source, not a throw');
+  assert.ok(snapshot.errors.some(error => error.account === 'gmail-personal' && error.message.startsWith('could not load older conversations')), 'the failure is a line in the panel, owned by the source, not a throw');
 });
 
 test('a refresh keeps the rows show older loaded, and an archived one does not return', async () => {
-  const newest = row({ account: 'personal', id: 't1', date: 30, unread: false });
-  const older = row({ account: 'personal', id: 't3', date: 10, unread: false });
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30, unread: false });
+  const older = row({ account: 'gmail-personal', id: 't3', date: 10, unread: false });
   const rpc = fakeRpc({
-    cached: () => ({ items: [newest], more: { personal: true } }),
-    sync: input => ({ items: input.account === 'personal' ? [newest] : [], more: input.account === 'personal' }),
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
     list: () => ({ items: [older], errors: [], more: true }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
@@ -720,12 +720,12 @@ test('a refresh keeps the rows show older loaded, and an archived one does not r
   await session.more();
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't3']);
 
-  await session.refresh(['personal']);
+  await session.refresh(['gmail-personal']);
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't3'], 'a refresh cannot silently shorten what the owner asked to see');
 
   await session.mark(older, 'archive');
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1']);
-  await session.refresh(['personal']);
+  await session.refresh(['gmail-personal']);
   assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1'], 'an archived row does not come back with the older pages');
 });
 
