@@ -76,4 +76,5 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/solutions/integration-issues/one-rpc-call-arrives-as-null-and-as-empty-2026-11-04.md`](solutions/integration-issues/one-rpc-call-arrives-as-null-and-as-empty-2026-11-04.md) | settled | 2026-11-04 |  |
 | [`docs/solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md`](solutions/logic-errors/recorded-writes-read-back-empty-2026-11-02.md) | settled | 2026-11-02 |  |
