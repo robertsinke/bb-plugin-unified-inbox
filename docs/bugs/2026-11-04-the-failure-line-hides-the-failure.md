@@ -47,8 +47,8 @@ next sync took the full path instead of the probe:
 
 4.16 s against a 10 s cap is 2.4× headroom: a read a little slower than this machine's failed, and one
 failed read costs the whole source until its next poll — and doubles that poll's delay
-(`runInboxRefresh`, up to an hour), while the LinkedIn browser idle-stops at 90 s, so the retry is a
-cold page. The tightest cap in the system sat on the path most likely to run cold.
+(`runInboxRefresh`, which grew to an hour), while the LinkedIn browser idle-stops at 90 s, so the
+retry was a cold page. The tightest cap in the system sat on the path most likely to run cold.
 
 For Gmail the same measurement says the transport is healthy (`gws gmail users getProfile` 0.51 s,
 `sync` 1.58 s, `token_cache.json` rewritten that day), so the cause of that failure is not a slow
@@ -64,9 +64,10 @@ That stays a hypothesis until a failure is recorded with its code.
 | the account token is `\S+`, so a hyphenated key matches and the reason survives | `src/gateway.ts` |
 | the label goes in once: a stored sentence that already opens with it is not prefixed again | `src/inbox-errors.tsx` |
 | `LIST_READ_TIMEOUT` 10 s → 20 s, with the measurement above beside it | `src/linkedin-chrome.ts` |
+| the retry delay is capped at four poll intervals instead of an hour, so a source that recovers is retried within minutes | `src/inbox-refresh.ts` |
 
 Two tests hold the first two: the provider shape for `gmail-business` reaches `lastError` unchanged,
-and the two cached sentences above render once through `errorLine`.
+and the two cached sentences above render once through `errorLine`. A third holds the backoff ceiling.
 
 ## What this does not fix
 
