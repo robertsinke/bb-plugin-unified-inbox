@@ -17,31 +17,31 @@ test('success, failed attempt and recovery persist independently; cached rows su
   let fail = false;
   const f = fixture(async () => { if (fail) throw new Error('private provider payload'); return { items: [], updatedAt: 1 }; });
   try {
-    f.cache.save('personal', [{ account: 'personal', id: 't', title: 'Subject', preview: 'Hello', date: 1, unread: true }]);
-    await f.refresh('personal');
+    f.cache.save('gmail-personal', [{ account: 'gmail-personal', id: 't', title: 'Subject', preview: 'Hello', date: 1, unread: true }]);
+    await f.refresh('gmail-personal');
     fail = true;
     f.time(200);
-    await assert.rejects(f.refresh('personal'), /^Error: Source unavailable\.$/);
+    await assert.rejects(f.refresh('gmail-personal'), /^Error: Source unavailable\.$/);
     const reloaded = createInboxCache(f.db);
-    assert.deepEqual(reloaded.freshness('personal'), { lastAttemptAt: 200, lastSuccessAt: 100, lastError: 'Source unavailable.', cacheFallback: true });
+    assert.deepEqual(reloaded.freshness('gmail-personal'), { lastAttemptAt: 200, lastSuccessAt: 100, lastError: 'Source unavailable.', cacheFallback: true });
     assert.equal(reloaded.list().length, 1);
     fail = false;
     f.time(300);
-    await f.refresh('personal');
-    assert.deepEqual(reloaded.freshness('personal'), { lastAttemptAt: 300, lastSuccessAt: 300, lastError: null, cacheFallback: false });
+    await f.refresh('gmail-personal');
+    assert.deepEqual(reloaded.freshness('gmail-personal'), { lastAttemptAt: 300, lastSuccessAt: 300, lastError: null, cacheFallback: false });
   } finally { f.db.close(); }
 });
 
 test('failed refresh only reports cache fallback when this source has cached rows', async () => {
   const f = fixture(async () => { throw new Error('offline'); });
   try {
-    f.cache.save('business', [{ account: 'business', id: 't', title: 'Other source', preview: '', date: 1, unread: false }]);
-    await assert.rejects(f.refresh('personal'));
-    assert.equal(f.cache.freshness('personal').cacheFallback, false);
-    assert.equal(f.cache.freshness('personal').lastSuccessAt, null);
-    assert.equal(f.cache.freshness('personal').lastError, 'Source unavailable.');
-    await assert.rejects(f.refresh('business'));
-    assert.equal(f.cache.freshness('business').cacheFallback, true);
+    f.cache.save('gmail-business', [{ account: 'gmail-business', id: 't', title: 'Other source', preview: '', date: 1, unread: false }]);
+    await assert.rejects(f.refresh('gmail-personal'));
+    assert.equal(f.cache.freshness('gmail-personal').cacheFallback, false);
+    assert.equal(f.cache.freshness('gmail-personal').lastSuccessAt, null);
+    assert.equal(f.cache.freshness('gmail-personal').lastError, 'Source unavailable.');
+    await assert.rejects(f.refresh('gmail-business'));
+    assert.equal(f.cache.freshness('gmail-business').cacheFallback, true);
   } finally { f.db.close(); }
 });
 
@@ -50,15 +50,15 @@ test('manual and worker calls coalesce per source while other sources continue',
   const calls: string[] = [];
   const f = fixture(async account => {
     calls.push(account);
-    if (account === 'personal') await new Promise<void>(resolve => { release = resolve; });
+    if (account === 'gmail-personal') await new Promise<void>(resolve => { release = resolve; });
     return { items: [], updatedAt: 0 };
   });
   try {
-    const first = f.refresh('personal');
-    const second = f.refresh('personal');
+    const first = f.refresh('gmail-personal');
+    const second = f.refresh('gmail-personal');
     assert.equal(first, second);
     await f.refresh('linkedin');
-    assert.deepEqual(calls, ['personal', 'linkedin']);
+    assert.deepEqual(calls, ['gmail-personal', 'linkedin']);
     release();
     await first;
   } finally { f.db.close(); }
@@ -121,11 +121,11 @@ test('worker retries failure on cadence and cancels its sleep', async () => {
 test('legacy bodies have unknown age and cache repair preserves body verification time', () => {
   const db = new Database(':memory:');
   try {
-    db.exec("CREATE TABLE inbox_thread (account TEXT NOT NULL, id TEXT NOT NULL, messages TEXT NOT NULL, PRIMARY KEY(account,id)); INSERT INTO inbox_thread VALUES ('personal', 'old', '[]')");
+    db.exec("CREATE TABLE inbox_thread (account TEXT NOT NULL, id TEXT NOT NULL, messages TEXT NOT NULL, PRIMARY KEY(account,id)); INSERT INTO inbox_thread VALUES ('gmail-personal', 'old', '[]')");
     const cache = createInboxCache(db);
-    assert.equal(cache.threadUpdatedAt('personal', 'old'), null);
-    cache.saveThread('personal', 'new', [], 123);
-    cache.saveThread('personal', 'new', [{ text: 'repaired' }], cache.threadUpdatedAt('personal', 'new'));
-    assert.equal(cache.threadUpdatedAt('personal', 'new'), 123);
+    assert.equal(cache.threadUpdatedAt('gmail-personal', 'old'), null);
+    cache.saveThread('gmail-personal', 'new', [], 123);
+    cache.saveThread('gmail-personal', 'new', [{ text: 'repaired' }], cache.threadUpdatedAt('gmail-personal', 'new'));
+    assert.equal(cache.threadUpdatedAt('gmail-personal', 'new'), 123);
   } finally { db.close(); }
 });

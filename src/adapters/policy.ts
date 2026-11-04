@@ -83,8 +83,8 @@ export type SendPolicy = { state: 'enabled' } | { state: 'disabled'; reason: str
  * before delivery. A `disabled` reason is the caller-facing refusal text.
  */
 export const SEND_POLICY: Record<Account, SendPolicy> = {
-  personal: { state: 'enabled' },
-  business: { state: 'enabled' },
+  'gmail-personal': { state: 'enabled' },
+  'gmail-business': { state: 'enabled' },
   whatsapp: { state: 'enabled' },
   imessage: { state: 'enabled' },
   linkedin: { state: 'enabled' },

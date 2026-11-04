@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { AuditRow } from './adapters/policy.ts';
+import { migrateGmailAccountIds } from './inbox-cache.ts';
 
 /**
  * Where the send gate writes down every attempt.
@@ -32,6 +33,7 @@ export function createSendAudit(db: Database.Database) {
   for (const column of ['approval_id', 'bcc']) {
     if (!present.has(column)) db.exec(`ALTER TABLE inbox_send_audit ADD COLUMN ${column} TEXT`);
   }
+  migrateGmailAccountIds(db);
   const insert = db.prepare('INSERT INTO inbox_send_audit (at, operation, account, conversation_id, decision, approval_id, reason, bcc) VALUES (@at, @operation, @account, @conversationId, @decision, @approvalId, @reason, @bcc)');
   const read = db.prepare('SELECT at, operation, account, conversation_id AS conversationId, decision, approval_id AS approvalId, reason, bcc FROM inbox_send_audit ORDER BY id DESC LIMIT ?');
   const spentRow = db.prepare("SELECT 1 FROM inbox_send_audit WHERE approval_id = ? AND decision = 'allowed' LIMIT 1");

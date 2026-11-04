@@ -41,7 +41,7 @@ test('each source is named in one place: its own declaration', () => {
       for (const table of wasATable) {
         const file = texts.find(candidate => candidate.path === table);
         assert.ok(file, `${table} is still one of the files this scans`);
-        // A name is a value in a pair: `personal: 'Personal Gmail'`, `mentionLabels[...] = {…}`. The
+        // A name is a value in a pair: `'gmail-personal': 'Personal Gmail'`, `mentionLabels[...] = {…}`. The
         // bare word is not the offence — WhatsApp's own sender fallback is a sender, not a source.
         assert.doesNotMatch(file.text, new RegExp(`:\\s*'${label}'`), `${table} keeps no copy of "${label}"`);
       }
@@ -54,7 +54,7 @@ test('every source declares a name, an icon and a cadence, and a page size only 
   try {
     assert.deepEqual(Object.keys(registrySources(h.registry)).sort(), [...accounts].sort(), 'the registry hands over one declaration per source');
     // The sources whose `list` takes a cursor back: Gmail's two mailboxes and WhatsApp's offsets.
-    const canPage: Account[] = ['personal', 'business', 'whatsapp'];
+    const canPage: Account[] = ['gmail-personal', 'gmail-business', 'whatsapp'];
     for (const account of accounts) {
       const declared = h.registry[account].source;
       assert.ok(declared.label.trim().length > 0, `${account} says what a person calls it`);
@@ -73,7 +73,7 @@ test('every source declares a name, an icon and a cadence, and a page size only 
     assert.equal(new Set(accounts.map(account => h.registry[account].source.label)).size, accounts.length);
 
     // And the wire refuses a declaration it would not know what to do with.
-    const personal = { ...h.registry.personal.source };
+    const personal = { ...h.registry['gmail-personal'].source };
     assert.equal(sourceDeclarationSchema.safeParse({ ...personal, telepathy: true }).success, false, 'an invented field is refused');
     assert.equal(sourceDeclarationSchema.safeParse({ ...personal, pollIntervalMs: 0 }).success, false, 'a cadence of zero is not a cadence');
     assert.equal(sourceDeclarationSchema.safeParse({ ...personal, label: '' }).success, false, 'a nameless source is refused');

@@ -13,7 +13,7 @@ import { rpcContract } from '../src/rpc-contract.ts';
 
 
 const NOW = 1_700_000_000_000;
-const FIRST: Conversation = { account: 'personal', id: 't1', title: 'Dinner', preview: 'See you at six', date: NOW, unread: true };
+const FIRST: Conversation = { account: 'gmail-personal', id: 't1', title: 'Dinner', preview: 'See you at six', date: NOW, unread: true };
 const SECOND: Conversation = { ...FIRST, id: 't0', preview: 'Older mail', date: NOW - 86_400_000, unread: false };
 
 /** The first page a source answers, and the page its cursor walks to. */
@@ -28,7 +28,7 @@ interface FixtureOptions {
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
-const LABEL: Record<Account, string> = { personal: 'Personal Gmail', business: 'Inhouse Gmail', whatsapp: 'WhatsApp', imessage: 'Messages', linkedin: 'LinkedIn' };
+const LABEL: Record<Account, string> = { 'gmail-personal': 'Personal Gmail', 'gmail-business': 'Inhouse Gmail', whatsapp: 'WhatsApp', imessage: 'Messages', linkedin: 'LinkedIn' };
 
 function adapter(name: Account, overrides: Partial<Adapter>): Adapter {
   return {
@@ -87,23 +87,23 @@ function fixture(options: FixtureOptions = {}) {
     // A cache-only decoration, the shape WhatsApp's group participants use.
     decorate: row => ({ ...row, participants: ['Ada Lovelace'] }),
     async list(cursor): Promise<ListResult> {
-      calls.push(`personal:list:${cursor ?? 'newest'}`);
+      calls.push(`gmail-personal:list:${cursor ?? 'newest'}`);
       if (!options.pages) return { items: [], errors: [] };
       const page = cursor === undefined ? options.pages.newest : options.pages.older;
       return { ...page, errors: [] };
     },
     async sync() {
-      calls.push('personal:sync');
+      calls.push('gmail-personal:sync');
       // A refresh hands over a cursor. It must not move the walk the owner started.
       return { items: options.pages?.older.items ?? [], updatedAt: NOW, cursor: 'page-99' };
     },
     async send() {
-      calls.push('personal:send');
+      calls.push('gmail-personal:send');
       return { status: 'sent' };
     },
   };
   const registry = Object.fromEntries(accounts.map(name => [name, adapter(name, {
-    ...(name === 'personal' ? personal : {}),
+    ...(name === 'gmail-personal' ? personal : {}),
     ...(name === options.fail
       ? { list: async (): Promise<never> => { calls.push(`${name}:list`); throw new Error('provider exploded'); } }
       : {}),
@@ -132,23 +132,23 @@ test('an older page asks the source for the number of rows that source declares'
   const f = fixture();
   const asked: (number | undefined)[] = [];
   // The page size is a number the adapter owns; the gateway stops keeping its own table.
-  f.registry.personal = {
-    ...f.registry.personal,
-    source: { ...f.registry.personal.source, pageSize: 7 },
+  f.registry['gmail-personal'] = {
+    ...f.registry['gmail-personal'],
+    source: { ...f.registry['gmail-personal'].source, pageSize: 7 },
     list: async (cursor, opts) => {
       asked.push(opts?.limit);
       return cursor ? { items: [], errors: [] } : { items: [], errors: [], cursor: 'page-2' };
     },
   };
-  await f.gateway.list({ account: 'personal' });
-  await f.gateway.list({ older: true, account: 'personal' });
+  await f.gateway.list({ account: 'gmail-personal' });
+  await f.gateway.list({ older: true, account: 'gmail-personal' });
   assert.deepEqual(asked, [undefined, 7], 'the newest page is asked for no limit; the older page for the declared seven');
 });
 
 test('list decorates rows and reports more from the cursor; a refresh does not advance it', async () => {
   const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } } });
 
-  const first = await f.gateway.list({ account: 'personal' });
+  const first = await f.gateway.list({ account: 'gmail-personal' });
   assert.deepEqual(first.items.map(row => row.id), [FIRST.id]);
   assert.deepEqual(first.items[0].participants, ['Ada Lovelace'], 'the adapter decoration reaches the caller');
   assert.equal(first.more, true, 'the source says an older page exists');
@@ -156,42 +156,42 @@ test('list decorates rows and reports more from the cursor; a refresh does not a
   // `older: false` and an absent `older` both read the newest page again, and neither
   // replaces the cursor the first read seeded.
   f.calls.length = 0;
-  const refreshed = await f.gateway.list({ older: false, account: 'personal' });
-  const absent = await f.gateway.list({ account: 'personal' });
-  assert.deepEqual(f.calls, ['personal:list:newest', 'personal:list:newest']);
+  const refreshed = await f.gateway.list({ older: false, account: 'gmail-personal' });
+  const absent = await f.gateway.list({ account: 'gmail-personal' });
+  assert.deepEqual(f.calls, ['gmail-personal:list:newest', 'gmail-personal:list:newest']);
   assert.equal(refreshed.more, true);
   assert.equal(absent.more, true, 'the walk is still parked on page two');
 
   f.calls.length = 0;
-  const older = await f.gateway.list({ older: true, account: 'personal' });
-  assert.deepEqual(f.calls, ['personal:list:page-2'], 'an older read asks for the page after the newest one');
+  const older = await f.gateway.list({ older: true, account: 'gmail-personal' });
+  assert.deepEqual(f.calls, ['gmail-personal:list:page-2'], 'an older read asks for the page after the newest one');
   assert.deepEqual(older.items.map(row => row.id), [SECOND.id]);
   assert.equal(older.more, false, 'the source answered with no next cursor');
 
   f.calls.length = 0;
-  assert.equal((await f.gateway.list({ older: true, account: 'personal' })).more, false);
+  assert.equal((await f.gateway.list({ older: true, account: 'gmail-personal' })).more, false);
   assert.deepEqual(f.calls, [], 'a source that said "nothing older" is not asked again');
 });
 
 test('only older advances the walk: a refresh that hands over a cursor leaves it alone', async () => {
   const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } } });
 
-  await f.gateway.list({ account: 'personal' });
+  await f.gateway.list({ account: 'gmail-personal' });
   f.calls.length = 0;
-  const synced = await f.gateway.sync({ account: 'personal' });
-  assert.deepEqual(f.calls, ['personal:sync']);
+  const synced = await f.gateway.sync({ account: 'gmail-personal' });
+  assert.deepEqual(f.calls, ['gmail-personal:sync']);
   assert.equal(synced.more, true, 'the 45-second refresh answers for the walk already in progress');
 
   f.calls.length = 0;
-  await f.gateway.list({ older: true, account: 'personal' });
-  assert.deepEqual(f.calls, ['personal:list:page-2'], "the refresh's cursor did not restart the owner's walk");
+  await f.gateway.list({ older: true, account: 'gmail-personal' });
+  assert.deepEqual(f.calls, ['gmail-personal:list:page-2'], "the refresh's cursor did not restart the owner's walk");
 });
 
 test('send_gmail without allow: send refuses and the adapter is never reached', async () => {
   const f = fixture();
 
   await assert.rejects(
-    async () => f.gateway.send_gmail({ account: 'personal', to: 'ada@example.com', subject: 'Dinner', text: 'On my way' }),
+    async () => f.gateway.send_gmail({ account: 'gmail-personal', to: 'ada@example.com', subject: 'Dinner', text: 'On my way' }),
     /needs an approval/,
   );
   assert.deepEqual(f.calls, ['audit:record'], 'the gate wrote the refusal, and the adapter was never called');

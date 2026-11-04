@@ -18,8 +18,8 @@ const { InboxErrors } = loadComponent('src/inbox-errors.tsx');
 const { flushSync } = require('react-dom');
 
 const DECLARED = {
-  personal: { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000 },
-  business: { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000 },
+  'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000 },
+  'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000 },
   whatsapp: { label: 'WhatsApp', icon: 'MessageCircle', pollIntervalMs: 8_000 },
   imessage: { label: 'Messages', icon: 'MessageCircle', pollIntervalMs: 8_000 },
   linkedin: { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 },
@@ -41,7 +41,7 @@ function render(errors: readonly Record<string, unknown>[], sources: Record<stri
 test('a failure line is drawn from the account and the message, not from the text', () => {
   const message = 'could not refresh. the token expired Previously loaded messages may be stale.';
   const lines = render(
-    [{ account: 'personal', kind: 'refresh', message }, { account: 'business', kind: 'refresh', message }],
+    [{ account: 'gmail-personal', kind: 'refresh', message }, { account: 'gmail-business', kind: 'refresh', message }],
     DECLARED,
   );
 
@@ -52,10 +52,10 @@ test('a failure line is drawn from the account and the message, not from the tex
 });
 
 test('the name in the line is the one the source declares, so renaming it needs no render change', () => {
-  const error = [{ account: 'business', kind: 'refresh', message: 'could not refresh.' }];
+  const error = [{ account: 'gmail-business', kind: 'refresh', message: 'could not refresh.' }];
   assert.deepEqual(render(error, DECLARED), ['Inhouse Gmail could not refresh.']);
 
-  const renamed = { ...DECLARED, business: { ...DECLARED.business, label: 'Work Gmail' } };
+  const renamed = { ...DECLARED, 'gmail-business': { ...DECLARED['gmail-business'], label: 'Work Gmail' } };
   assert.deepEqual(render(error, renamed), ['Work Gmail could not refresh.'], 'the panel holds no copy of the name');
 });
 

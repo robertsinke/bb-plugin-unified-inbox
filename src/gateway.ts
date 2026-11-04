@@ -109,12 +109,13 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     freshness() { return freshness(); },
     search({ query }) {
       const ranked = search.search(query);
-      return { ids: ranked.slice(0, 50).flatMap(row => {
+      const ids = ranked.slice(0, 50).flatMap(row => {
         const split = row.id.indexOf('\u0000');
         const name = row.id.slice(0, split);
         if (!isSourceAccount(name)) return [];
         return [{ account: name, id: row.id.slice(split + 1), score: row.score }];
-      }) };
+      });
+      return { ids, truncated: ranked.length > 50 };
     },
     search_status() { return search.status(); },
     async cached_open({ account, id }) {

@@ -17,6 +17,7 @@ unsettled rather than guessing.
 | what a source can do | `src/adapters/capability.ts` (`CAPABILITY_KEYS`) | the vocabulary; every adapter declares every key, so a missing capability is a type error, not a runtime surprise |
 | how a source delivers a message | `src/adapters/index.ts` (`createRegistry`) | one `sync`, one `media`, one `send` per account — transport differences are absorbed here, never in the gateway |
 | the RPC surface | `src/rpc-contract.ts` | every input and output schema; the handlers in `src/gateway.ts` are checked against it, and the panel's client is typed by it |
+| what an agent can read and inspect | `src/inbox-agent-tools.ts` | `inbox_list` browses the cache and `inbox_search` returns ranked cached excerpts; media references must belong to the named cached conversation; image bytes are returned as image content, never as text |
 | what the panel may ask for | `src/gateway.ts` (`createGateway(deps)`) | method bodies, paging cursors, and the older-page deadline |
 | source refresh and freshness | `src/inbox-refresh.ts`, wired by `server.ts` and `src/gateway.ts` | backend service lifetime, per-source single flight, attempts versus live success; `src/inbox-cache.ts` persists status and independent body timestamps |
 | the panel's state and timing | `src/inbox-session.ts` | the snapshot, every intent, cache observation and open-thread watch, draft and attachment rules, `olderRows` |

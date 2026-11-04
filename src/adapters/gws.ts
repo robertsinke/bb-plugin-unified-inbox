@@ -25,7 +25,7 @@ const GWS_BINARY = '/usr/local/bin/gws';
 
 /** Google Workspace CLI credential directory, one per Gmail account. */
 function gwsConfigDir(account: GmailAccount): string {
-  return join(homedir(), account === 'business' ? '.config/gws-inhouse' : '.config/gws');
+  return join(homedir(), account === 'gmail-business' ? '.config/gws-inhouse' : '.config/gws');
 }
 
 /** What the Gmail adapter needs from the CLI: a parsed read, and a send that reports its message id. */
