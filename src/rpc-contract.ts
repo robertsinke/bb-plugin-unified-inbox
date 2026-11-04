@@ -5,7 +5,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ATTACHMENT_LIMIT } from './adapters/media.ts';
-import { accounts } from './adapters/types.ts';
+import { accounts, gmailAccounts } from './adapters/types.ts';
 import { attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
 import { sourceDeclarationSchema } from './adapters/source.ts';
@@ -37,7 +37,7 @@ export const rpcContract = defineRpcContract({
   list: { input: z.object({ older: z.boolean().optional(), account: account.optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
   cached: { input: z.null(), output: z.object({ items: z.array(item), freshness: freshness.optional(), more: z.record(account, z.boolean()).optional() }) },
   freshness: { input: z.null(), output: freshness },
-  search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })) }) },
+  search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })), truncated: z.boolean() }) },
   search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
   clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
@@ -87,7 +87,7 @@ export const rpcContract = defineRpcContract({
   // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
   // refuses and records the attempt: a send is never approved by merely happening.
   action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
-  send_gmail: { input: z.object({ account: z.enum(['personal','business']), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
+  send_gmail: { input: z.object({ account: z.enum(gmailAccounts), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
     // Legacy flag remains a migration input, never a fallback from envelope refusal.
     allow: z.literal('send').optional(), envelope: z.unknown().optional(),
     draft: z.object({ draftId: z.string().min(1).max(512), revision: z.number().int().min(1), sourceVersion: z.string().max(512) }).strict().optional(),

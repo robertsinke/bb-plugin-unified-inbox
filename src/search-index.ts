@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import type { CachedItem, CacheChange } from './inbox-cache.ts';
+import { migrateGmailAccountIds, type CachedItem, type CacheChange } from './inbox-cache.ts';
 import { bm25RankPrepared, conversationText, prepareDocument, type PreparedDocument } from './bm25.ts';
 
 export type SearchSource = {
@@ -14,6 +14,7 @@ type StoredDocument = { id: string; signature: string; length: number; freq: Map
 export function createSearchStore(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_search (id TEXT PRIMARY KEY, signature TEXT NOT NULL, length INTEGER NOT NULL, terms TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox_search_meta (id INTEGER PRIMARY KEY CHECK(id = 1), updated_at INTEGER NOT NULL);`);
+  migrateGmailAccountIds(db);
   const readDocs = db.prepare('SELECT id, signature, length, terms FROM inbox_search');
   const readMeta = db.prepare('SELECT updated_at FROM inbox_search_meta WHERE id = 1');
   const insert = db.prepare('INSERT INTO inbox_search (id, signature, length, terms) VALUES (@id, @signature, @length, @terms) ON CONFLICT(id) DO UPDATE SET signature = excluded.signature, length = excluded.length, terms = excluded.terms');

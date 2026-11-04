@@ -26,7 +26,7 @@ function mount(mail: Record<string, unknown>, overrides: Record<string, unknown>
   const calls: { sent: number; discarded: number; fields: unknown[]; attached: unknown[]; detached: number[]; taken: string[] } = {
     sent: 0, discarded: 0, fields: [], attached: [], detached: [], taken: [],
   };
-  const draft = { account: 'personal', to: '', cc: '', bcc: '', subject: '', text: '', attachments: [], ...mail };
+  const draft = { account: 'gmail-personal', to: '', cc: '', bcc: '', subject: '', text: '', attachments: [], ...mail };
   const element = React.createElement(MailComposer, {
     mail: draft,
     accountLabel: 'Personal Gmail',

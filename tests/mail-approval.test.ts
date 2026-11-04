@@ -25,7 +25,7 @@ function signer() {
 }
 const owner = signer(); // Fixture software key, explicitly pinned for tests; no presence/hardware claim.
 function request(): MailRequest {
-  return { account: 'personal', to: 'Ada <ada@example.com>', cc: 'bob@example.com', bcc: 'quiet@example.com',
+  return { account: 'gmail-personal', to: 'Ada <ada@example.com>', cc: 'bob@example.com', bcc: 'quiet@example.com',
     subject: 'Test mail', text: 'PRIVATE BODY', threadId: 'thread-1', inReplyTo: '<m@example.com>', references: '<m@example.com>',
     attachments: [{ name: 'a.txt', mimeType: 'text/plain', size: 3, data: Buffer.from('abc').toString('base64') }],
     draft: { draftId: 'draft-1', revision: 1, sourceVersion: 'source-1' } };
@@ -60,8 +60,8 @@ test('positive control: real gateway/gate/audit/MIME, fake provider, committed b
   try {
     const input = approved();
     const id = (input.envelope as Envelope).assertion.approvalId;
-    const send = f.registry.personal.send!;
-    f.registry.personal.send = async (...args) => {
+    const send = f.registry['gmail-personal'].send!;
+    f.registry['gmail-personal'].send = async (...args) => {
       assert.equal(f.db.inTransaction, false);
       assert.equal(f.count(), 1);
       assert.equal(f.audit.list()[0].decision, 'allowed');
@@ -91,7 +91,7 @@ for (const field of ['account', 'to', 'cc', 'bcc', 'subject', 'text', 'threadId'
       const base = request();
       base.attachments!.push({ name: 'b.txt', mimeType: 'text/plain', size: 3, data: Buffer.from('xyz').toString('base64') });
       const input = approved(base);
-      if (field === 'account') input.account = 'business';
+      if (field === 'account') input.account = 'gmail-business';
       else if (field === 'attachment') input.attachments![0].data = Buffer.from('def').toString('base64');
       else if (field === 'attachmentOrder') input.attachments!.reverse();
       else if (field === 'draft') input.draft!.revision++;
@@ -193,7 +193,7 @@ test('dispatch throws AFTER commit: durable uncertain result, spent approval, no
   const f = fixture();
   let attempts = 0;
   try {
-    f.registry.personal.send = async () => { attempts++; assert.equal(f.count(), 1); assert.equal(f.db.inTransaction, false); throw new Error('transport timeout'); };
+    f.registry['gmail-personal'].send = async () => { attempts++; assert.equal(f.count(), 1); assert.equal(f.db.inTransaction, false); throw new Error('transport timeout'); };
     const input = approved();
     await refused(f, input, 'delivery_uncertain');
     const status = await f.gateway.mail_approval_status({ approvalId: (input.envelope as Envelope).assertion.approvalId });
@@ -265,13 +265,13 @@ test('expiry is rechecked after acquiring the SQLite write lock', async () => {
 
 test('source policy still disables signed mail before any spend', async () => {
   const f = fixture();
-  const previous = SEND_POLICY.personal;
+  const previous = SEND_POLICY['gmail-personal'];
   try {
-    SEND_POLICY.personal = { state: 'disabled', reason: 'fixture disabled' };
+    SEND_POLICY['gmail-personal'] = { state: 'disabled', reason: 'fixture disabled' };
     await refused(f, approved(), 'send_disabled');
     assert.equal(f.count(), 0);
     assert.equal(f.sent.length, 0);
-  } finally { SEND_POLICY.personal = previous; f.close(); }
+  } finally { SEND_POLICY['gmail-personal'] = previous; f.close(); }
 });
 
 test('malformed attachment encoding/size and non-mail signed routes cannot dispatch', async () => {
@@ -352,7 +352,7 @@ test('status is current for requested key but last refusal is global, historical
     assert.equal(status.envelopeDeliveryEnabled, true);
     assert.equal(status.lastRefusalCode, 'unknown_key');
     assert.equal(status.lastRefusalAt, T);
-    assert.equal(status.lastRefusalAccount, 'personal');
+    assert.equal(status.lastRefusalAccount, 'gmail-personal');
     assert.equal(status.lastRefusalScope, 'mail_global');
     assert.equal(rpcContract.mail_approval_status.output.safeParse(status).success, true);
   } finally { reloaded.close(); rmSync(dir, { recursive: true, force: true }); }

@@ -129,8 +129,8 @@ test('every source declares its policy, and every enabled source still needs an 
   assert.deepEqual(
     accounts.map(account => [account, SEND_POLICY[account].state]),
     [
-      ['personal', 'enabled'],
-      ['business', 'enabled'],
+      ['gmail-personal', 'enabled'],
+      ['gmail-business', 'enabled'],
       ['whatsapp', 'enabled'],
       ['imessage', 'enabled'],
       ['linkedin', 'enabled'],
@@ -164,7 +164,7 @@ test('every source declares its policy, and every enabled source still needs an 
 test('a blind copy is written down, and a send without one leaves the column empty', async () => {
   const { rows, send } = gate();
   await send(
-    { account: 'personal', conversationId: 'thread-1', text: 'for your eyes', bcc: 'quiet@example.com' },
+    { account: 'gmail-personal', conversationId: 'thread-1', text: 'for your eyes', bcc: 'quiet@example.com' },
     { id: 'bcc-1', conversationId: 'thread-1', issuedAt: T0 },
     async () => ({ status: 'Sent.' }),
   );
@@ -172,7 +172,7 @@ test('a blind copy is written down, and a send without one leaves the column emp
   assert.ok(!JSON.stringify(rows).includes('for your eyes'), 'and still carries no message text');
 
   await send(
-    { account: 'personal', conversationId: 'thread-1', text: 'no copy this time' },
+    { account: 'gmail-personal', conversationId: 'thread-1', text: 'no copy this time' },
     { id: 'bcc-2', conversationId: 'thread-1', issuedAt: T0 },
     async () => ({ status: 'Sent.' }),
   );
@@ -193,8 +193,8 @@ test('a refusal stops before every adapter, and an approved WhatsApp send reache
   try {
     const { rows, send } = gate();
     const attempts: Array<[Account, string, RegExp]> = [
-      ['personal', 'thread-1', /approv/i],
-      ['business', 'thread-1', /approv/i],
+      ['gmail-personal', 'thread-1', /approv/i],
+      ['gmail-business', 'thread-1', /approv/i],
       ['whatsapp', WHATSAPP_ID, /approv/i],
       ['imessage', IMSG_ID, /approv/i],
       ['linkedin', LINKEDIN_ID, /approv/i],

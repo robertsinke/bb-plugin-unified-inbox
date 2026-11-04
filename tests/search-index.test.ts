@@ -10,7 +10,7 @@ function fixture(store: Store | null = null) {
   let items: CachedItem[] = [
     { account: 'whatsapp', id: 'a', title: 'Chat one', preview: 'first', date: 2, unread: false },
     { account: 'whatsapp', id: 'b', title: 'Chat two', preview: 'second', date: 1, unread: false },
-    { account: 'personal', id: 'c', title: 'Chat three', preview: 'third', date: 3, unread: false },
+    { account: 'gmail-personal', id: 'c', title: 'Chat three', preview: 'third', date: 3, unread: false },
   ];
   const threads = new Map<string, unknown[]>([
     ['whatsapp\u0000a', [{ sender: 'Ada', text: 'alpha body' }]],
@@ -60,11 +60,11 @@ test('search builds lazily and then replaces one thread in place', () => {
 
 test('an account refresh updates and removes only that account documents', () => {
   const f = fixture();
-  assert.deepEqual(f.ids('third'), ['personal\u0000c']);
+  assert.deepEqual(f.ids('third'), ['gmail-personal\u0000c']);
   f.setItems([
     { account: 'whatsapp', id: 'b', title: 'Chat two', preview: 'changed', date: 4, unread: false },
   ]);
-  assert.deepEqual(f.ids('third'), ['personal\u0000c']);
+  assert.deepEqual(f.ids('third'), ['gmail-personal\u0000c']);
   assert.deepEqual(f.ids('alpha'), []);
   assert.deepEqual(f.ids('changed'), ['whatsapp\u0000b']);
 });

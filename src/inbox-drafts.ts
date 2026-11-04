@@ -3,6 +3,39 @@ export type InboxDraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeIte
 
 const STORAGE_PREFIX = 'unified-inbox.reply-draft.v1';
 const MAIL_PREFIX = 'unified-inbox.mail-draft.v1';
+const legacyDraftAccounts: Record<string, string> = { personal: 'gmail-personal', business: 'gmail-business' };
+
+/** Drafts saved before the Gmail account ids were renamed. Keeps a newer draft when both exist. */
+export function migrateDraftAccountIds(storage: (InboxDraftStorage & Pick<Storage, 'key' | 'length'>) | undefined) {
+  if (!storage) return;
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (key) keys.push(key);
+    }
+    for (const key of keys) {
+      const match = /^(unified-inbox\.(?:reply|mail)-draft\.v1):(personal|business):([\s\S]+)$/.exec(key);
+      const account = match && legacyDraftAccounts[match[2]];
+      if (!match || !account) continue;
+      const next = `${match[1]}:${account}:${match[3]}`;
+      const raw = storage.getItem(key);
+      if (raw !== null && storage.getItem(next) === null) {
+        const value = match[1].endsWith('mail-draft.v1') ? renamedMailDraft(raw, account) : raw;
+        storage.setItem(next, value);
+      }
+      storage.removeItem(key);
+    }
+  } catch { /* a failed rename leaves the old draft in place */ }
+}
+
+function renamedMailDraft(raw: string, account: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return JSON.stringify({ ...parsed, account });
+  } catch { /* keep the stored text */ }
+  return raw;
+}
 
 export type InboxMailDraft = {
   account: string;

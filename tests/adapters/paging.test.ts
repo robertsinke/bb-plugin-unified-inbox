@@ -80,7 +80,7 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     throw new Error(`unexpected gws call: ${args.join(' ')}`);
   });
   try {
-    const adapter = createGmailAdapter(f.deps, 'personal');
+    const adapter = createGmailAdapter(f.deps, 'gmail-personal');
 
     const first = await adapter.list();
     assert.deepEqual(first.items.map(item => item.id), ['t1'], 'the newest page is what the list shows');
