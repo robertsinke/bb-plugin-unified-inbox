@@ -8,9 +8,10 @@ import { readFileSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import test from 'node:test';
+import { CLI_BUDGET_MS } from './cli-budget.ts';
 
 const repo = new URL('..', import.meta.url).pathname;
-const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', timeout: CLI_BUDGET_MS });
 const tracked = git('ls-files').split('\n').filter(Boolean);
 const current = tracked.filter(f => f.endsWith('.md') && /^status: current/m.test(readFileSync(repo + f, 'utf8')));
 const code = ['src', 'tests', 'server.ts', 'app.tsx']
