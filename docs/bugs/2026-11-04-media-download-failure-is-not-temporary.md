@@ -92,8 +92,18 @@ sqlite3 ~/Library/Application\ Support/whatsagent-desktop/whatsagent.db \
 # then load-media on one of those ids, through the MCP runtime token in mcp-runtime.json
 ```
 
-## Closed?
+## Closed
 
-Not yet re-measured. The daemon must be rebuilt and restarted before the fix is live, and the 61 rows
-already stored `failed/transient` keep that verdict until each is asked for again — the classifier runs
-on the next attempt, so a click on one of those media turns the row `unavailable` on its own.
+Re-measured 2026-11-04 after the daemon rebuild and restart (PID 49510, commit `bfd0f2d`):
+
+| probe | before | after |
+|---|---|---|
+| `load-media` on a 2026-10-05 video | `502`, `reason: transient` | `410`, `reason: unavailable` |
+| `load-media` on a 2019 image | `502`, `reason: transient` | `410`, `reason: unavailable` |
+| that message's row | `failed` / `transient` | `failed` / `unavailable` |
+| the inbox's answer for it | `WhatsAgent: media download failed; …` | `WhatsAgent: media is no longer available.` |
+
+The 61 rows already stored `transient` keep that verdict until each is asked for again — the
+classifier runs on the next attempt, so a click on one of those media turns its row `unavailable` on
+its own. Nothing in this plugin needed changing as a result: the terminal class now arrives as the
+`410` it already mapped.
