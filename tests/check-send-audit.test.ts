@@ -8,15 +8,21 @@ import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { sendAuditWarning } from '../_tools/check-send-audit.ts';
 
-function fixture() {
+/** The `bb` the script finds on PATH. `slow` stands in for a loaded machine or a busy server. */
+type FakeBb = 'fast' | 'slow';
+
+function fixture(bb: FakeBb = 'fast') {
   const dir = mkdtempSync(join(tmpdir(), 'inbox-audit-check-'));
   mkdirSync(join(dir, 'plugins', 'unified-inbox'), { recursive: true });
   const path = join(dir, 'plugins', 'unified-inbox', 'data.db');
-  writeFileSync(join(dir, 'bb'), `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ dataDir: dir })}'\n`, { mode: 0o755 });
+  const script = bb === 'fast'
+    ? `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ dataDir: dir })}'\n`
+    : '#!/bin/sh\nsleep 5\n';
+  writeFileSync(join(dir, 'bb'), script, { mode: 0o755 });
   return {
     path,
-    run: () => spawnSync(process.execPath, ['--experimental-strip-types', fileURLToPath(new URL('../_tools/check-send-audit.ts', import.meta.url))], {
-      encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    run: (env: Record<string, string> = {}) => spawnSync(process.execPath, ['--experimental-strip-types', fileURLToPath(new URL('../_tools/check-send-audit.ts', import.meta.url))], {
+      encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...env },
     }),
     close: () => rmSync(dir, { recursive: true, force: true }),
   };
@@ -71,6 +77,20 @@ test('check script warns on history without failing the build', () => {
     assert.match(result.stderr, /WARNING: 4 allowed attempts/);
     assert.match(result.stderr, /audit row ids=1,2,5,6\./);
     assert.doesNotMatch(result.stderr, /NOT CHECKED/);
+  } finally { f.close(); }
+});
+
+test('a CLI too slow to answer is reported as unchecked, never as a clean audit', () => {
+  // The failure this pins: a fixed 5 s budget made a loaded machine produce the same line as a
+  // missing database, so the harness looked like a passed check. The budget is now named, and a
+  // timeout is a statement about the check, not about the history.
+  const f = fixture('slow');
+  try {
+    seed(f.path, Date.now());
+    const result = f.run({ UNIFIED_INBOX_AUDIT_TIMEOUT_MS: '50' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /WARNING: audit NOT CHECKED \(.*ETIMEDOUT.*\)/);
+    assert.doesNotMatch(result.stderr, /WARNING: 4 allowed attempts/, 'an unread history is not a verdict about it');
   } finally { f.close(); }
 });
 
