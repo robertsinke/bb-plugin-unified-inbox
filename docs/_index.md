@@ -68,7 +68,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md`](bugs/2026-11-04-media-download-failure-is-not-temporary.md) | open | 2026-11-04 |  |
+| [`docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md`](bugs/2026-11-04-media-download-failure-is-not-temporary.md) | settled | 2026-11-04 |  |
 | [`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`](bugs/2026-11-03-handler-error-counter-conflates-timeouts.md) | open | 2026-11-03 |  |
 | [`docs/bugs/2026-11-02-orphaned-automation-processes.md`](bugs/2026-11-02-orphaned-automation-processes.md) | open | 2026-11-02 |  |
 
