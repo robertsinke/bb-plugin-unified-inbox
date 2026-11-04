@@ -217,8 +217,9 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
         () => registry[source].action(action, id, { text }),
       );
     },
-    async send_audit({ limit }) {
-      return { rows: audit.list(limit ?? 5) };
+    // No argument reads the default page: the panel and the CLI both ask with nothing.
+    async send_audit(input) {
+      return { rows: audit.list(input?.limit ?? 5) };
     },
     async mail_approval_policy() { return gate.mailPolicy(); },
     async mail_approval_status(input) { return gate.mailStatus(input); },

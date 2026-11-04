@@ -82,13 +82,14 @@ export function createMailGate(deps: MailGateDeps) {
       || value.allowedKeyIds.some(key => typeof key !== 'string' || !/^[0-9a-f]{64}$/.test(key))) throw new MailApprovalError('configuration_error');
     return value;
   }
-  async function status(input: { approvalId?: string; keyId?: string }) {
+  // No argument asks about the policy alone; the panel asks this before it offers a send.
+  async function status(input: { approvalId?: string; keyId?: string } | null) {
     const config = await policy();
     const last = deps.lastRefusal?.() ?? null;
     return {
-      spend: (input.approvalId ? read?.get(input.approvalId) as MailSpend | undefined : undefined) ?? null,
+      spend: (input?.approvalId ? read?.get(input.approvalId) as MailSpend | undefined : undefined) ?? null,
       mode: config.mode, pinnedKeyCount: config.allowedKeyIds.length,
-      keyPinned: input.keyId ? config.allowedKeyIds.includes(input.keyId) : null,
+      keyPinned: input?.keyId ? config.allowedKeyIds.includes(input.keyId) : null,
       legacyAllowed: config.mode !== 'require',
       envelopeDeliveryEnabled: config.mode !== 'prepare' && config.allowedKeyIds.length > 0 && !!db,
       lastRefusalCode: last?.reason ?? null, lastRefusalAt: last?.at ?? null,

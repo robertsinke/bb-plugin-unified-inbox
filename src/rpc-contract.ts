@@ -28,6 +28,10 @@ const timestamp = z.number().int().nonnegative().nullable();
 const freshness = z.record(account, z.object({ lastAttemptAt: timestamp, lastSuccessAt: timestamp, lastError: z.string().nullable(), cacheFallback: z.boolean() }));
 const threadResult = z.object({ messages: z.array(message), updatedAt: timestamp.optional(), cacheFallback: z.boolean().optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
+// A method that takes nothing still gets called more than one way: `null` from the panel, the CLI
+// and the mention provider, `{}` from a client that always sends a body. Both name the same call, so
+// they mean one thing here instead of a schema refusal for whichever way the caller happens to send.
+const noArgs = z.union([z.null(), z.object({}).strict()]);
 export const rpcContract = defineRpcContract({
   // `null` is the call every existing consumer makes (the panel's poll, the CLI, the mention
   // provider) and it keeps answering exactly what it always did. `{ older: true }` asks every
@@ -35,12 +39,12 @@ export const rpcContract = defineRpcContract({
   // source, which is how the panel grows the list as each answers instead of waiting for the
   // slowest. `more` answers for the scope the call named.
   list: { input: z.object({ older: z.boolean().optional(), account: account.optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
-  cached: { input: z.null(), output: z.object({ items: z.array(item), freshness: freshness.optional(), more: z.record(account, z.boolean()).optional() }) },
-  freshness: { input: z.null(), output: freshness },
+  cached: { input: noArgs, output: z.object({ items: z.array(item), freshness: freshness.optional(), more: z.record(account, z.boolean()).optional() }) },
+  freshness: { input: noArgs, output: freshness },
   search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })), truncated: z.boolean() }) },
-  search_status: { input: z.null(), output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
+  search_status: { input: noArgs, output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
-  clear_cache: { input: z.null(), output: z.object({ cleared: z.boolean() }) },
+  clear_cache: { input: noArgs, output: z.object({ cleared: z.boolean() }) },
   // One refresh primitive for every source: the adapter for the account decides
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
@@ -62,12 +66,12 @@ export const rpcContract = defineRpcContract({
     replace: z.boolean().optional(),
   }).strict(), output: z.object({ url: z.string().optional(), controls: z.array(pageControl).optional(), text: z.string().optional(), clicked: z.boolean().optional(), control: pageControl.optional(), typed: z.boolean().optional(), reason: z.string().optional(), focus: pageControl.optional(), description: z.unknown().optional(), recipients: z.array(z.string()).optional() }) },
   linkedin_record: { input: z.object({ op: z.enum(['arm', 'clear', 'dump']) }).strict(), output: z.object({ installed: z.boolean().optional(), recording: z.boolean().optional(), writes: z.array(recordedWrite).optional(), seen: z.unknown().optional() }) },
-  linkedin_writes: { input: z.null(), output: z.object({ writes: z.array(recordedWrite) }) },
+  linkedin_writes: { input: noArgs, output: z.object({ writes: z.array(recordedWrite) }) },
   linkedin_replay: { input: z.object({ write: recordedWrite, conversationId: z.string().min(1).max(512), text: z.string().max(20_000).optional(), confirm: z.boolean() }).strict(), output: z.object({ ok: z.boolean(), status: z.number().int().nonnegative() }) },
-  linkedin_signin: { input: z.null(), output: z.object({ profile: z.string(), message: z.string() }) },
+  linkedin_signin: { input: noArgs, output: z.object({ profile: z.string(), message: z.string() }) },
   // What the send gate decided, newest first: the same rows `bb unified-inbox send-audit`
   // prints, so a refused send is visible where it happened rather than only in a terminal.
-  send_audit: { input: z.object({ limit: z.number().int().min(1).max(50).optional() }).strict(), output: z.object({ rows: z.array(z.object({ at: z.number(), account, conversationId: z.string(), decision: z.enum(['allowed', 'refused']),
+  send_audit: { input: z.object({ limit: z.number().int().min(1).max(50).optional() }).strict().nullable(), output: z.object({ rows: z.array(z.object({ at: z.number(), account, conversationId: z.string(), decision: z.enum(['allowed', 'refused']),
             reason: z.string().nullable().optional(),
             // The audience the conversation id cannot name: who was blind-copied.
             bcc: z.string().nullable().optional(),
@@ -93,8 +97,8 @@ export const rpcContract = defineRpcContract({
     draft: z.object({ draftId: z.string().min(1).max(512), revision: z.number().int().min(1), sourceVersion: z.string().max(512) }).strict().optional(),
   }).strict(), output: z.object({ status: z.string(), authorizationModel: z.enum(['legacy_mail_allow','envelope_mail']).optional(),
     warning: z.string().optional(), approvalId: z.string().optional(), state: z.literal('accepted').optional() }) },
-  mail_approval_policy: { input: z.null(), output: z.object({ mode: z.enum(['prepare','compatibility','require']), allowedKeyIds: z.array(z.string()) }) },
-  mail_approval_status: { input: z.object({ approvalId: z.string().min(1).max(512).optional(), keyId: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(), output: z.object({
+  mail_approval_policy: { input: noArgs, output: z.object({ mode: z.enum(['prepare','compatibility','require']), allowedKeyIds: z.array(z.string()) }) },
+  mail_approval_status: { input: z.object({ approvalId: z.string().min(1).max(512).optional(), keyId: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict().nullable(), output: z.object({
     mode: z.enum(['prepare','compatibility','require']), pinnedKeyCount: z.number().int().nonnegative(),
     keyPinned: z.boolean().nullable(), legacyAllowed: z.boolean(), envelopeDeliveryEnabled: z.boolean(),
     lastRefusalCode: z.string().nullable(), lastRefusalAt: z.number().nullable(), lastRefusalWasKeyMismatch: z.boolean(),
@@ -103,9 +107,9 @@ export const rpcContract = defineRpcContract({
     approvalId: z.string(), payloadHash: z.string(), keyId: z.string(), account: z.string(),
     state: z.enum(['spent','accepted','uncertain']), spentAt: z.number(),
   }).nullable() }) },
-  capabilities: { input: z.null(), output: z.record(account, capabilitiesSchema) },
+  capabilities: { input: noArgs, output: z.record(account, capabilitiesSchema) },
   // What each source *is*, as opposed to what it can do: the name a person knows it by, its icon,
   // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its
   // own, so a renamed source is renamed everywhere the moment its adapter says so.
-  sources: { input: z.null(), output: z.record(account, sourceDeclarationSchema) },
+  sources: { input: noArgs, output: z.record(account, sourceDeclarationSchema) },
 });

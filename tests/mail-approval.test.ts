@@ -349,6 +349,11 @@ test('status is current for requested key but last refusal is global, historical
   try {
     const status = await reloaded.gateway.mail_approval_status({ keyId: owner.keyId });
     assert.equal(status.keyPinned, true);
+    // The panel asks with nothing at all when it only wants the policy: no key to judge, same
+    // global refusal history. A null input must not read through a property.
+    const bare = await reloaded.gateway.mail_approval_status(null);
+    assert.equal(bare.keyPinned, null, 'no key asked about means no pin answer');
+    assert.equal(bare.lastRefusalCode, 'unknown_key', 'and the refusal history is the same read');
     assert.equal(status.envelopeDeliveryEnabled, true);
     assert.equal(status.lastRefusalCode, 'unknown_key');
     assert.equal(status.lastRefusalAt, T);
