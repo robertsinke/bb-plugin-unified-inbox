@@ -5,6 +5,13 @@ import { pathToFileURL } from 'node:url';
 
 const WINDOW_DAYS = 7;
 
+/**
+ * One `bb status --json` round-trip, which spawns the CLI and reaches the BB server. 30 s is the
+ * budget `src/adapters/gws.ts` already gives an external CLI; the 5 s this used to allow made a
+ * loaded machine look exactly like an audit that could not be read, and the log said so either way.
+ */
+const CLI_TIMEOUT_MS = Number(process.env.UNIFIED_INBOX_AUDIT_TIMEOUT_MS ?? 30_000);
+
 /** Read-only inspection of the installed plugin, never a schema migration or a send. */
 export function sendAuditWarning(databasePath: string, since: number): string | null {
   const db = new Database(databasePath, { readonly: true, fileMustExist: true, timeout: 1_000 });
@@ -21,7 +28,7 @@ export function sendAuditWarning(databasePath: string, since: number): string | 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const status = JSON.parse(execFileSync('bb', ['status', '--json'], { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }));
+    const status = JSON.parse(execFileSync('bb', ['status', '--json'], { encoding: 'utf8', timeout: CLI_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] }));
     if (typeof status.dataDir !== 'string' || !status.dataDir) throw new Error('BB did not report a data directory');
     const warning = sendAuditWarning(join(status.dataDir, 'plugins', 'unified-inbox', 'data.db'), Date.now() - WINDOW_DAYS * 86_400_000);
     if (warning) console.warn(warning);
