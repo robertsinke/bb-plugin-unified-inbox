@@ -16,8 +16,8 @@ export { accounts } from './types.ts';
 /** One adapter per account, every account covered. */
 export function createRegistry(deps: RegistryDeps): Record<Account, Adapter> {
   return {
-    personal: createGmailAdapter(deps, 'personal'),
-    business: createGmailAdapter(deps, 'business'),
+    'gmail-personal': createGmailAdapter(deps, 'gmail-personal'),
+    'gmail-business': createGmailAdapter(deps, 'gmail-business'),
     whatsapp: createWhatsAppAdapter(deps),
     imessage: createIMessageAdapter(deps),
     linkedin: createLinkedInAdapter(deps),

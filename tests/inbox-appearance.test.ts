@@ -11,8 +11,8 @@ const app = readFileSync(new URL('../app.tsx', import.meta.url), 'utf8');
 test('every source draws the one bubble base, and only the accent differs', () => {
   const classes = accounts.map(bubbleClass);
   assert.deepEqual(classes, [
-    'ui-bubble is-personal',
-    'ui-bubble is-business',
+    'ui-bubble is-gmail-personal',
+    'ui-bubble is-gmail-business',
     'ui-bubble is-whatsapp',
     'ui-bubble is-imessage',
     'ui-bubble is-linkedin',

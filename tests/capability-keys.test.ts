@@ -24,7 +24,7 @@ test('one list names the capabilities, and the fallback is derived from it', () 
 test('every source declares every capability, so a new one cannot be forgotten in one adapter', () => {
   const h = harness();
   try {
-    for (const account of ['whatsapp', 'personal', 'business', 'imessage', 'linkedin'] as const) {
+    for (const account of ['whatsapp', 'gmail-personal', 'gmail-business', 'imessage', 'linkedin'] as const) {
       const declared = h.registry[account].capabilities();
       for (const key of CAPABILITY_KEYS) {
         assert.equal(typeof declared[key], 'boolean', `${account} declares ${key}`);

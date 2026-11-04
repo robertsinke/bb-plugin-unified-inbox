@@ -30,7 +30,7 @@ function recordingRpc(answers: Record<string, (input: any) => unknown> = {}) {
 test('refresh asks every source the same question: sync, once each', async () => {
   const rpc = recordingRpc();
   const session = createInboxSession({ rpc });
-  await session.refresh(['whatsapp', 'personal', 'business', 'imessage', 'linkedin']);
+  await session.refresh(['whatsapp', 'gmail-personal', 'gmail-business', 'imessage', 'linkedin']);
   const syncs = rpc.calls.filter(call => call.name === 'sync');
   assert.equal(syncs.length, 5, 'one sync call per source');
   assert.deepEqual(
@@ -40,7 +40,7 @@ test('refresh asks every source the same question: sync, once each', async () =>
   );
   assert.deepEqual(
     [...new Set(syncs.map(call => (call.input as { account: string }).account))].sort(),
-    ['business', 'imessage', 'linkedin', 'personal', 'whatsapp'],
+    ['gmail-business', 'gmail-personal', 'imessage', 'linkedin', 'whatsapp'],
   );
 });
 

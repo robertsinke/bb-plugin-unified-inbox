@@ -26,8 +26,8 @@ const HTML_LIMIT = 800_000;
 
 /** The address each Gmail account sends as, and never suggests to itself. */
 const SELF: Record<GmailAccount, string> = {
-  personal: 'personal@example.com',
-  business: 'work@example.com',
+  'gmail-personal': 'personal@example.com',
+  'gmail-business': 'work@example.com',
 };
 
 // `send` is declared because this adapter implements it; whether it may be used is the send
@@ -43,8 +43,8 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, 
  * arrive.
  */
 const SOURCE: Record<GmailAccount, SourceDeclaration> = {
-  personal: { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
-  business: { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
+  'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
+  'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
 };
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */

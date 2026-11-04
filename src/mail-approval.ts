@@ -2,7 +2,7 @@ import { experimental_PluginRpcRefusal } from '@get-bb/plugin-sdk';
 import type Database from 'better-sqlite3';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import type { AuditRow } from './adapters/policy.ts';
-import type { GmailDraft, SendReceipt } from './adapters/types.ts';
+import { gmailAccounts, type GmailDraft, type SendReceipt } from './adapters/types.ts';
 import { assertionBytes, buildPayload, payloadHash, sha256Hex, validateAssertion, type Payload } from './send-approval/canonical.ts';
 import { verifyApproval, type RefusalCode } from './send-approval/verify.ts';
 
@@ -117,7 +117,7 @@ export function createMailGate(deps: MailGateDeps) {
         ...metadata, authorizationModel: 'envelope_mail', reason: code });
       throw new MailApprovalError(code);
     }
-    if (!['personal', 'business'].includes(account)) return refuse('invalid_mail');
+    if (!(gmailAccounts as readonly string[]).includes(account)) return refuse('invalid_mail');
     if (!deps.enabled(account)) return refuse('send_disabled');
     let config: MailPolicy;
     try { config = await policy(); } catch { return refuse('configuration_error'); }

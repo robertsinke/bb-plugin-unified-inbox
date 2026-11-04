@@ -89,6 +89,12 @@ unencrypted SQLite storage on the BB server.
 
 ## For agents
 
+BB registers five read-only tools on the same gateway the panel uses: `inbox_list` browses the cached
+conversation list, `inbox_search` requires a query and returns ranked cached excerpts, `inbox_refresh`
+updates one source's newest page, `inbox_read` returns messages and media references, and
+`inbox_view_image` returns a PNG, JPEG, WebP, or GIF from a reference in that cached conversation.
+Stored Gmail account ids are `gmail-personal` and `gmail-business`. These tools do not send.
+
 One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeated here, so it cannot fall
 behind): reads and the cache, search, `media`, `capabilities` and `sources`, the `action`/`send_gmail` writes,
 `send_audit`, and the LinkedIn page driver. Which module owns which of those is `src/CONTEXT.md`. A reply

@@ -28,10 +28,10 @@ function seed(path: string, at: number) {
   const insert = db.prepare('INSERT INTO inbox_send_audit (id, at, account, decision, approval_id) VALUES (?, ?, ?, ?, ?)');
   insert.run(1, at, 'linkedin', 'allowed', null);
   insert.run(2, at, 'linkedin', 'allowed', '');
-  insert.run(3, at, 'personal', 'allowed', 'caller-minted');
+  insert.run(3, at, 'gmail-personal', 'allowed', 'caller-minted');
   insert.run(4, at, 'linkedin', 'refused', null);
   insert.run(5, at - 1, 'linkedin', 'allowed', null);
-  insert.run(6, at, 'business', 'allowed', '  ');
+  insert.run(6, at, 'gmail-business', 'allowed', '  ');
   db.close();
 }
 
@@ -42,7 +42,7 @@ test('audit warning filters by age and missing approval; reports counts/ids with
     const before = readFileSync(f.path);
     const warning = sendAuditWarning(f.path, 100)!;
     assert.match(warning, /3 allowed attempts/);
-    assert.match(warning, /counts=\{"linkedin":2,"business":1\}/);
+    assert.match(warning, /counts=\{"linkedin":2,"gmail-business":1\}/);
     assert.match(warning, /audit row ids=1,2,6\./);
     assert.match(warning, /do not prove delivery or human approval/);
     assert.match(warning, /unmarked historical ids do not prove human approval/);

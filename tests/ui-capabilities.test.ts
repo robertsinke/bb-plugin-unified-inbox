@@ -98,7 +98,7 @@ test('answering invitations is offered only where the source declares it', () =>
   assert.equal(canAnswerInvitation(null, 'linkedin'), false);
   // No other source answers invitations even with everything else turned on.
   const withoutInvitations = everySource({ ...EVERYTHING, invitations: false });
-  for (const account of ['personal', 'business', 'whatsapp', 'imessage'] as const) {
+  for (const account of ['gmail-personal', 'gmail-business', 'whatsapp', 'imessage'] as const) {
     assert.equal(canAnswerInvitation(withoutInvitations, account), false, account);
   }
 });
@@ -107,9 +107,9 @@ test('the composer follows the thread declaration, not the source name', () => {
   // Gmail opens a document and answers in a mail form, so it declares no thread; the other four do.
   const declared = everySource({ ...NOTHING, threads: true });
   for (const account of accounts) assert.equal(hasThread(declared, account), true, account);
-  const mail = { ...declared, personal: { ...NOTHING, threads: false }, business: { ...NOTHING, threads: false } };
+  const mail = { ...declared, 'gmail-personal': { ...NOTHING, threads: false }, 'gmail-business': { ...NOTHING, threads: false } };
   assert.deepEqual(
-    [hasThread(mail, 'personal'), hasThread(mail, 'business'), hasThread(mail, 'whatsapp')],
+    [hasThread(mail, 'gmail-personal'), hasThread(mail, 'gmail-business'), hasThread(mail, 'whatsapp')],
     [false, false, true],
     'the two mail accounts keep their own surface while a thread source keeps the composer',
   );

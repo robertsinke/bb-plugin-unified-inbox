@@ -93,7 +93,7 @@ test('an audit table from the earlier build gains the newer columns in place', a
     const reopened = new Database(file);
     const audit = createSendAudit(reopened);
     assert.equal(audit.list().length, 1, 'the row written before the migration is still there');
-    audit.record({ at: 2, operation: 'send', account: 'personal', conversationId: 'b', decision: 'allowed', approvalId: 'p2', bcc: 'quiet@example.com' });
+    audit.record({ at: 2, operation: 'send', account: 'gmail-personal', conversationId: 'b', decision: 'allowed', approvalId: 'p2', bcc: 'quiet@example.com' });
     assert.equal(audit.list()[0].bcc, 'quiet@example.com', 'and the blind copy has somewhere to go');
     const gate = createSendGate({ now: () => T0, store: audit });
     await gate(

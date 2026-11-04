@@ -7,7 +7,7 @@ import { rpcContract } from '../src/rpc-contract.ts';
 
 test('a minimal Gmail send reaches the policy, not a schema refusal', () => {
   const parsed = rpcContract.send_gmail.input.safeParse({
-    account: 'personal',
+    account: 'gmail-personal',
     to: 'ada@example.com',
     subject: 'Dinner',
     text: 'See you at six',
@@ -17,7 +17,7 @@ test('a minimal Gmail send reaches the policy, not a schema refusal', () => {
 
 test('a Gmail send can carry the send statement, so enabling it is a policy flip', () => {
   const parsed = rpcContract.send_gmail.input.safeParse({
-    account: 'personal',
+    account: 'gmail-personal',
     to: 'ada@example.com',
     cc: 'grace@example.com',
     subject: 'Dinner',
@@ -26,7 +26,7 @@ test('a Gmail send can carry the send statement, so enabling it is a policy flip
   });
   assert.equal(parsed.success, true, 'the same word the chat send path uses');
   const refused = rpcContract.send_gmail.input.safeParse({
-    account: 'personal',
+    account: 'gmail-personal',
     to: 'ada@example.com',
     subject: 'Dinner',
     text: 'See you at six',
@@ -72,7 +72,7 @@ test('a send decision that was allowed has no reason, and the contract says so',
 });
 
 test('a Gmail draft can carry a blind copy', () => {
-  const send = { account: 'business' as const, to: 'a@example.com', bcc: 'hidden@example.com', subject: 'Hi', text: 'Hello' };
+  const send = { account: 'gmail-business' as const, to: 'a@example.com', bcc: 'hidden@example.com', subject: 'Hi', text: 'Hello' };
   assert.equal(rpcContract.send_gmail.input.safeParse(send).success, true);
   assert.equal(rpcContract.send_gmail.input.safeParse({ ...send, bcc: 'x@example.com\r\nBcc: y@example.com' }).success, false, 'the header guard applies to bcc too');
 });
@@ -83,7 +83,7 @@ test('list keeps the no-input call every consumer makes and gains an opt-in page
   assert.equal(rpcContract.list.input.safeParse({ older: true }).success, true);
   assert.equal(rpcContract.list.input.safeParse({ older: 'yes' }).success, false, 'only a boolean asks for a page');
   assert.equal(rpcContract.list.input.safeParse({ older: true, cursor: 'page-2' }).success, false, 'a mistyped field is refused, not ignored: the gateway keeps the cursor');
-  assert.equal(rpcContract.list.input.safeParse({ older: true, account: 'personal' }).success, true, 'one source can be asked on its own, which is how the list grows as each answers');
+  assert.equal(rpcContract.list.input.safeParse({ older: true, account: 'gmail-personal' }).success, true, 'one source can be asked on its own, which is how the list grows as each answers');
   assert.equal(rpcContract.list.input.safeParse({ older: true, account: 'nobody' }).success, false, 'and only a source that exists');
 
   // The shape the panel has always been handed still parses, so a caller that never asks for a

@@ -135,12 +135,12 @@ test('the registry answers for every account, and each declares its own capabili
 test('personal Gmail lists, opens and updates through its adapter', async () => {
   const f = fixture();
   try {
-    const adapter = f.registry.personal;
+    const adapter = f.registry['gmail-personal'];
     assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.errors, []);
-    assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.sender]), [['personal', 't1', 'Dinner', 'Ada Lovelace']]);
+    assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.sender]), [['gmail-personal', 't1', 'Dinner', 'Ada Lovelace']]);
     assert.equal(listed.items[0].preview, 'See you at six');
 
     const opened = await adapter.open('t1');
@@ -154,30 +154,30 @@ test('personal Gmail lists, opens and updates through its adapter', async () => 
 });
 
 test('a Gmail send reports success only when the CLI names the sent message', async () => {
-  const sentDraft = { kind: 'gmail' as const, account: 'personal' as const, to: 'ada@example.com', subject: 'Dinner', text: 'Six works.' };
+  const sentDraft = { kind: 'gmail' as const, account: 'gmail-personal' as const, to: 'ada@example.com', subject: 'Dinner', text: 'Six works.' };
   const f = fixture();
   try {
-    assert.deepEqual(await f.registry.personal.send!(sentDraft, {}), { status: 'Sent.' });
+    assert.deepEqual(await f.registry['gmail-personal'].send!(sentDraft, {}), { status: 'Sent.' });
     assert.deepEqual(f.calls, ['gmail:send']);
     assert.match(String(f.sent[0].raw), /Subject: Dinner/);
-    await assert.rejects(f.registry.personal.send!({ ...sentDraft, account: 'business' }, {}), /another account/);
+    await assert.rejects(f.registry['gmail-personal'].send!({ ...sentDraft, account: 'gmail-business' }, {}), /another account/);
   } finally { f.done(); }
 
   const unconfirmed = fixture({});
   try {
-    await assert.rejects(unconfirmed.registry.personal.send!(sentDraft, {}), /outcome is unknown/);
+    await assert.rejects(unconfirmed.registry['gmail-personal'].send!(sentDraft, {}), /outcome is unknown/);
   } finally { unconfirmed.done(); }
 });
 
 test('business Gmail answers for its own credential directory, not the personal one', async () => {
   const f = fixture();
   try {
-    assert.deepEqual(f.registry.business.capabilities(), f.registry.personal.capabilities());
-    await f.registry.business.list();
-    await f.registry.business.open('t1');
+    assert.deepEqual(f.registry['gmail-business'].capabilities(), f.registry['gmail-personal'].capabilities());
+    await f.registry['gmail-business'].list();
+    await f.registry['gmail-business'].open('t1');
     const gmailCalls = f.calls.filter(call => call.startsWith('gmail:'));
     assert.ok(gmailCalls.length >= 3);
-    assert.ok(gmailCalls.every(call => call.startsWith('gmail:business:')));
+    assert.ok(gmailCalls.every(call => call.startsWith('gmail:gmail-business:')));
   } finally { f.done(); }
 });
 
