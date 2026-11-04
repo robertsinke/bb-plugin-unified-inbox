@@ -1,12 +1,14 @@
 ---
 title: "Bug report — a permanent media failure is reported as a temporary one"
-status: open
+status: settled
 date: 2026-11-04
 ---
 
 # Bug report — a permanent media failure is reported as a temporary one
 
-**Filed:** 2026-11-04 · **Owner:** WhatsAgent (the provider), with one wording change here · **Status:** measured, cause named, wording fixed here, classification fix proposed upstream
+**Filed:** 2026-11-04 · **Owner:** WhatsAgent (the provider) · **Status:** measured, cause named, fixed in WhatsAgent `bfd0f2d` the same day, with one wording change here
+
+**Fixed by:** WhatsAgent `bfd0f2d` — `classifyMediaFailure` takes the message's age, so a server-side refusal on media older than `MEDIA_SERVE_WINDOW_DAYS` (14) is stored `unavailable` instead of `transient`, and a connection error stays retriable at any age.
 
 ## Symptom
 
@@ -67,15 +69,18 @@ The mapping is faithful to what the provider said, and wrong about what the user
 `src/adapters/whatsagent.ts` now answers `502` with
 `WhatsAgent: media download failed; WhatsApp may no longer serve it.` — the same status, described as
 reachable-both-ways rather than promised-to-recover. `tests/adapters/whatsagent-error.test.ts` pins
-the words. No retry was added: the measurement above says a retry inside the session always fails,
-so it would only add seconds before the same answer.
+the words. This stays after the upstream fix: `502` still covers a recent message whose download
+really did fail once, and no retry was added, because the measurement above says a retry inside the
+session fails anyway.
 
-## Proposed fix upstream
+## What was changed in WhatsAgent
 
-In WhatsAgent's `classifyMediaFailure`: a failed fetch carries no age, but the message does. Treat a
-failure as `unavailable` when the message is older than the window WhatsApp serves media for
-(practically: anything older than a few weeks), and keep `transient` for recent messages. That turns
-"try again" into "this is gone" at the layer that knows the difference.
+`classifyMediaFailure` (`server/channels/whatsapp/media.ts`) returned `unavailable` only for `404`/`410`,
+so an expired-media refusal (412/418/5xx) was stored `transient` forever. It now takes the message's
+age: a server-side refusal past the window is terminal, a connection error (no status at all) stays
+retriable. The window is a named constant inside the measured gap — 9 days worked, 19 days did not —
+not a value WhatsApp publishes. Tests in `server/api/media.test.ts` pin both sides of the boundary and
+the end-to-end row (`failed` + `unavailable` for a 2025 message that refuses with 418).
 
 ## Reproduce
 
@@ -86,3 +91,9 @@ sqlite3 ~/Library/Application\ Support/whatsagent-desktop/whatsagent.db \
   "select id, datetime(ts,'unixepoch') from messages where media_state='placeholder' order by ts asc limit 4;"
 # then load-media on one of those ids, through the MCP runtime token in mcp-runtime.json
 ```
+
+## Closed?
+
+Not yet re-measured. The daemon must be rebuilt and restarted before the fix is live, and the 61 rows
+already stored `failed/transient` keep that verdict until each is asked for again — the classifier runs
+on the next attempt, so a click on one of those media turns the row `unavailable` on its own.
