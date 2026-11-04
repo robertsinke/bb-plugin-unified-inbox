@@ -67,17 +67,20 @@ shares the same per-source flight. The `freshness` RPC exposes persisted
 `lastAttemptAt`, `lastSuccessAt`, `lastError`, and `cacheFallback`; only a
 successful live read or live delta check advances success. Failed refreshes
 retain previous rows; `cacheFallback` is true only if that source has cached rows.
-Consecutive failures double the retry delay up to one hour; success restores the
-source's normal cadence. Manual refresh does not wait for that retry delay.
+Consecutive failures double the retry delay, but it stays near that source's own
+cadence — four poll intervals at most, so a source that recovers is retried within
+minutes rather than an hour; success restores the source's normal cadence. Manual
+refresh does not wait for that retry delay.
 The panel reads this state rather than owning sync.
 
 LinkedIn list/probe reads are GET-only, share the browser's operation gate, and
-have a 10-second evaluation timeout, so a slow read can delay a queued send by at
+have a 20-second evaluation timeout, so a slow read can delay a queued send by at
 most that evaluation window when the browser is already warm. Read failures do
 not stop or replace the interactive page or its recorder. Idle shutdown is paused
 during operations. Healthy 45-second polling keeps the 90-second-idle Chrome
 process running while the plugin is loaded; this is the power/memory cost of
-unattended LinkedIn refresh. Backoff lets it idle out after failures.
+unattended LinkedIn refresh. A failure costs the source one poll interval, and the
+backoff above lets Chrome idle out after a few of them.
 
 Opened bodies have independent `updatedAt` timestamps; legacy bodies have unknown
 age. `cached_open` and failed Gmail/LinkedIn opens explicitly report

@@ -25,6 +25,8 @@ interface FixtureOptions {
   click?: { clicked: boolean; reason?: string; recipients?: string[] };
   /** One source whose `list` rejects, for the isolation case. */
   fail?: Account;
+  /** One source whose `sync` rejects with a sentence it already phrased, for the message-fidelity case. */
+  syncFailure?: { account: Account; message: string };
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
@@ -106,6 +108,9 @@ function fixture(options: FixtureOptions = {}) {
     ...(name === 'gmail-personal' ? personal : {}),
     ...(name === options.fail
       ? { list: async (): Promise<never> => { calls.push(`${name}:list`); throw new Error('provider exploded'); } }
+      : {}),
+    ...(name === options.syncFailure?.account
+      ? { sync: async (): Promise<never> => { calls.push(`${name}:sync`); throw new Error(options.syncFailure!.message); } }
       : {}),
   })])) as Record<Account, Adapter>;
   const gateway = createGateway({
@@ -239,4 +244,20 @@ test('one failing source becomes one line and the rest still list', async () => 
   assert.deepEqual(listed.items.map(row => row.id), [FIRST.id]);
   assert.deepEqual(listed.errors, ['WhatsApp unavailable. Check its connection.']);
   assert.equal(listed.more, true);
+});
+
+test('a source failure that already names itself keeps its own words', async () => {
+  // The provider-error factory writes `<source> <account> request failed (<code>)`, and a Gmail
+  // account key is `gmail-personal` / `gmail-business`. A token that could not span the hyphen made
+  // every Gmail failure read "Inhouse Gmail unavailable. Check its connection." instead.
+  const message = 'gmail gmail-business request failed (ETIMEDOUT; timeout): Command failed: /usr/local/bin/gws gmail users threads list';
+  const f = fixture({ syncFailure: { account: 'gmail-business', message } });
+
+  await assert.rejects(
+    async () => { await f.gateway.sync({ account: 'gmail-business', limit: 10 }); },
+    (error: unknown) => error instanceof Error && error.message === message,
+  );
+  const fresh = await f.gateway.freshness(null);
+  assert.equal(fresh['gmail-business'].lastError, message, 'the stored line is the reason, not a generic sentence');
+  assert.equal(fresh['gmail-business'].lastSuccessAt, null, 'a failure never advances success');
 });

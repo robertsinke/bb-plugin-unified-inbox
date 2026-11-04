@@ -59,6 +59,19 @@ test('the name in the line is the one the source declares, so renaming it needs 
   assert.deepEqual(render(error, renamed), ['Work Gmail could not refresh.'], 'the panel holds no copy of the name');
 });
 
+test('a cached failure that already names its source is named once, not twice', () => {
+  // The cache keeps the sentence the source wrote, and these two open with the source's own name.
+  const lines = render([
+    { account: 'gmail-business', kind: 'refresh', message: 'Inhouse Gmail unavailable. Check its connection. Previously loaded messages may be stale.' },
+    { account: 'linkedin', kind: 'refresh', message: 'LinkedIn did not answer in time. Previously loaded messages may be stale.' },
+  ], DECLARED);
+
+  assert.deepEqual(lines, [
+    'Inhouse Gmail unavailable. Check its connection. Previously loaded messages may be stale.',
+    'LinkedIn did not answer in time. Previously loaded messages may be stale.',
+  ]);
+});
+
 test('a failure no source owns reads as its own sentence, and nothing renders when nothing failed', () => {
   assert.deepEqual(
     render([{ kind: 'older', message: 'Older conversations could not load in time: nothing answered within 15 seconds.' }], DECLARED),

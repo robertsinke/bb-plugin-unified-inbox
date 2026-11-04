@@ -81,7 +81,7 @@ test('workers refresh every source without a UI and stop on host abort', async (
   } finally { f.db.close(); }
 });
 
-test('consecutive failures back off to one hour; success resets the delay', async () => {
+test('consecutive failures back off to four times the source cadence; success resets the delay', async () => {
   const controller = new AbortController();
   const delays: number[] = [];
   let attempts = 0;
@@ -94,8 +94,10 @@ test('consecutive failures back off to one hour; success resets the delay', asyn
     if (delays.length === 13) controller.abort();
   });
   assert.equal(attempts, 13);
-  assert.deepEqual(delays, [90_000, 180_000, 360_000, 720_000, 1_440_000, 2_880_000,
-    3_600_000, 3_600_000, 3_600_000, 45_000, 45_000, 90_000, 180_000]);
+  // The delay never grows past four cadences, so a recovered source is retried within a few minutes
+  // rather than an hour; two successes put the source back on its 45-second cadence.
+  assert.deepEqual(delays, [90_000, 180_000, 180_000, 180_000, 180_000, 180_000, 180_000,
+    180_000, 180_000, 45_000, 45_000, 90_000, 180_000]);
 });
 
 test('abort cancels a pending worker sleep without another refresh', async () => {
