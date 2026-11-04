@@ -19,8 +19,13 @@ import { message, rpcContract } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
 import type { createSendAudit } from './send-audit.ts';
 
-/** Failure text a source already phrased for a person, or one the provider-error factory scrubbed. */
-const DESCRIBED_FAILURE = /^(?:WhatsAgent backend is unavailable\.|LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \w+ request failed \()/;
+/**
+ * Failure text a source already phrased for a person, or one the provider-error factory scrubbed.
+ * The account token is `\S+`, not `\w+`: a Gmail account key is `gmail-personal`, and a hyphen is
+ * not a word character — matching on `\w+` silently replaced every Gmail failure with the
+ * fallback below, which named the source but never the failure.
+ */
+const DESCRIBED_FAILURE = /^(?:WhatsAgent backend is unavailable\.|LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \S+ request failed \()/;
 
 /**
  * One failed source never hides the others: it becomes one line in `list`'s `errors`. The fallback
