@@ -63,7 +63,7 @@
     "build": "node _tools/patch-baileys.mjs && bb plugin build",
     "test": "node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts tests/whatsapp/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test && node --experimental-strip-types _tools/check-send-audit.ts",
+    "check": "npm run typecheck && node _tools/patch-baileys.mjs --check && npm test && node --experimental-strip-types _tools/check-send-audit.ts",
     "docs:index": "node --experimental-strip-types _tools/docs-index.ts",
     "docs:check": "node --experimental-strip-types _tools/docs-index.ts --check"
   }
