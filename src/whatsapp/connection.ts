@@ -326,6 +326,9 @@ export class WhatsAppConnection {
       socket.ev.on('groups.upsert', (groups: GroupMetadata[]) => {
         for (const group of groups) this.#groupCache.set(group);
       });
+      socket.ev.on('groups.update', (groups: GroupMetadata[]) => {
+        for (const group of groups) this.#groupCache.set(group);
+      });
       socket.ev.on('messages.upsert', (batch: { messages?: WAMessage[] }) => {
         for (const message of batch.messages ?? []) {
           const key = message.key;
