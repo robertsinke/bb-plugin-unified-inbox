@@ -27,6 +27,8 @@ interface FixtureOptions {
   fail?: Account;
   /** One source whose `sync` rejects with a sentence it already phrased, for the message-fidelity case. */
   syncFailure?: { account: Account; message: string };
+  /** What the pairing module answers; the gateway only forwards, so a recorder is enough. */
+  pairing?: GatewayDeps['pairing'];
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
@@ -121,6 +123,9 @@ function fixture(options: FixtureOptions = {}) {
     registry,
     now: () => NOW,
     driver,
+    // No socket in this file: an unpaired source is the honest default, and the pairing module has
+    // its own tests over a real connection.
+    pairing: options.pairing ?? (async () => ({ state: 'unpaired' })),
   });
   return { gateway, calls, auditRows, cacheRows, registry };
 }
@@ -260,4 +265,21 @@ test('a source failure that already names itself keeps its own words', async () 
   const fresh = await f.gateway.freshness(null);
   assert.equal(fresh['gmail-business'].lastError, message, 'the stored line is the reason, not a generic sentence');
   assert.equal(fresh['gmail-business'].lastSuccessAt, null, 'a failure never advances success');
+});
+
+test('the pairing handler forwards one call and nothing about the socket', async () => {
+  const asked: unknown[] = [];
+  const f = fixture({
+    pairing: async (request) => {
+      asked.push(request);
+      return request.op === 'pair' ? { state: 'connecting' } : { state: 'unpaired' };
+    },
+  });
+
+  // A read is the same call with nothing in it: the panel polls the card while a code is on screen.
+  assert.deepEqual(await f.gateway.whatsapp_pairing(null), { state: 'unpaired' });
+  assert.deepEqual(asked, [{}], 'a null call is the read, and the module is told so');
+  assert.deepEqual(await f.gateway.whatsapp_pairing({ op: 'pair' }), { state: 'connecting' });
+  assert.deepEqual(asked.at(-1), { op: 'pair' }, 'an act crosses the boundary unchanged');
+  assert.equal(rpcContract.whatsapp_pairing.output.safeParse(await f.gateway.whatsapp_pairing(null)).success, true);
 });

@@ -46,6 +46,7 @@ function fixture(db = new Database(':memory:')) {
     clickNamedControl: async () => ({ clicked: false }), typeIntoNamedControl: async () => ({ typed: false }), openLinkedInSignIn: async () => '',
   };
   const gateway = createGateway({ cache: h.cache, registry: h.registry, gate, audit, driver, now: () => now,
+    pairing: async () => ({ state: 'unpaired' }),
     search: { warm() {}, search: () => [], status: () => ({ size: 0, updatedAt: null, ready: true }) } });
   return { ...h, db, audit, gate, gateway, config, time: (value: number) => { now = value; },
     count: () => (db.prepare('SELECT COUNT(*) AS n FROM inbox_mail_spend').get() as { n: number }).n,

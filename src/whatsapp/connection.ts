@@ -191,6 +191,29 @@ export class WhatsAppConnection {
     return this.#state;
   }
 
+  /**
+   * Whether these credentials are a linked device rather than a pairing in progress. Pairing writes
+   * `creds` before the phone has confirmed, so the file's existence cannot answer this: only the
+   * flag WhatsApp set on it can, and only this module holds the store that reads it.
+   */
+  registered(): boolean {
+    return this.#authStore?.state.creds.registered === true;
+  }
+
+  /**
+   * Ask the open socket for eight characters instead of a QR. The answer arrives as a
+   * `pairing-code` event, and a failure arrives as an `error` event: the QR path is still alive, so
+   * the caller is told what went wrong rather than left on a spinner.
+   */
+  async requestPairingCode(phoneNumber: string): Promise<void> {
+    const socket = this.#socket;
+    if (!socket) {
+      this.#surfaceError(new Error('The WhatsApp socket is not open, so no pairing code can be requested'), false);
+      return;
+    }
+    await this.#requestPairingCode(socket, normalizePhoneNumber(phoneNumber));
+  }
+
   onEvent(listener: WhatsAppConnectionListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);

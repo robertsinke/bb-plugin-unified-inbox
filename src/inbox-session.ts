@@ -18,7 +18,7 @@ import type { Account, Conversation, GmailAccount, Message, SourceMap } from './
 // again at every fake that claims to be a gateway. Type-only, so a unit test never
 // loads the panel runtime.
 import type { PluginRpcClient } from '@get-bb/plugin-sdk';
-import type { rpcContract } from './rpc-contract.ts';
+import type { rpcContract, WhatsAppPairingSnapshot } from './rpc-contract.ts';
 
 /** One row of the list, as `cached` and `sync` return it. */
 export type InboxItem = Conversation;
@@ -102,6 +102,11 @@ export interface InboxSnapshot {
   audit: SendAuditEntry[];
   /** Whether the panel is showing the decision log instead of the conversation list. */
   auditOpen: boolean;
+  /**
+   * Where the WhatsApp pairing stands, or null until the gateway has answered. It is a state, not a
+   * failure: an unpaired source draws a card and puts nothing in `errors`.
+   */
+  pairing: WhatsAppPairingSnapshot | null;
 }
 
 /** One send decision, as the gate recorded it: no message text, ever. `reason` is null
@@ -150,6 +155,12 @@ export interface InboxSession {
   setMail(patch: Partial<MailDraft>): void;
   discardMail(): void;
   sendMail(): Promise<void>;
+  /** The pairing card's acts. `pairWhatsApp` is the QR path, which is the default one. */
+  pairWhatsApp(): Promise<void>;
+  /** The fallback: a code typed on the phone, instead of a QR the phone scans. */
+  codeWhatsApp(phone: string): Promise<void>;
+  /** Replace a linked device. Deliberate, because re-pairing is the ban lever. */
+  rePairWhatsApp(): Promise<void>;
   /** Put a line in the notice area the panel shows under the thread. */
   notify(text: string): void;
 }
@@ -178,6 +189,13 @@ const REFRESH_SUFFIX = ' Previously loaded messages may be stale.';
 
 /** A round no source answered in time. No account owns it, so it is a whole sentence. */
 const OLDER_TIMEOUT = `Older conversations could not load in time: nothing answered within ${OLDER_TIMEOUT_MS / 1000} seconds, so the wait was given up. The rows already shown are unchanged.`;
+
+/**
+ * How often the card asks where pairing stands. A QR rotates every 20 s and its payload dies with it,
+ * so the poll has to be quicker than that; a paired or an unpaired source changes only when the owner
+ * acts, so it stops asking.
+ */
+const PAIRING_POLL_MS = 2_000;
 
 /** A row's identity across sources; the same thread can arrive from a refresh and from a page. */
 function rowKey(item: InboxItem): string {
@@ -210,6 +228,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     audit: [],
     auditOpen: false,
     mailStatus: '',
+    pairing: null,
   };
 
   const listeners = new Set<() => void>();
@@ -370,6 +389,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       await readCache();
       void loadAudit();
     })();
+    void refreshPairing();
   }
 
   /** The last few send decisions, so a refusal is visible where it happened. */
@@ -394,6 +414,47 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     if (!state.auditOpen) return;
     state.auditOpen = false;
     notify();
+  }
+
+  /** The pairing card's clock; null when nothing is in progress and there is nothing to watch. */
+  let pairingDue: number | null = null;
+
+  /** The last answer as one comparable string: a poll that says the same thing must not re-render. */
+  function pairingKey(snapshot: WhatsAppPairingSnapshot | null): string {
+    if (!snapshot) return '';
+    return [snapshot.state, snapshot.qr ?? '', snapshot.code ?? '', snapshot.expiresAt ?? 0, snapshot.message ?? ''].join('\u0000');
+  }
+
+  function schedulePairing(): void {
+    const name = state.pairing?.state;
+    pairingDue = name === 'connecting' || name === 'qr' || name === 'code' ? clock() + PAIRING_POLL_MS : null;
+  }
+
+  /** Where the pairing stands. A failure here leaves the card as it was: it is not the source's error. */
+  async function refreshPairing(): Promise<void> {
+    try {
+      const answer = await deps.rpc.call('whatsapp_pairing', null);
+      if (!answer) return;
+      const changed = pairingKey(answer) !== pairingKey(state.pairing);
+      state.pairing = answer;
+      schedulePairing();
+      if (changed) notify();
+    } catch { /* the card keeps the answer it already had */ }
+  }
+
+  /** One pairing act: the card names it, the gateway answers the state it left behind. */
+  async function actWhatsApp(request: { op: 'pair' | 'unpair' | 'request-code'; phone?: string }): Promise<void> {
+    try {
+      const answer = await deps.rpc.call('whatsapp_pairing', request);
+      if (!answer) return;
+      state.pairing = answer;
+      schedulePairing();
+      notify();
+    } catch (error) {
+      // A refusal is not the source failing: it is the act that did not happen, said in one line.
+      state.status = error instanceof Error ? error.message : 'WhatsApp pairing did not answer.';
+      notify();
+    }
   }
 
   /** Forget every failure the predicate names; the one way a line leaves the list. */
@@ -777,6 +838,13 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       }
     }
 
+    // A pairing in progress is the only thing the card watches: its QR rotates and its code dies with
+    // the socket, and both are facts the gateway reports rather than the panel guessing at.
+    if (pairingDue !== null && now >= pairingDue) {
+      pairingDue = null;
+      void refreshPairing();
+    }
+
     // An older page that has not answered by its ceiling is given up: a slow source becomes a line
     // the owner can read, never a control that never stops loading.
     if (olderDue !== null && now >= olderDue) {
@@ -882,6 +950,12 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     setMail,
     discardMail,
     sendMail,
+    pairWhatsApp: () => actWhatsApp({ op: 'pair' }),
+    codeWhatsApp: phone => actWhatsApp({ op: 'request-code', phone }),
+    async rePairWhatsApp() {
+      await actWhatsApp({ op: 'unpair' });
+      await actWhatsApp({ op: 'pair' });
+    },
     notify(text) {
       state.status = text;
       notify();

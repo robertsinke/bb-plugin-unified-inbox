@@ -16,6 +16,7 @@ import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
 import { createInboxRefresh } from './inbox-refresh.ts';
 import { message, rpcContract } from './rpc-contract.ts';
+import type { WhatsAppPairingRequest, WhatsAppPairingSnapshot } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
 import type { createSendAudit } from './send-audit.ts';
 
@@ -25,7 +26,7 @@ import type { createSendAudit } from './send-audit.ts';
  * not a word character — matching on `\w+` silently replaced every Gmail failure with the
  * fallback below, which named the source but never the failure.
  */
-const DESCRIBED_FAILURE = /^(?:WhatsAgent backend is unavailable\.|LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \S+ request failed \()/;
+const DESCRIBED_FAILURE = /^(?:LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \S+ request failed \()/;
 
 /**
  * One failed source never hides the others: it becomes one line in `list`'s `errors`. The fallback
@@ -65,6 +66,11 @@ export interface GatewayDeps {
   registry: Record<Account, Adapter>;
   now: () => number;
   driver: GatewayDriver;
+  /**
+   * Where the WhatsApp pairing stands, and the acts that change it. A function rather than the module
+   * so the socket — 7.9 MB of client and a lazy import — is only loaded when someone pairs.
+   */
+  pairing: (request: WhatsAppPairingRequest) => Promise<WhatsAppPairingSnapshot>;
 }
 
 /**
@@ -74,7 +80,7 @@ export interface GatewayDeps {
  * (src/adapters/policy.ts), so the refusal and the audit record are owned in one place. How a
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
-export function createGateway({ cache, search, audit, gate, registry, now, driver }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -204,6 +210,11 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async linkedin_signin() {
       const profile = await driver.openLinkedInSignIn();
       return { profile, message: 'Sign in to LinkedIn in the window that just opened, then close it and refresh the inbox.' };
+    },
+    // One call for a read and for the three acts: the pairing module owns the state machine, and an
+    // unpaired source answers as a state, so nothing here can turn it into a failure line.
+    async whatsapp_pairing(input) {
+      return pairing(input ?? {});
     },
     // One media path for every source: the request says how the file is addressed, and the
     // adapter that owns the source answers. A shared post answers with a link because its

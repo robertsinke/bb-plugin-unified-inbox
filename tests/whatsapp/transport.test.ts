@@ -220,3 +220,16 @@ test('a send needs the socket; a read mark does not, and neither needs another p
     db.close();
   }
 });
+
+test('a source nobody has paired answers empty, because there is nothing to read and nothing wrong', async () => {
+  // R5 at the seam the panel reads through: no rows and no socket is an empty inbox, not a failure.
+  // A throw here would become one error line per poll, which is the first impression the plan forbids.
+  const { db, store } = fixture();
+  try {
+    const transport = createWhatsAppTransport({ store, connection: down });
+    assert.deepEqual(await transport.listChats({ limit: 20 }), { chats: [] });
+    assert.deepEqual(await transport.openChat({ id: 'never-seen', limit: 60 }), []);
+  } finally {
+    db.close();
+  }
+});
