@@ -8,6 +8,7 @@ import test from 'node:test';
 import { harness, refused, IMSG_ID, LINKEDIN_ID, WHATSAPP_ID } from './harness.ts';
 import { createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
 import { isMessageSend, linkedinSendWrite, markReadWrite } from '../../src/linkedin-write.ts';
+import { LINKEDIN_WALK_START } from '../../src/linkedin-page.ts';
 
 const REFUSAL = /still need their own recorded actions/;
 const CONVERSATION = LINKEDIN_ID;
@@ -144,5 +145,77 @@ test('LinkedIn: a replayed message send leaves one allowed row with no approval,
     // transport records only what `isMessageSend` claims, which is why this one leaves no row.
     const marking = markReadWrite(CONVERSATION, true);
     assert.ok(marking && !isMessageSend(marking, CONVERSATION), 'a read mark is not a send');
+  } finally { h.close(); }
+});
+
+// --- walking back: one shape, no cache write ------------------------------------------------
+// The newest page is the cache, and it says a walk exists without paying for its cursor. An older
+// page is one live read. It is drawn, never saved: `cache.save` replaces an account's rows
+// wholesale, so an older page stored that way would wipe the newest one it was walking behind.
+const OLDER = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-older)';
+
+/** The cache's writer, counted, so "this page cached nothing" is proven rather than assumed. */
+function countingSaves(h: ReturnType<typeof harness>) {
+  const saved: string[] = [];
+  const save = h.cache.save.bind(h.cache);
+  h.cache.save = (account, items) => { saved.push(account); return save(account, items); };
+  return saved;
+}
+
+test('LinkedIn: the newest page offers the walk without reading the page', async () => {
+  const h = harness();
+  try {
+    h.cache.save('linkedin', [{ account: 'linkedin', id: CONVERSATION, title: 'Ada', preview: 'Hello', date: 1_700_000_000_000, unread: false }]);
+    h.calls.length = 0;
+    const page = await h.registry.linkedin.list();
+    assert.deepEqual(page.items.map(row => row.id), [CONVERSATION]);
+    assert.deepEqual(h.calls, [], 'the newest page is the cache: no browser, no GraphQL');
+    assert.equal(page.cursor, LINKEDIN_WALK_START, 'and it promises a page behind it');
+  } finally { h.close(); }
+});
+
+test('LinkedIn: an older page is one read, and it is not cached', async () => {
+  const h = harness({ linkedInOlder: () => ({ conversations: [{ id: OLDER, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false }], nextCursor: 'NEXT+/=' }) });
+  try {
+    h.cache.save('linkedin', [{ account: 'linkedin', id: CONVERSATION, title: 'Ada', preview: 'Hello', date: 1_700_000_000_000, unread: false }]);
+    const saved = countingSaves(h);
+    h.calls.length = 0;
+    const page = await h.registry.linkedin.list('CUR+/=');
+    assert.deepEqual(h.calls, [`linkedin:older@CUR+/=/20`], 'one page, at the size the source declares');
+    assert.deepEqual(page.items, [
+      { account: 'linkedin', id: OLDER, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false },
+    ]);
+    assert.equal(page.cursor, 'NEXT+/=', 'the page hands back where the next one begins');
+    assert.deepEqual(saved, [], 'an older page writes nothing: the newest page stays the newest page');
+    assert.deepEqual(h.cache.list().map(row => row.id), [CONVERSATION], 'and the rows on screen are the newest page still');
+  } finally { h.close(); }
+});
+
+test('LinkedIn: a page with no cursor ends the walk, and a source with nothing to show never starts one', async () => {
+  const h = harness({ linkedInOlder: () => ({ conversations: [{ id: OLDER, title: 'Grace', preview: '', date: 1_600_000_000_000, unread: false }], nextCursor: '' }) });
+  try {
+    assert.equal((await h.registry.linkedin.list()).cursor, undefined, 'an empty cache has no page behind it to promise');
+    h.cache.save('linkedin', [{ account: 'linkedin', id: CONVERSATION, title: 'Ada', preview: 'Hello', date: 1_700_000_000_000, unread: false }]);
+    const page = await h.registry.linkedin.list(LINKEDIN_WALK_START);
+    assert.equal(page.cursor, undefined, 'the last page answers no cursor, so `more` answers false');
+    assert.deepEqual(page.items.map(row => row.id), [OLDER]);
+  } finally { h.close(); }
+});
+
+test('LinkedIn: a sync answers where the walk starts too, so either read can seed it', async () => {
+  const h = harness();
+  try {
+    const synced = await h.registry.linkedin.sync();
+    assert.equal(synced.cursor, LINKEDIN_WALK_START);
+  } finally { h.close(); }
+});
+
+test('LinkedIn: a page that fails is one phrased failure, and nothing is half-kept', async () => {
+  const h = harness({ linkedInOlder: () => { throw new Error('LinkedIn needs you to sign in again. Run `bb unified-inbox linkedin-signin` to sign in to LinkedIn once.'); } });
+  try {
+    h.cache.save('linkedin', [{ account: 'linkedin', id: CONVERSATION, title: 'Ada', preview: 'Hello', date: 1_700_000_000_000, unread: false }]);
+    const saved = countingSaves(h);
+    await assert.rejects(h.registry.linkedin.list(LINKEDIN_WALK_START), /sign in again/);
+    assert.deepEqual(saved, []);
   } finally { h.close(); }
 });

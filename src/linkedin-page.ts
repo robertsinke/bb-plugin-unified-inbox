@@ -6,9 +6,47 @@ import { CONVERSATION_URN_SOURCE } from './linkedin-conversation.ts';
  * The session never leaves the browser and nothing is clicked: no conversation is opened,
  * no invitation is accepted, and no message is sent. The requests are the same ones the
  * LinkedIn web app makes on load — messaging inbox, one conversation's messages, received
- * invitations, and display names.
+ * invitations, and display names — plus, for `older`, the paged read the app sends when its
+ * conversation list is scrolled.
  */
-export type LinkedInRead = { mode: 'list' } | { mode: 'thread'; id: string } | { mode: 'probe'; mailbox?: string };
+export type LinkedInRead =
+  | { mode: 'list' }
+  | { mode: 'thread'; id: string }
+  | { mode: 'probe'; mailbox?: string }
+  | { mode: 'older'; cursor: string; count: number };
+
+/**
+ * The query the web app pages its conversation list with, pinned the way the inbox read is.
+ *
+ * It is a *second* query, not a paging variable on the by-sync-token read above: that one
+ * silently ignores `start`, `count`, `offset`, `cursor` and every other name tried against it and
+ * always answers the newest 20 (see docs/research/linkedin/messenger-conversations-paging.md).
+ */
+export const LINKEDIN_OLDER_QUERY = 'messengerConversations.9501074288a12f3ae9e3c7ea243bccbf';
+
+/**
+ * The most conversations one older page may ask for. Measured: 22 and 25 answered, 29 and 30
+ * answered an empty collection with status 200 — a count LinkedIn refuses without saying so.
+ */
+export const LINKEDIN_OLDER_PAGE_MAX = 25;
+
+/**
+ * The cursor for a walk nobody has started yet. Where the first older page begins is not something
+ * this plugin can compute — `lastUpdatedBefore` and every other name tried against the query is
+ * ignored, and only the server's own `nextCursor` moves the window — so the first press asks the
+ * newest page for its cursor and then reads the page behind it, in one read.
+ */
+export const LINKEDIN_WALK_START = 'start';
+
+/**
+ * A cursor safe to inject, or a refusal. `enc()` would quote anything, so this is a bound on
+ * nonsense rather than an escape: the server's cursors are base64, and the seed the adapter
+ * derives from the newest page is the timestamp that page's oldest row carried.
+ */
+export function linkedinOlderCursor(value: unknown): string {
+  if (typeof value === 'string' && /^[A-Za-z0-9+/=]{1,512}$/.test(value)) return value;
+  throw new Error('That is not a page of LinkedIn conversations this plugin can fetch.');
+}
 
 /**
  * A conversation's preview is its newest message body. LinkedIn messages without text carry the
@@ -115,8 +153,6 @@ const BODY = `
       }) };
     }
 
-    const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
-    const entities = (inbox.included || []).filter(e => conversationUrn.test(String(e.entityUrn || '')));
     // The payload inlines each conversation's latest messages, so a body can stand in for the empty descriptionText.
     const previewLabels = ${JSON.stringify(LINKEDIN_PREVIEW_LABELS)};
     const previewOf = item => {
@@ -130,25 +166,60 @@ const BODY = `
       }
       return '';
     };
-    const previews = new Map();
-    for (const item of inbox.included || []) {
-      if (!/linkedin\.messenger\.Message$/.test(String(item.$type || ''))) continue;
-      const key = String(item['*conversation'] || '');
-      const body = previewOf(item);
-      if (!key || !body) continue;
-      const at = Number(item.deliveredAt || 0);
-      const seen = previews.get(key);
-      if (!seen || at >= seen.at) previews.set(key, { at, body });
+    const previewsOf = included => {
+      const previews = new Map();
+      for (const item of included || []) {
+        if (!/linkedin\.messenger\.Message$/.test(String(item.$type || ''))) continue;
+        const key = String(item['*conversation'] || '');
+        const body = previewOf(item);
+        if (!key || !body) continue;
+        const at = Number(item.deliveredAt || 0);
+        const seen = previews.get(key);
+        if (!seen || at >= seen.at) previews.set(key, { at, body });
+      }
+      return previews;
+    };
+    // One row shape for both reads, so a walked-back conversation is drawn like the newest page.
+    const rowsOf = async (entities, previews) => {
+      const counterparts = [...new Set(entities.flatMap(e => e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; }))];
+      await Promise.all(counterparts.map(nameOf));
+      return entities.map(e => {
+        const others = (e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
+        const people = others.map(ref => names.get(identityKey(ref))).filter(Boolean).join(', ');
+        const avatarUrl = others.length === 1 ? avatars.get(identityKey(others[0])) : '';
+        const preview = String(e.descriptionText || '') || previews.get(String(e.entityUrn))?.body || '';
+        return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
+      });
+    };
+
+    if (request.mode === 'older') {
+      // The paged read the web app sends when its conversation list is scrolled: a cursor-paged
+      // collection, not the by-sync-token read above. Only the server's own cursor moves the window
+      // (every other paging variable is ignored), so the walk begins by asking the newest page where
+      // the page behind it starts.
+      const mailbox = enc(meRef.replace('fs_miniProfile', 'fsd_profile'));
+      const pageOf = async tail => {
+        const url = '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${LINKEDIN_OLDER_QUERY}&variables=(query:(predicateUnions:List((conversationCategoryPredicate:(category:PRIMARY_INBOX)))),count:' + request.count + ',mailboxUrn:' + mailbox + (tail ? ',' + tail : '') + ')';
+        const json = await get(url);
+        return { node: json?.data?.data?.messengerConversationsByCategoryQuery || {}, included: json?.included || [] };
+      };
+      const beginning = request.cursor === ${JSON.stringify(LINKEDIN_WALK_START)};
+      let page = await pageOf(beginning ? '' : 'nextCursor:' + enc(request.cursor));
+      if (beginning) {
+        const first = String(page.node.metadata?.nextCursor || '');
+        // There is no page behind the newest one: the walk ends before it starts.
+        if (!first) return { conversations: [], nextCursor: '' };
+        page = await pageOf('nextCursor:' + enc(first));
+      }
+      // The page names its rows in order, so the cursor it hands back belongs to the last of them.
+      const inlined = new Map(page.included.filter(e => conversationUrn.test(String(e.entityUrn || ''))).map(e => [String(e.entityUrn), e]));
+      const entities = (page.node['*elements'] || []).map(urn => inlined.get(String(urn))).filter(Boolean);
+      return { conversations: await rowsOf(entities, previewsOf(page.included)), nextCursor: String(page.node.metadata?.nextCursor || '') };
     }
-    const counterparts = [...new Set(entities.flatMap(e => e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; }))];
-    await Promise.all(counterparts.map(nameOf));
-    const conversations = entities.map(e => {
-      const others = (e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
-      const people = others.map(ref => names.get(identityKey(ref))).filter(Boolean).join(', ');
-      const avatarUrl = others.length === 1 ? avatars.get(identityKey(others[0])) : '';
-      const preview = String(e.descriptionText || '') || previews.get(String(e.entityUrn))?.body || '';
-      return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
-    });
+
+    const inbox = await get('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=(mailboxUrn:' + enc(meRef.replace('fs_miniProfile', 'fsd_profile')) + ')');
+    const entities = (inbox.included || []).filter(e => conversationUrn.test(String(e.entityUrn || '')));
+    const conversations = await rowsOf(entities, previewsOf(inbox.included));
 
     const invites = await get('/voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=20');
     const invitePeople = new Map((invites.included || []).filter(e => e?.entityUrn).map(e => [e.entityUrn, e]));
@@ -171,10 +242,21 @@ const BODY = `
     return { conversations, invitations };
 `;
 
+/** A page count LinkedIn will answer, or a refusal: above the ceiling it answers an empty page. */
+function olderCount(value: number): number {
+  if (Number.isInteger(value) && value > 0 && value <= LINKEDIN_OLDER_PAGE_MAX) return value;
+  throw new Error(`A LinkedIn older page is 1 to ${LINKEDIN_OLDER_PAGE_MAX} conversations.`);
+}
+
 /** Expression for BB's Browser-page API; evaluates in the already-open LinkedIn tab. */
 export function linkedinPageExpression(read: LinkedInRead): string {
+  // A read is validated before it is serialized, so what the page evaluates is always a well-formed
+  // request: a cursor it would not know how to quote never becomes script text.
+  const request = read.mode === 'older'
+    ? { mode: 'older' as const, cursor: linkedinOlderCursor(read.cursor), count: olderCount(read.count) }
+    : read;
   return `(async () => {
-  const request = ${JSON.stringify(read)};
+  const request = ${JSON.stringify(request)};
   try {
     const payload = await (async (request) => {${BODY}})(request);
     return { ok: true, payload };

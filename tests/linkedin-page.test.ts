@@ -129,3 +129,119 @@ test('a text message keeps its text and gains no media', async () => {
   assert.equal(payload.messages[0].mediaUrl, '');
   assert.equal(payload.messages[0].activityUrn, '');
 });
+
+// --- the walk back through the conversation list -------------------------------------------------
+// The newest page is one by-sync-token read that ignores every paging variable ever tried against
+// it. The rows behind it come from the query the web app scrolls with: a cursor-paged collection
+// whose only working variable is the server's own `nextCursor`.
+const OLDER_QUERY = 'messengerConversations.9501074288a12f3ae9e3c7ea243bccbf';
+const OLDER_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-bGRlcg==)';
+const NEWEST_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-bmV3ZXN0)';
+
+/** One conversation as an older page inlines it: no participants, so no profile is looked up. */
+function olderConversation(urn: string, extra: Record<string, unknown> = {}) {
+  return {
+    $type: 'com.linkedin.messenger.Conversation',
+    entityUrn: urn,
+    title: 'Grace Hopper',
+    descriptionText: 'Older note',
+    lastActivityAt: 1_600_000_000_000,
+    unreadCount: 0,
+    '*conversationParticipants': [],
+    ...extra,
+  };
+}
+
+/** One page of the older read: the row urns in order, the entities inlined, and the cursor it hands back. */
+function olderPage(urns: string[], nextCursor: string): unknown {
+  return {
+    data: { data: { messengerConversationsByCategoryQuery: { metadata: nextCursor ? { nextCursor } : {}, '*elements': urns } } },
+    included: urns.map(urn => olderConversation(urn)),
+  };
+}
+
+/** Run the page expression against a stubbed LinkedIn, recording every URL it asked for. */
+async function readOlder(expression: string, answer: (url: string) => unknown): Promise<{ payload: any; requested: string[] }> {
+  const requested: string[] = [];
+  const fetcher = async (url: string) => {
+    requested.push(url);
+    return { ok: true, status: 200, text: async () => JSON.stringify(answer(url)) };
+  };
+  const run = new AsyncFunction('document', 'fetch', `return (${expression});`);
+  const result = await run({ cookie: 'JSESSIONID="AQEDARtoken"' }, fetcher);
+  assert.equal(result.ok, true, result.error);
+  return { payload: result.payload, requested };
+}
+
+const ME = { data: { '*miniProfile': 'urn:li:fs_miniProfile:ACoAAme' }, included: [] };
+
+test('the newest conversation page is read exactly as it was: one by-sync-token call, no cursor', async () => {
+  const { requested } = await readOlder(linkedinPageExpression({ mode: 'list' }), url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes('messengerConversations.0d5e6781bbee71c3e51c8843c6519f48')) return { data: {}, included: [] };
+    if (url.includes('invitationViews')) return { included: [] };
+    throw new Error(`unexpected URL ${url}`);
+  });
+  assert.deepEqual(requested.map(url => url.split('?')[0].split('/').at(-1)), ['me', 'graphql', 'invitationViews']);
+  assert.ok(requested[1].endsWith(`variables=(mailboxUrn:${encodeURIComponent('urn:li:fsd_profile:ACoAAme')})`), requested[1]);
+  assert.equal(requested.filter(url => url.includes(OLDER_QUERY)).length, 0, 'the newest page is not the paged read');
+  assert.equal(requested.filter(url => url.includes('nextCursor')).length, 0, 'and it names no cursor');
+});
+
+test('an older page asks the pinned paged query for the cursor it was handed', async () => {
+  const expression = linkedinPageExpression({ mode: 'older', cursor: 'REVTQ0VORElORyYxNzkxJjItYWJj+/=', count: 20 });
+  const { payload, requested } = await readOlder(expression, url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes(OLDER_QUERY)) return olderPage([OLDER_ID], 'NEXT_CURSOR+/=');
+    throw new Error(`unexpected URL ${url}`);
+  });
+  // One identity read and one page: an older page opens no conversation, reads no invitations and
+  // looks no profile up.
+  assert.equal(requested.length, 2);
+  const page = requested[1];
+  assert.match(page, new RegExp(OLDER_QUERY.replace(/\./g, '\\.')));
+  assert.match(page, /count:20/);
+  assert.match(page, /PRIMARY_INBOX/);
+  assert.ok(page.includes(`nextCursor:${encodeURIComponent('REVTQ0VORElORyYxNzkxJjItYWJj+/=')}`), page);
+  assert.equal(payload.nextCursor, 'NEXT_CURSOR+/=');
+  assert.deepEqual(payload.conversations, [{
+    id: OLDER_ID, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false, sender: '',
+  }]);
+});
+
+test('the walk starts by asking the newest page where the page behind it begins', async () => {
+  const expression = linkedinPageExpression({ mode: 'older', cursor: 'start', count: 20 });
+  const { payload, requested } = await readOlder(expression, url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes('nextCursor:')) return olderPage([OLDER_ID], '');
+    if (url.includes(OLDER_QUERY)) return olderPage([NEWEST_ID], 'CUR+/=');
+    throw new Error(`unexpected URL ${url}`);
+  });
+  // The newest page is asked only for its cursor: its rows are the ones the cache already shows.
+  assert.equal(requested.length, 3);
+  assert.doesNotMatch(requested[1].split('?')[1], /nextCursor/, 'the first read carries no cursor');
+  assert.ok(requested[2].includes(`nextCursor:${encodeURIComponent('CUR+/=')}`), requested[2]);
+  assert.deepEqual(payload.conversations.map((row: { id: string }) => row.id), [OLDER_ID], 'the rows returned are the ones behind the newest page');
+  assert.equal(payload.nextCursor, '');
+});
+
+test('a walk with nothing behind the newest page ends without a second read', async () => {
+  const expression = linkedinPageExpression({ mode: 'older', cursor: 'start', count: 20 });
+  const { payload, requested } = await readOlder(expression, url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes(OLDER_QUERY)) return olderPage([NEWEST_ID], '');
+    throw new Error(`unexpected URL ${url}`);
+  });
+  assert.equal(requested.length, 2, 'the newest page carried no cursor, so nothing more was asked');
+  assert.deepEqual(payload, { conversations: [], nextCursor: '' });
+});
+
+test('a cursor or a page size LinkedIn could not quote is refused before the page runs', () => {
+  // The cursor is serialized as JSON, so this is a refusal of nonsense rather than an escape.
+  assert.throws(() => linkedinPageExpression({ mode: 'older', cursor: "x')||fetch('//evil", count: 20 }), /not a page of LinkedIn conversations/);
+  assert.throws(() => linkedinPageExpression({ mode: 'older', cursor: '', count: 20 }), /not a page of LinkedIn conversations/);
+  // Above the measured ceiling the source answers an empty collection with status 200, so a page
+  // that size is refused here instead of reading as "there is nothing older".
+  assert.throws(() => linkedinPageExpression({ mode: 'older', cursor: 'start', count: 26 }), /1 to 25/);
+  assert.throws(() => linkedinPageExpression({ mode: 'older', cursor: 'start', count: 0 }), /1 to 25/);
+});

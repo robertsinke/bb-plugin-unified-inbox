@@ -92,8 +92,10 @@ from `inbox_cache`, and 6,186 stored WhatsApp messages are outside the index.
 - **Cursor:** the `inbox_sync` column already holds a marker (newest activity, unread total, conversation and
   invitation counts, plus the mailbox) used to skip a full read. That is a **freshness** marker, not a page
   cursor: it says "nothing changed", never "the next 20 are behind this point". The invitations path does have
-  `start`/`count`, and the inbox path does not — LinkedIn's own web app scrolls this list, so the query almost
-  certainly accepts paging variables; which names it accepts is **not** established here.
+  `start`/`count`, and the inbox path does not. **Answered since:** that query accepts no paging variable at
+  all, and the web app pages the list with a second pinned query whose `nextCursor` is the only thing that
+  moves the window — measured, with the cost of a page, in
+  [messenger-conversations-paging](./linkedin/messenger-conversations-paging.md).
 - **Cost:** one payload plus about twenty profile lookups per full read (the comment in
   `src/adapters/linkedin.ts`), inside the page session that already costs seconds. A page older than the marker
   would be a second full read, because the delta check only covers the newest window.
@@ -201,10 +203,9 @@ per-message.
 
 ## What I could not answer
 
-- **Whether LinkedIn's pinned `messengerConversations` query accepts a paging variable** (`count`, `start`, or a
-  timestamp cursor), and which one. That needs a read-only probe of the signed-in page, and the browser profile
-  is owned by `src/linkedin-chrome.ts` in the live plugin, which this task did not touch. The plan carries it as
-  a unit with that unknown named, not as a settled fact.
+- ~~Whether LinkedIn's pinned `messengerConversations` query accepts a paging variable.~~ Probed read-only
+  on 2026-11-05: it accepts none, and a separate paged query carries the walk — see
+  [messenger-conversations-paging](./linkedin/messenger-conversations-paging.md).
 - **Whether `imsg` will add an offset to `chats.list`.** Today the whole chat list is one call, so Messages does
   not need it; a `chat.db` with thousands of chats would.
 - **Gmail's exact quota units per call, and whether a `nextPageToken` survives a thousand-row walk.** Both need
