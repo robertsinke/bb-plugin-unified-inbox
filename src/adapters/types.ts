@@ -154,7 +154,8 @@ export interface WhatsAppTransportStatus {
  *
  * A read is a store read: it answers with the socket down, and an unpaired account answers an empty
  * list rather than an error (R5). A send needs the socket, and a send or read-receipt failure is
- * the socket's own error — classified where it is raised.
+ * the socket's own error — the adapter classifies it (`src/whatsapp/failure.ts`) before the owner
+ * reads anything.
  */
 export interface WhatsAppTransport {
   /** One page of chats, newest activity first. `cursor` is the row offset the store pages by. */
@@ -325,7 +326,7 @@ export interface SendReceipt {
 /**
  * Non-send operations (rpcContract `action`). Per-provider support today:
  * - gmail (gmail-personal, gmail-business): read, unread, archive
- * - whatsapp: read, unread, reply (sends through the owner's composer endpoint)
+ * - whatsapp: read, unread, reply (sent over the plugin's own socket)
  * - imessage: read, unread (local state), reply (sends through `imsg send`)
  * - linkedin: read, unread, reply, confirm / reject (an invitation answer)
  * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,

@@ -5,6 +5,8 @@
 // this source used to depend on.
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { approvalFor, createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
+import { WhatsAppDisconnectedError } from '../../src/whatsapp/send.ts';
 import { harness, refused, LINKEDIN_ID, WHATSAPP_GROUP_ID, WHATSAPP_ID } from './harness.ts';
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -18,7 +20,7 @@ test('WhatsApp: declared capabilities match what action and media accept', async
 
     // send: true — one transport call, and a chat id is all it needs, so a group works the same way.
     h.calls.length = 0;
-    assert.deepEqual(await adapter.action('reply', WHATSAPP_ID, { text: '  On my way  ' }), { status: 'Sending.' });
+    assert.deepEqual(await adapter.action('reply', WHATSAPP_ID, { text: '  On my way  ' }), { status: 'Sent.' });
     assert.deepEqual(h.calls, ['whatsapp:sendText']);
     await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: ' ' }), /Sending needs the text to send/);
 
@@ -151,6 +153,85 @@ test('WhatsApp: media is served from cached bytes, and every miss is reported wi
     await assert.rejects(adapter.media({ kind: 'message', id: 'unavailable', index: 0 }), /no longer available/);
     await assert.rejects(adapter.media({ kind: 'message', id: 'gone', index: 0 }), /could not be loaded/);
     await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to play/);
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a reply reports what actually happened, and a failure is never silent', async () => {
+  // A Baileys failure carries its HTTP-space status in `output.statusCode`; the message text is a
+  // payload the owner must never read, which is why the terminal case asserts it is not echoed.
+  const boom = (statusCode: number) => Object.assign(new Error(`Baileys said: rejected ${statusCode}`), { output: { statusCode } });
+  const seen: Array<{ id: string; text: string }> = [];
+  const failures: unknown[] = [];
+  const h = harness({
+    whatsapp: {
+      async sendText(input) {
+        seen.push(input);
+        const failure = failures.shift();
+        if (failure) throw failure;
+      },
+    },
+  });
+  try {
+    const adapter = h.registry.whatsapp;
+
+    // Accepted: the status is what the transport's resolution earns, and the conversation id is
+    // the one the message went to rather than something the panel guesses afterwards.
+    assert.deepEqual(await adapter.action('reply', WHATSAPP_GROUP_ID, { text: '  Ship it  ' }), { status: 'Sent.' });
+    assert.deepEqual(seen, [{ id: WHATSAPP_GROUP_ID, text: 'Ship it' }]);
+
+    // No socket: nothing left the machine, so the panel must not hedge about the outcome.
+    failures.push(new WhatsAppDisconnectedError());
+    await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: 'hi' }), /Nothing was sent: WhatsApp is not connected/);
+
+    // 428 is a connection closed mid-send, not a rejection: the text may have arrived. The panel
+    // says the outcome is unknown, and one click stays one attempt.
+    const before = seen.length;
+    failures.push(boom(428));
+    await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: 'hi' }), /outcome is unknown\. Check WhatsApp on your phone/);
+    assert.equal(seen.length, before + 1, 'one click is one attempt: no retry, no queue, no second message');
+
+    // An error nobody classified is transient on purpose: calling it a failure would claim a
+    // message that may have arrived did not.
+    failures.push(new Error('kaboom'));
+    await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: 'hi' }), /outcome is unknown/);
+
+    // A terminal rejection names the class and never echoes what the provider said.
+    failures.push(boom(400));
+    await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: 'hi' }), (error: Error) => {
+      assert.match(error.message, /WhatsApp refused this message/);
+      assert.doesNotMatch(error.message, /Baileys said|rejected 400/);
+      return true;
+    });
+
+    // Past WhatsApp's own ceiling: refused before the socket, with the number to act on.
+    const attempted = seen.length;
+    await assert.rejects(adapter.action('reply', WHATSAPP_ID, { text: 'x'.repeat(65_537) }), /Nothing was sent: WhatsApp accepts a message up to 65536 characters/);
+    assert.equal(seen.length, attempted, 'an over-long body never reaches the transport');
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a reply that never left still leaves the gate’s row', async () => {
+  // The panel's own path, gate first: the record is written before delivery, so a send lost to a
+  // dead socket is on the record rather than only in a line the owner might dismiss.
+  const rows: AuditRow[] = [];
+  const gate = createSendGate({ now: () => 1_700_000_000_000, store: { record(row) { rows.push(row); }, hasSpent() { return false; } } });
+  const h = harness({ whatsapp: { async sendText() { throw new WhatsAppDisconnectedError(); } } });
+  try {
+    const adapter = h.registry.whatsapp;
+    await assert.rejects(
+      gate(
+        { account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'see you at six' },
+        approvalFor('send', WHATSAPP_ID, 1_700_000_000_000),
+        () => adapter.action('reply', WHATSAPP_ID, { text: 'see you at six' }),
+      ),
+      /Nothing was sent/,
+    );
+    assert.deepEqual(rows.map(row => [row.account, row.conversationId, row.decision]), [['whatsapp', WHATSAPP_ID, 'allowed']]);
+    assert.ok(!JSON.stringify(rows).includes('see you at six'), 'the record names the conversation, never the text');
   } finally {
     h.close();
   }
