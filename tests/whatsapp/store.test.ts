@@ -215,6 +215,34 @@ test('a phone-shaped chat name is stored as no name and a group is a group', () 
   }
 });
 
+test('a picture keeps its answer and when it was learned, and the surviving identity keeps it on a merge', () => {
+  const db = new Database(':memory:');
+  try {
+    const store = createWhatsAppStore(db);
+    const LID = '999000111222333@lid';
+    const PHONE = '31123456789@s.whatsapp.net';
+
+    // Never asked is the absence of a row; "no picture" is a row that says so, so a redraw does not ask again.
+    assert.equal(store.getAvatar(PHONE), undefined);
+    store.setAvatar({ jid: PHONE, url: null, state: 'failed', fetched_at: 10 });
+    assert.deepEqual(store.getAvatar(PHONE), { jid: PHONE, url: null, state: 'failed', fetched_at: 10 });
+
+    // The same answer a second time replaces the row rather than adding one.
+    store.setAvatar({ jid: PHONE, url: 'https://pps.whatsapp.net/v/t61/pic.jpg', state: 'ready', fetched_at: 20 });
+    assert.deepEqual(store.getAvatar(PHONE), { jid: PHONE, url: 'https://pps.whatsapp.net/v/t61/pic.jpg', state: 'ready', fetched_at: 20 });
+
+    // A LID that turns out to be the same person carries the picture across and leaves nothing behind.
+    store.upsertChat({ jid: LID, kind: '1:1' });
+    store.upsertChat({ jid: PHONE, kind: '1:1' });
+    store.setAvatar({ jid: LID, url: 'https://pps.whatsapp.net/v/t61/older.jpg', state: 'ready', fetched_at: 5 });
+    assert.deepEqual(store.linkIdentityAndMergeChats({ lidJid: LID, phoneJid: PHONE }), { from: LID, to: PHONE });
+    assert.equal(store.getAvatar(PHONE)?.url, 'https://pps.whatsapp.net/v/t61/pic.jpg', 'the fresher answer wins');
+    assert.equal(store.getAvatar(LID), undefined, 'and the jid that no longer exists is not asked about again');
+  } finally {
+    db.close();
+  }
+});
+
 test('a cache clear empties the transport rows and envelopes and leaves the rest of the database alone', () => {
   const db = new Database(':memory:');
   try {
@@ -223,6 +251,7 @@ test('a cache clear empties the transport rows and envelopes and leaves the rest
     const audit = createSendAudit(db);
     handleHistorySet(store, history);
     cache.save('whatsapp', [{ account: 'whatsapp', id: 'team@g.us', title: 'Team', preview: 'hi', date: 1, unread: false }]);
+    store.setAvatar({ jid: 'team@g.us', url: 'https://pps.whatsapp.net/v/t61/pic.jpg', state: 'ready', fetched_at: 1 });
     audit.record({ at: 1, operation: 'send', account: 'whatsapp', conversationId: 'team@g.us', decision: 'allowed' });
 
     // The account state is a directory beside the database (src/whatsapp/auth.ts), not a table: a
@@ -237,6 +266,7 @@ test('a cache clear empties the transport rows and envelopes and leaves the rest
     assert.equal(store.getMessage('group-target'), undefined, 'so do the envelopes');
     assert.equal(store.getChat('team@g.us'), undefined);
     assert.equal(store.getContact('alice@s.whatsapp.net'), undefined);
+    assert.equal(store.getAvatar('team@g.us'), undefined, 'a picture is cached state, so it goes too — it is re-asked');
     assert.equal(store.listMessageReactions('team@g.us', 'group-target').length, 0);
     assert.equal((db.prepare('SELECT COUNT(*) AS c FROM inbox_send_audit').get() as { c: number }).c, 1, 'the audit table is not a cache');
     assert.equal(readFileSync(join(authDir, 'creds'), 'utf8'), 'a device identity');

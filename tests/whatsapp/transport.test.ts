@@ -37,6 +37,11 @@ function message(overrides: Partial<MessageInput> & Pick<MessageInput, 'id' | 'c
   return { from_me: false, type: 'text', ...overrides };
 }
 
+/** Let the picture queue's asks (one per macrotask) and their writes finish. */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
 /** A connection that never opened a socket: the state a read finds on a cold plugin, and no reopen. */
 const down = { connection: () => undefined, ensure: async () => undefined };
 
@@ -254,6 +259,61 @@ test('a send needs the socket; a read mark does not, and neither needs another p
     // A refused receipt must not turn a recorded read into a failed one.
     await online.markRead({ id: DM, messageId: 'm1' });
     assert.equal(store.getChat(DM)?.last_read_msg_id, 'm1');
+  } finally {
+    db.close();
+  }
+});
+
+// INBOX-29 — a chat picture is a store read at the seam, and the ask that fills the store runs behind
+// it through an open socket. Nothing here may open one: a face is not worth a reconnect, and a
+// reconnect against a live account state is the ban lever.
+
+test('a chat picture is asked through the open socket, and answered from the store from then on', async () => {
+  const { db, store } = fixture();
+  try {
+    const asks: string[] = [];
+    const picture = 'https://pps.whatsapp.net/v/t61.24694-24/1_n.jpg?oe=68a1b2c3';
+    const connection = {
+      getSendSocket: () => undefined,
+      getAvatarSocket: () => ({
+        async profilePictureUrl(jid: string) {
+          asks.push(jid);
+          return picture;
+        },
+      }),
+      status: () => 'connected',
+    };
+    const transport = createWhatsAppTransport({ store, ...sockets(() => connection as unknown as WhatsAppConnection) });
+
+    // The draw that finds nothing answers immediately, and the ask is already in flight behind it.
+    assert.equal(transport.avatarUrl(DM), undefined);
+    assert.deepEqual(asks, [DM]);
+
+    await settle();
+    assert.equal(store.getAvatar(DM)?.url, picture);
+    assert.equal(transport.avatarUrl(DM), picture, 'the next draw has the picture, from the store');
+    assert.equal(asks.length, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('a chat picture never opens a socket: a closed account keeps drawing initials', async () => {
+  const { db, store } = fixture();
+  try {
+    let ensured = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => undefined,
+      ensure: async () => {
+        ensured += 1;
+        return undefined;
+      },
+    });
+    assert.equal(transport.avatarUrl(DM), undefined);
+    await settle();
+    assert.equal(ensured, 0, 'a picture is not a reason to reconnect');
+    assert.equal(store.getAvatar(DM), undefined, 'and no verdict is recorded for a row nobody could ask about');
   } finally {
     db.close();
   }

@@ -59,6 +59,11 @@ export type WhatsAppSocket = Partial<WhatsAppSendSocket> & {
   requestPairingCode?(phoneNumber: string, customPairingCode?: string): Promise<string>;
   /** Asks the phone to upload media again when the CDN refuses stale bytes. */
   updateMediaMessage?(message: WAMessage): Promise<WAMessage>;
+  /**
+   * A chat's picture URL, or nothing when the person or group has none. `preview` is the small render
+   * a list row draws; `timeoutMs` bounds the ask so a wedged IQ cannot hold a queue behind it.
+   */
+  profilePictureUrl?(jid: string, type?: 'preview' | 'image', timeoutMs?: number): Promise<string | undefined>;
 };
 
 /**
@@ -69,6 +74,14 @@ export type WhatsAppSocket = Partial<WhatsAppSendSocket> & {
  */
 export type WhatsAppMediaSocket = {
   updateMediaMessage(message: WAMessage): Promise<WAMessage>;
+};
+
+/**
+ * The one socket call a picture needs. Absent means "no picture", which WhatsApp answers by returning
+ * nothing — that is a normal answer and never an error anyone is told about.
+ */
+export type WhatsAppAvatarSocket = {
+  profilePictureUrl(jid: string, type?: 'preview' | 'image', timeoutMs?: number): Promise<string | undefined>;
 };
 
 export type SocketFactory = (config: UserFacingSocketConfig) => WhatsAppSocket;
@@ -287,6 +300,14 @@ export class WhatsAppConnection {
     const socket = this.#socket;
     if (!socket?.updateMediaMessage) return undefined;
     return socket as WhatsAppMediaSocket;
+  }
+
+  /** The picture call, handed out only while the socket is open — a picture never opens one. */
+  getAvatarSocket(): WhatsAppAvatarSocket | undefined {
+    if (this.#state !== 'connected') return undefined;
+    const socket = this.#socket;
+    if (!socket?.profilePictureUrl) return undefined;
+    return socket as WhatsAppAvatarSocket;
   }
 
   /** The restricted send surface, handed out only while the socket is open. */
