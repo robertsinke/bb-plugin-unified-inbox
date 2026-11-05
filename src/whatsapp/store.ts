@@ -119,6 +119,12 @@ export type Avatar = {
   state: AvatarState;
   /** Unix milliseconds when this answer was learned; the URL itself expires, so it is re-asked later. */
   fetched_at: number | null;
+  /**
+   * Why the ask came back empty, in the provider's own words and bounded. A privacy setting, a
+   * timeout, and a rate limit all look like `failed` in the row, and without this line there is no
+   * way to tell a picture that will never come from one that was refused for the moment.
+   */
+  reason?: string | null;
 };
 
 export type Contact = {
@@ -219,7 +225,8 @@ const SCHEMA = `
     jid TEXT PRIMARY KEY NOT NULL,
     url TEXT,
     state TEXT NOT NULL CHECK (state IN ('ready', 'failed')),
-    fetched_at INTEGER
+    fetched_at INTEGER,
+    reason TEXT
   );
   CREATE TABLE IF NOT EXISTS wa_message_reactions (
     chat_jid TEXT NOT NULL REFERENCES wa_chats(jid),
@@ -287,6 +294,7 @@ function comparePosition(a: { ts: number; id: string }, b: { ts: number; id: str
 export function createWhatsAppStore(db: Database.Database) {
   db.exec(SCHEMA);
   ensureColumn(db, 'wa_chats', 'last_read_msg_id', 'TEXT');
+  ensureColumn(db, 'wa_avatars', 'reason', 'TEXT');
 
   const insertMessage = db.prepare(
     `INSERT INTO wa_messages (
@@ -389,12 +397,13 @@ export function createWhatsAppStore(db: Database.Database) {
   const readContact = db.prepare('SELECT * FROM wa_contacts WHERE jid = ?');
   const readAvatar = db.prepare('SELECT * FROM wa_avatars WHERE jid = ?');
   const insertAvatar = db.prepare(
-    `INSERT INTO wa_avatars (jid, url, state, fetched_at)
-     VALUES (@jid, @url, @state, @fetched_at)
+    `INSERT INTO wa_avatars (jid, url, state, fetched_at, reason)
+     VALUES (@jid, @url, @state, @fetched_at, @reason)
      ON CONFLICT(jid) DO UPDATE SET
        url = excluded.url,
        state = excluded.state,
-       fetched_at = excluded.fetched_at`,
+       fetched_at = excluded.fetched_at,
+       reason = excluded.reason`,
   );
   const dropAvatar = db.prepare('DELETE FROM wa_avatars WHERE jid = ?');
   const readPhoneAlias = db.prepare(
@@ -594,10 +603,16 @@ export function createWhatsAppStore(db: Database.Database) {
      * asked and answered "none", which is a fact worth keeping but not a failure.
      */
     getAvatar(jid: string): Avatar | undefined {
-      return readAvatar.get(jid) as Avatar | undefined;
+      const row = readAvatar.get(jid) as Avatar | undefined;
+      if (!row) return undefined;
+      // An answer that arrived has no reason: absence, not a row that says `null`.
+      const { reason, ...rest } = row;
+      return reason ? { ...rest, reason } : rest;
     },
     setAvatar(avatar: Avatar): void {
-      insertAvatar.run(avatar);
+      // `reason` is named in the statement, so a writer that has nothing to say passes null rather
+      // than leaving the parameter out — better-sqlite3 refuses a statement with a missing name.
+      insertAvatar.run({ reason: null, ...avatar });
     },
     /**
      * Idempotent: the same id replaces its row. `media_ref` is preserved on conflict and the media

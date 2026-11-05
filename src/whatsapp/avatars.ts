@@ -28,6 +28,15 @@ export const AVATAR_RETRY_MS = 60 * 60 * 1000;
 /** A single ask's ceiling: a wedged IQ must not hold the queue behind it. */
 export const AVATAR_ASK_TIMEOUT_MS = 8_000;
 
+/**
+ * The provider's own words for a refused picture, bounded and stripped of line breaks: a row and a
+ * log line must never carry a URL or a stack, and 120 characters is enough for `item-not-found`.
+ */
+function reasonOf(error: unknown): string {
+  const text = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return text.replace(/\s+/g, ' ').trim().slice(0, 120) || 'refused';
+}
+
 export type WhatsAppAvatarsOptions = {
   store: WhatsAppStore;
   /** The open socket, when there is one. Absent is a state, not an error: the store still answers. */
@@ -78,16 +87,19 @@ export function createWhatsAppAvatars(options: WhatsAppAvatarsOptions) {
         if (jid === undefined) break;
         let state: AvatarState = 'failed';
         let url: string | null = null;
+        let reason: string | null = null;
         try {
           url = (await socket.profilePictureUrl(jid, 'preview', AVATAR_ASK_TIMEOUT_MS)) || null;
           state = url ? 'ready' : 'failed';
-        } catch {
+        } catch (error) {
           // WhatsApp answers a picture it will not hand out — a privacy setting, a stranger — by
           // refusing, and a socket blip refuses the same way. Both are a face it does not have yet:
           // the row records `failed`, nothing is thrown, and it is asked again after the retry window.
+          // The reason is kept because the three read identically in the row otherwise.
+          reason = reasonOf(error);
         }
         try {
-          store.setAvatar({ jid, url, state, fetched_at: clock() });
+          store.setAvatar({ jid, url, state, fetched_at: clock(), reason });
         } catch {
           /* a picture must never break the read that asked for it */
         }

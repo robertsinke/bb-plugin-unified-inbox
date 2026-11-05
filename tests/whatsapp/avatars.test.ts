@@ -142,6 +142,9 @@ test('a refused ask is not surfaced, and is retried like a no-picture answer', a
     assert.equal(pictures.url(ADA), undefined);
     await settle();
     assert.equal(store.getAvatar(ADA)?.state, 'failed');
+    // The reason is kept, because a privacy setting, a timeout and a socket blip all land in the
+    // same `failed` row and only this line tells them apart.
+    assert.equal(store.getAvatar(ADA)?.reason, 'item-not-found');
 
     fail = false;
     clock.now += AVATAR_RETRY_MS + 1;
@@ -149,6 +152,7 @@ test('a refused ask is not surfaced, and is retried like a no-picture answer', a
     await settle();
     assert.equal(fake.asks.length, 2, 'a refusal is retried, never recorded as permanent');
     assert.equal(store.getAvatar(ADA)?.url, GRACE_PICTURE);
+    assert.equal(store.getAvatar(ADA)?.reason, undefined, 'an answer that arrived clears the reason it carried');
     assert.equal(pictures.url(ADA), GRACE_PICTURE);
   } finally {
     close();
