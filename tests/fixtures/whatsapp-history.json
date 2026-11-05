@@ -1,0 +1,579 @@
+{
+  "chats": [
+    {
+      "id": "team@g.us",
+      "name": "Team",
+      "conversationTimestamp": 1700000060,
+      "unreadCount": 3
+    },
+    {
+      "id": "quotes@g.us",
+      "name": "Quote Subtypes",
+      "conversationTimestamp": 1700000080,
+      "unreadCount": 0
+    }
+  ],
+  "contacts": [
+    {
+      "id": "alice@s.whatsapp.net",
+      "name": "Alice"
+    },
+    {
+      "id": "222@lid",
+      "phoneNumber": "31600000002@s.whatsapp.net",
+      "name": "Bob"
+    }
+  ],
+  "messages": [
+    {
+      "key": {
+        "id": "group-target",
+        "remoteJid": "team@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000000,
+      "message": {
+        "conversation": "Original text"
+      }
+    },
+    {
+      "key": {
+        "id": "group-bob",
+        "remoteJid": "team@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000010,
+      "message": {
+        "conversation": "Bob here"
+      }
+    },
+    {
+      "key": {
+        "id": "quote-resolved",
+        "remoteJid": "team@g.us",
+        "participant": "unknown@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000020,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Reply to Alice",
+          "contextInfo": {
+            "stanzaId": "group-target",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "conversation": "Original text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-missing",
+        "remoteJid": "team@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000030,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Reply to missing photo",
+          "contextInfo": {
+            "stanzaId": "missing-target",
+            "participant": "222@lid",
+            "quotedMessage": {
+              "imageMessage": {
+                "caption": "Fallback caption",
+                "mimetype": "image/jpeg"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "reaction-alice",
+        "remoteJid": "team@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000040,
+      "message": {
+        "reactionMessage": {
+          "key": {
+            "id": "group-target",
+            "remoteJid": "team@g.us"
+          },
+          "text": "\ud83d\udc4d",
+          "senderTimestampMs": 1700000040
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "reaction-bob",
+        "remoteJid": "team@g.us",
+        "participant": "222@lid",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000050,
+      "message": {
+        "reactionMessage": {
+          "key": {
+            "id": "group-target",
+            "remoteJid": "team@g.us"
+          },
+          "text": "\ud83d\udc4d",
+          "senderTimestampMs": 1700000050
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-image",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000060,
+      "message": {
+        "imageMessage": {
+          "mimetype": "image/jpeg",
+          "caption": "Sunset at the pier",
+          "fileLength": 204800
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-video",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000061,
+      "message": {
+        "videoMessage": {
+          "mimetype": "video/mp4",
+          "caption": "Clip from the gig",
+          "seconds": 12
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-audio",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000062,
+      "message": {
+        "audioMessage": {
+          "mimetype": "audio/ogg; codecs=opus",
+          "seconds": 8,
+          "ptt": true
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-document",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000063,
+      "message": {
+        "documentMessage": {
+          "mimetype": "application/pdf",
+          "title": "Contract",
+          "fileName": "contract.pdf",
+          "fileLength": 51200
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-sticker",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000064,
+      "message": {
+        "stickerMessage": {
+          "mimetype": "image/webp",
+          "fileLength": 8192
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-location",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000065,
+      "message": {
+        "locationMessage": {
+          "degreesLatitude": 52.3676,
+          "degreesLongitude": 4.9041,
+          "name": "Amsterdam Office",
+          "address": "Herengracht 1, Amsterdam"
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-contact",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000066,
+      "message": {
+        "contactMessage": {
+          "displayName": "Sara Patel",
+          "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:Patel;Sara;;;\nFN:Sara Patel\nTEL;type=CELL:+31600000003\nEND:VCARD"
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-live-location",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000067,
+      "message": {
+        "liveLocationMessage": {
+          "degreesLatitude": 52.3676,
+          "degreesLongitude": 4.9041,
+          "caption": "On my way"
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "target-contacts-array",
+        "remoteJid": "quotes@g.us",
+        "participant": "alice@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000068,
+      "message": {
+        "contactsArrayMessage": {
+          "displayName": "Two contacts",
+          "contacts": [
+            {
+              "displayName": "Sara Patel",
+              "vcard": "BEGIN:VCARD\nVERSION:3.0\nFN:Sara Patel\nEND:VCARD"
+            },
+            {
+              "displayName": "Jo Lee",
+              "vcard": "BEGIN:VCARD\nVERSION:3.0\nFN:Jo Lee\nEND:VCARD"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-image",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000070,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Beautiful shot!",
+          "contextInfo": {
+            "stanzaId": "target-image",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "imageMessage": {
+                "mimetype": "image/jpeg",
+                "caption": "Sunset at the pier",
+                "fileLength": 204800
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-video",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000071,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Wish I'd been there",
+          "contextInfo": {
+            "stanzaId": "target-video",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "videoMessage": {
+                "mimetype": "video/mp4",
+                "caption": "Clip from the gig",
+                "seconds": 12
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-audio",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000072,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Got it, calling you back",
+          "contextInfo": {
+            "stanzaId": "target-audio",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "audioMessage": {
+                "mimetype": "audio/ogg; codecs=opus",
+                "seconds": 8,
+                "ptt": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-document",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000073,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Signed and returned",
+          "contextInfo": {
+            "stanzaId": "target-document",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "documentMessage": {
+                "mimetype": "application/pdf",
+                "title": "Contract",
+                "fileName": "contract.pdf",
+                "fileLength": 51200
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-sticker",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000074,
+      "message": {
+        "extendedTextMessage": {
+          "text": "\ud83d\ude02",
+          "contextInfo": {
+            "stanzaId": "target-sticker",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "stickerMessage": {
+                "mimetype": "image/webp",
+                "fileLength": 8192
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-location",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000075,
+      "message": {
+        "extendedTextMessage": {
+          "text": "On my way over",
+          "contextInfo": {
+            "stanzaId": "target-location",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "locationMessage": {
+                "degreesLatitude": 52.3676,
+                "degreesLongitude": 4.9041,
+                "name": "Amsterdam Office",
+                "address": "Herengracht 1, Amsterdam"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-contact",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000076,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Thanks, I'll reach out to her",
+          "contextInfo": {
+            "stanzaId": "target-contact",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "contactMessage": {
+                "displayName": "Sara Patel",
+                "vcard": "BEGIN:VCARD\nVERSION:3.0\nFN:Sara Patel\nEND:VCARD"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-live-location",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000077,
+      "message": {
+        "extendedTextMessage": {
+          "text": "See you soon",
+          "contextInfo": {
+            "stanzaId": "target-live-location",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "liveLocationMessage": {
+                "degreesLatitude": 52.3676,
+                "degreesLongitude": 4.9041,
+                "caption": "On my way"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-contacts-array",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000078,
+      "message": {
+        "extendedTextMessage": {
+          "text": "Got both, thanks",
+          "contextInfo": {
+            "stanzaId": "target-contacts-array",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "contactsArrayMessage": {
+                "displayName": "Two contacts",
+                "contacts": [
+                  {
+                    "displayName": "Sara Patel",
+                    "vcard": "BEGIN:VCARD\nVERSION:3.0\nFN:Sara Patel\nEND:VCARD"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-image-no-caption",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000079,
+      "message": {
+        "extendedTextMessage": {
+          "text": "What's this from?",
+          "contextInfo": {
+            "stanzaId": "missing-photo-no-caption",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "imageMessage": {
+                "mimetype": "image/jpeg",
+                "fileLength": 102400
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": {
+        "id": "quote-unrecognized",
+        "remoteJid": "quotes@g.us",
+        "participant": "222@lid",
+        "participantAlt": "31600000002@s.whatsapp.net",
+        "fromMe": false
+      },
+      "messageTimestamp": 1700000080,
+      "message": {
+        "extendedTextMessage": {
+          "text": "what is this",
+          "contextInfo": {
+            "stanzaId": "missing-unknown",
+            "participant": "alice@s.whatsapp.net",
+            "quotedMessage": {
+              "pollCreationMessage": {
+                "name": "Lunch?",
+                "selectableOptionsCount": 3
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "isLatest": true,
+  "progress": 100
+}

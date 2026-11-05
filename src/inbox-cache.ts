@@ -51,7 +51,12 @@ function parseAttachments(value: string | null): string[] | undefined {
 
 export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
-export function createInboxCache(db: Database.Database) {
+export function createInboxCache(db: Database.Database, options: { alsoClear?: Array<() => void> } = {}) {
+  // What a cache clear covers is wider than this module's own tables: the WhatsApp transport keeps
+  // its messages and envelopes in the same database (plan D5), and the privacy promise in README.md
+  // covers those copies too. The store that owns that DDL registers its own clearer here rather than
+  // this module learning another schema.
+  const alsoClear = options.alsoClear ?? [];
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_sync (account TEXT PRIMARY KEY, history_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox_revision (account TEXT NOT NULL, id TEXT NOT NULL, history_id TEXT NOT NULL, preview TEXT NOT NULL, PRIMARY KEY(account,id));
@@ -90,7 +95,7 @@ export function createInboxCache(db: Database.Database) {
       const row = db.prepare('SELECT updated_at FROM inbox_thread WHERE account = ? AND id = ?').get(account, id) as { updated_at: number | null } | undefined;
       return row?.updated_at ?? null;
     },
-    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); listener?.({kind:'clear'}); },
+    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); for (const clear of alsoClear) clear(); listener?.({kind:'clear'}); },
     keepUnread(account: CachedItem['account'], id: string) {
       db.prepare('INSERT INTO inbox_unread_mark (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
       db.prepare('UPDATE inbox_cache SET unread = 1 WHERE account = ? AND id = ?').run(account, id);
