@@ -70,12 +70,11 @@ function toNumber(value: unknown): number | undefined {
 }
 
 /**
- * A document's name, size and type, read from the stored envelope — `documentMessage` is the only
- * place they exist, because no column holds them. The wrapper is not always the outermost key
- * (`documentWithCaptionMessage` is the common case), so the content is unwrapped the way ingest
- * unwraps it. An envelope that will not parse answers no facts rather than throwing at a read.
+ * The message content a stored envelope holds, unwrapped the way ingest unwraps it — a wrapper is not
+ * always the outermost key (`documentWithCaptionMessage` is the common case). An envelope that will not
+ * parse answers nothing rather than throwing at a read.
  */
-export function documentFacts(raw: string | null | undefined): { filename?: string; size?: number; mime?: string } | undefined {
+function envelopeContent(raw: string | null | undefined) {
   if (!raw) return undefined;
   let envelope: WAMessage;
   try {
@@ -83,13 +82,42 @@ export function documentFacts(raw: string | null | undefined): { filename?: stri
   } catch {
     return undefined;
   }
-  const document = extractMessageContent(envelope?.message)?.documentMessage;
+  return extractMessageContent(envelope?.message);
+}
+
+/**
+ * A document's name, size and type, read from the stored envelope — `documentMessage` is the only
+ * place they exist, because no column holds them.
+ */
+export function documentFacts(raw: string | null | undefined): { filename?: string; size?: number; mime?: string } | undefined {
+  const document = envelopeContent(raw)?.documentMessage;
   if (!document) return undefined;
   const filename = document.fileName?.trim();
   const mime = document.mimetype?.trim();
   const size = toNumber(document.fileLength);
   return {
     ...(filename ? { filename } : {}),
+    ...(size === undefined ? {} : { size }),
+    ...(mime ? { mime } : {}),
+  };
+}
+
+/**
+ * A voice note's own facts, from the stored envelope: how long it is, whether the sender recorded it in
+ * WhatsApp (`ptt` — a forwarded audio file is the same message type without it), its declared type, and
+ * its declared size. Nothing here needs the bytes, which is what lets the player be labelled before
+ * anything is fetched.
+ */
+export function audioFacts(raw: string | null | undefined): { seconds?: number; voice?: boolean; mime?: string; size?: number } | undefined {
+  const audio = envelopeContent(raw)?.audioMessage;
+  if (!audio) return undefined;
+  const seconds = toNumber(audio.seconds);
+  const size = toNumber(audio.fileLength);
+  const mime = audio.mimetype?.trim();
+  return {
+    ...(seconds === undefined || seconds <= 0 ? {} : { seconds }),
+    // `ptt` is only ever absent on a row whose envelope is partial; a missing flag is not a file.
+    ...(audio.ptt ? { voice: true } : {}),
     ...(size === undefined ? {} : { size }),
     ...(mime ? { mime } : {}),
   };

@@ -90,16 +90,16 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
   }
 
   /**
-   * The media facts of one stored row: the descriptor the row itself carries, plus — for a document —
-   * the name, size and type that exist only inside its envelope. The unwrapper is the media module's
-   * (the one that already unpacks a document to download it), so it is loaded the same lazy way and
-   * not at all for the kinds this module writes as files of a known type.
+   * The media facts of one stored row: the descriptor the row itself carries, plus the facts that exist
+   * only inside its envelope — a document's name, size and type, a voice note's length and type. The
+   * unwrapper is the media module's (the one that already unpacks a document to download it), so it is
+   * loaded the same lazy way and not at all for the kinds this module writes as files of a known type.
    */
   async function factsOf(row: Message): Promise<ReturnType<typeof whatsAppMedia>> {
     const facts = whatsAppMedia(row);
-    if (!facts || row.type !== 'document') return facts;
-    const { documentFacts } = await import('./media.ts');
-    return whatsAppMedia(row, documentFacts(row.raw));
+    if (!facts || (row.type !== 'document' && row.type !== 'audio')) return facts;
+    const { audioFacts, documentFacts } = await import('./media.ts');
+    return whatsAppMedia(row, row.type === 'document' ? documentFacts(row.raw) : audioFacts(row.raw));
   }
 
   /** The re-upload call a download needs: the open socket, or one opened now for a linked account. */
@@ -172,9 +172,10 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       // Bytes already on disk answer with no socket at all, which is the point of caching them.
       const cached = stored.media_ref ? media.readCachedMedia(dataDir, stored.media_ref) : undefined;
       if (cached && stored.media_ref) {
-        // The extension names the type for the kinds this module writes; a document keeps the type
-        // its envelope declared, which is the only honest answer for a file it did not recognise.
-        const served = media.mediaMime(stored.media_ref);
+        // The envelope names the type when it can — a document's own type, a voice note's declared
+        // one — and the cached file's extension fills the gap for the kinds it cannot (a picture,
+        // where the sender's declared type is not the one the frame was sent).
+        const served = info.mime ? undefined : media.mediaMime(stored.media_ref);
         return { info: { ...info, cached: true, ...(served ? { mime: served } : {}) }, bytes: cached };
       }
 
@@ -199,7 +200,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
         });
         const bytes = media.readCachedMedia(dataDir, mediaRef);
         const served = await factsOf(store.getMessage(messageId) ?? stored) ?? info;
-        const extensionMime = media.mediaMime(mediaRef);
+        const extensionMime = served.mime ? undefined : media.mediaMime(mediaRef);
         return bytes
           ? { info: { ...served, ...(extensionMime ? { mime: extensionMime } : {}) }, bytes }
           : { info: served };
