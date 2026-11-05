@@ -1,7 +1,7 @@
 ---
 title: "feat: carry the WhatsApp transport inside the plugin"
 type: feat
-status: proposal
+status: shipped
 date: 2026-11-05
 ---
 
@@ -12,6 +12,30 @@ date: 2026-11-05
 every number here is
 [`docs/research/2026-11-05-whatsapp-transport-a-stranger-can-install.md`](../research/2026-11-05-whatsapp-transport-a-stranger-can-install.md);
 this document does not re-argue it, it divides the work.
+
+> **Shipped 2026-11-05.** All seven units landed on `main` through `bb-plugin-unified-inbox` and the plugin
+> is live on this machine: pairing by QR from the tab, 699 chats and 6,168 messages synced into `wa_*`, a
+> reply delivered (`status: Sent.`, row stored `from_me=1`), an image downloaded over the socket and served
+> from disk, and the same inbox still reading and sending with the WhatsAgent launch agent booted out of
+> `launchd` and no WhatsAgent process on the machine. `grep -rn whatsagent src server.ts` returns nothing but
+> provenance comments.
+>
+> Where the outcome differs from what this document planned:
+> - **U5's failure classes** were carried from the lifted classifier rather than invented, so an unreadable
+>   error reports "outcome unknown" instead of claiming a failure; "a second 412/418 is permanent" was wrong
+>   and the classifier's rule (terminal only past the serve window) stands.
+> - **U3 deleted** `src/whatsapp-send.ts` instead of rewriting it, because the loopback composer it wrapped
+>   was the coupling being removed.
+> - **U4's pairing had to open the socket itself**: the boot service was the only owner and refused to run
+>   without account state, so pairing could never have opened one.
+> - **U7 added a seventh pairing state, `failed`**, because credential files say an account exists and never
+>   say a socket is up — socket health is not pairing state.
+> - **A cache clear now deletes cached media bytes**: U2 left `{dataDir}/media` outside `clear_cache`, which
+>   orphaned pictures on disk against the README's privacy promise.
+>
+> Recorded decisions: `decisions/0009` (the plugin owns the account state) and `decisions/0010` (a source
+> transport is the plugin's own, or a tool it drives). Out of scope and still open: audio and document
+> playback (INBOX-26).
 
 ## Summary
 
