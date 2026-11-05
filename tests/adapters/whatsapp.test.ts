@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { SAVE_LIMIT } from '../../src/adapters/media.ts';
+import { AUDIO_LIMIT, SAVE_LIMIT } from '../../src/adapters/media.ts';
 import { approvalFor, createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
 import { WhatsAppDisconnectedError } from '../../src/whatsapp/send.ts';
 import { harness, refused, LINKEDIN_ID, WHATSAPP_GROUP_ID, WHATSAPP_ID } from './harness.ts';
@@ -301,6 +301,56 @@ test('WhatsApp: no message the owner reads names the program this source used to
     }
     assert.ok(messages.length >= 3, 'the refusals are what carry text a person reads');
     for (const message of messages) assert.doesNotMatch(message, /whatsagent|mcp|127\.0\.0\.1|loopback/i);
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a voice note plays whole under its own ceiling, and an oversized one is never fetched', async () => {
+  const opus = Buffer.from('OpusHead');
+  const facts: Record<string, Record<string, unknown>> = {
+    note: { messageId: 'a1', kind: 'audio', cached: false, available: true, mime: 'audio/ogg; codecs=opus', size: opus.byteLength, seconds: 7, voice: true },
+    huge: { messageId: 'a2', kind: 'audio', cached: false, available: true, mime: 'audio/ogg', size: AUDIO_LIMIT + 1 },
+    lying: { messageId: 'a3', kind: 'audio', cached: false, available: true, mime: 'audio/ogg', size: 10 },
+    gone: { messageId: 'a4', kind: 'audio', cached: false, available: false, seconds: 39 },
+  };
+  const answers: Record<string, Record<string, unknown>> = {
+    note: { info: { ...facts.note, cached: true }, bytes: opus },
+    // Declared 10 bytes and more than the ceiling arrives: the declared length is a hint, not a promise.
+    lying: { info: { ...facts.lying, cached: true }, bytes: new Uint8Array(AUDIO_LIMIT + 1) },
+  };
+  const downloaded: string[] = [];
+  const discarded: string[] = [];
+  const h = harness({
+    whatsapp: {
+      async mediaFacts(messageId) {
+        return facts[messageId] as never;
+      },
+      async loadMedia(messageId) {
+        downloaded.push(messageId);
+        return (answers[messageId] ?? {}) as never;
+      },
+      async discardMedia(messageId) {
+        discarded.push(messageId);
+      },
+    },
+  });
+  try {
+    const adapter = h.registry.whatsapp;
+    assert.deepEqual(await adapter.media({ kind: 'message', id: 'note', index: 0 }), {
+      dataUrl: `data:audio/ogg;base64,${opus.toString('base64')}`,
+      mime: 'audio/ogg',
+    }, 'a voice note is one bounded data URL, with the codecs left out of the type');
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /This audio is too large to play here/);
+    assert.deepEqual(downloaded, ['note'], 'a note over the ceiling is refused on its declared size: nothing is fetched');
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'lying', index: 0 }), /This audio is too large to play here/);
+    assert.deepEqual(downloaded, ['note', 'lying'], 'the declared length is a hint, so what lands is checked');
+    assert.deepEqual(discarded, ['lying'], 'and bytes this panel will refuse are taken back off the disk');
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'gone', index: 0 }), /This media is no longer available/);
+    assert.deepEqual(downloaded, ['note', 'lying'], 'an expired note is not asked for again on every open');
   } finally {
     h.close();
   }
