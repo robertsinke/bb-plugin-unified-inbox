@@ -689,12 +689,14 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     try {
       // The owner pressing Send is the statement the transport can carry: the gate refuses and
       // records a reply that arrives without it.
-      const result = await deps.rpc.call('action', { account, id, action: 'reply', text: draft, allow: 'send' });
+      await deps.rpc.call('action', { account, id, action: 'reply', text: draft, allow: 'send' });
       clearComposerDraft(account, id);
       state.text = '';
       const sentAt = clock();
       state.messages = messagesAfterSend(state.messages, draft, sentAt);
-      state.status = result.status;
+      // A send that worked says nothing: the bubble in the thread is the receipt. Only a failure or an
+      // unknown outcome has something to add, and it lands in the same notice, from the catch below.
+      state.status = '';
       notify();
       // Reconcile: the source's thread if it stored the message, otherwise the
       // optimistic bubble already on screen stays.
@@ -784,14 +786,16 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     const mail = state.mail;
     if (!mail || state.busy || !mail.to.trim() || (!mail.text.trim() && mail.attachments.length === 0)) return;
     state.busy = true;
-    state.mailStatus = 'Sending…';
+    // In flight and after success the composer says nothing; the busiest-looking control on it is
+    // already disabled, and the draft leaving the panel is the receipt.
+    state.mailStatus = '';
     notify();
     try {
       // The same statement a chat reply carries: the owner pressed send on this draft.
-      const result = await deps.rpc.call('send_gmail', { ...mail, allow: 'send' });
-      state.mailStatus = result.status;
+      await deps.rpc.call('send_gmail', { ...mail, allow: 'send' });
+      state.mailStatus = '';
       state.mail = null;
-      state.status = result.status;
+      state.status = '';
       notify();
     } catch (error) {
       state.mailStatus = error instanceof Error ? error.message : 'Send outcome unknown. Check Gmail Sent before retrying.';
