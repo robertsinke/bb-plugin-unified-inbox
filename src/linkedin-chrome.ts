@@ -53,6 +53,19 @@ const NAVIGATE_TIMEOUT = 30_000;
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
 /** A probe of somebody else's browser must not stall the read that needed a page. */
 const ADOPT_TIMEOUT = 5_000;
+/**
+ * No command waits for its reply forever.
+ *
+ * A browser that dies between receiving a command and answering it leaves the reply in flight, and a
+ * pending reply is what a page read is made of — so one dead browser became one read that never
+ * returned, which became a refresh service that could not stop, which became a plugin that could not
+ * reload: measured on 2026-11-05, `bb plugin reload` answered "service refresh-linkedin did not
+ * stop" for as long as the wedged call lived. The cap is generous enough for the slowest honest
+ * answer and short enough that the next poll reads again.
+ */
+const COMMAND_TIMEOUT = 20_000;
+/** The socket has to open, or the caller needs to hear about it and try the launch path instead. */
+const CONNECT_TIMEOUT = 5_000;
 
 export type CdpTransport = {
   send(message: string): void;
@@ -123,7 +136,8 @@ export function parseDevtoolsUrl(text: string): string | undefined {
   return /DevTools listening on (ws:\/\/\S+)/.exec(text)?.[1];
 }
 
-export function createCdpClient(transport: CdpTransport) {
+export function createCdpClient(transport: CdpTransport, options: { commandTimeoutMs?: number } = {}) {
+  const commandTimeoutMs = options.commandTimeoutMs ?? COMMAND_TIMEOUT;
   let nextId = 1;
   const pending = new Map<number, Pending>();
   const listeners = new Map<string, Set<(params: unknown, sessionId?: string) => void>>();
@@ -155,8 +169,19 @@ export function createCdpClient(transport: CdpTransport) {
     send<T = unknown>(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<T> {
       const id = nextId++;
       return new Promise<T>((resolve, reject) => {
-        pending.set(id, { resolve: value => resolve(value as T), reject });
-        transport.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+        const timer = setTimeout(() => {
+          if (!pending.delete(id)) return;
+          reject(new Error(`The LinkedIn browser did not answer ${method}.`));
+        }, commandTimeoutMs);
+        pending.set(id, {
+          resolve: value => { clearTimeout(timer); resolve(value as T); },
+          reject: error => { clearTimeout(timer); reject(error); },
+        });
+        try {
+          transport.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+        } catch (error) {
+          if (pending.delete(id)) { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))); }
+        }
       });
     },
     on(method: string, handler: (params: unknown, sessionId?: string) => void): () => void {
@@ -174,17 +199,23 @@ export function webSocketTransport(url: string): Promise<CdpTransport> {
     const socket = new WebSocket(url);
     const messageHandlers = new Set<(message: string) => void>();
     const closeHandlers = new Set<() => void>();
+    // A port that accepts a connection and never finishes the handshake would otherwise wait here
+    // with nobody to tell.
+    const timer = setTimeout(() => {
+      try { socket.close(); } catch { /* already gone */ }
+      reject(new Error('Could not connect to the LinkedIn browser.'));
+    }, CONNECT_TIMEOUT);
     socket.addEventListener('message', event => {
       if (typeof event.data === 'string') for (const handler of messageHandlers) handler(event.data);
     });
-    socket.addEventListener('close', () => { for (const handler of closeHandlers) handler(); });
-    socket.addEventListener('error', () => reject(new Error('Could not connect to the LinkedIn browser.')));
-    socket.addEventListener('open', () => resolve({
+    socket.addEventListener('close', () => { clearTimeout(timer); for (const handler of closeHandlers) handler(); });
+    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Could not connect to the LinkedIn browser.')); });
+    socket.addEventListener('open', () => { clearTimeout(timer); resolve({
       send(message) { socket.send(message); },
       onMessage(handler) { messageHandlers.add(handler); },
       onClose(handler) { closeHandlers.add(handler); },
-      close() { socket.close(); },
-    }));
+      close() { clearTimeout(timer); socket.close(); },
+    }); });
   });
 }
 
