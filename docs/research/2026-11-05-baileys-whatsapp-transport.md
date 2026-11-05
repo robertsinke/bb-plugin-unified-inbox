@@ -1,11 +1,21 @@
 ---
 title: "Pricing a Baileys WhatsApp transport: own it, or keep WhatsAgent"
 description: "What the plugin asks of WhatsAgent today, what an in-plugin Baileys transport would make us own, the first production failure, maintenance and ban exposure, and why the transport is already Baileys three hops away."
-status: settled
+status: superseded
 date: 2026-11-05
+superseded-by: ./2026-11-05-whatsapp-transport-a-stranger-can-install.md
 ---
 
 # Pricing a Baileys WhatsApp transport
+
+**Superseded by [The WhatsApp transport the plugin has to carry itself](./2026-11-05-whatsapp-transport-a-stranger-can-install.md).**
+Its verdict below — "keep WhatsAgent, do not port Baileys" — is withdrawn, and the body is left as written. The
+premise that failed is that keeping WhatsAgent is an option at all: the verdict holds only on the machine that
+already runs it, while a plugin user has no such program, so "keep it" means the fifth source is never shipped.
+What changed with it: distribution is now a priced constraint rather than free, and the cache-can-stand-in-for-
+the-store argument does not hold (`getMessage` needs raw envelopes). What stands unchanged: the coupling
+inventory, the auth-state measurement, the media expiry classes, and the ban section's refusal to state a
+probability.
 
 **Date:** 2026-11-05
 **Machine:** local macOS checkout; WhatsAgent headless backend pid 49510 on loopback port 63765, Baileys
