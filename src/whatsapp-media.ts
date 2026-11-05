@@ -8,18 +8,29 @@ export type WhatsAppMedia = {
   size?: number;
 };
 
-/** Keep only the media facts the inbox renders: images, stickers, and videos. */
-export function whatsAppMedia(item: { id?: unknown; type?: unknown; media?: unknown }): WhatsAppMedia | undefined {
-  if (item.type !== 'image' && item.type !== 'sticker' && item.type !== 'video') return undefined;
-  if (typeof item.id !== 'string' || !item.id) return undefined;
-  const info = item.media && typeof item.media === 'object' ? item.media as Record<string, unknown> : {};
+/** The stored row, as far as its media state is concerned. */
+export type WhatsAppMediaRow = {
+  id: string;
+  type: string;
+  media_ref?: string | null;
+  media_state?: string | null;
+  media_error?: string | null;
+};
+
+/**
+ * The media facts the inbox renders for one stored message: images, stickers and videos only, and
+ * whether its bytes are cached. Nothing here is inferred — `media_state` and `media_error` are what
+ * the downloader persisted, and `unavailable` is terminal (WhatsApp-side expiry; see
+ * docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md), while a transient failure may be
+ * retried on a later open.
+ */
+export function whatsAppMedia(row: WhatsAppMediaRow): WhatsAppMedia | undefined {
+  if (row.type !== 'image' && row.type !== 'sticker' && row.type !== 'video') return undefined;
+  if (!row.id) return undefined;
   return {
-    messageId: item.id,
-    kind: item.type,
-    cached: info.cached === true,
-    available: info.error !== 'unavailable',
-    ...(typeof info.mime === 'string' && info.mime ? { mime: info.mime } : {}),
-    ...(typeof info.filename === 'string' && info.filename ? { filename: info.filename } : {}),
-    ...(typeof info.size === 'number' && Number.isFinite(info.size) && info.size > 0 ? { size: info.size } : {}),
+    messageId: row.id,
+    kind: row.type,
+    cached: Boolean(row.media_ref) && row.media_state === 'ready',
+    available: row.media_error !== 'unavailable',
   };
 }

@@ -64,14 +64,13 @@ at: a `threaded` that named LinkedIn and a re-read that skipped LinkedIn. A decl
 the same decision, made by the source that owns it, so a new source inherits the right
 behaviour by declaring it instead of by being mentioned in the UI.
 
-**WhatsApp sends through the owner's composer, not the agent's proposal.** `reply` on
-WhatsApp posts to WhatsAgent's `POST /api/chats/:jid/messages`, which dispatches the `send`
-action as `caller: 'frontend'` — the owner's own composer — and enqueues to the single paced
-outbox. The agent's `propose-send` tool refuses a group outright (WhatsAgent R8 excludes the
-*drafting agent* from groups while AE4 keeps groups writable by the owner), so the inbox,
-which types for the owner, belongs on the composer path. That is why a group chat sends from
-here, and why there is no two-phase "propose, then confirm" in this UI: nothing is being
-approved but the owner's own sentence.
+**WhatsApp reads from its store and sends over the plugin's socket.** The adapter asks
+`WhatsAppTransport` (`types.ts`, implemented by `src/whatsapp/transport.ts`) for every chat,
+message, read mark, send and media answer, so it never learns whether an answer came from
+WhatsApp just now or from what the socket stored: a read works with the socket down. `reply`
+sends the owner's sentence over that socket in one call — no queue, no two-phase "propose,
+then confirm", and no second program in the path. A group chat is not a special case: nothing
+here restricts who may write to one.
 
 ## Known asymmetries
 
@@ -91,6 +90,6 @@ approved but the owner's own sentence.
 ## Tests
 
 `tests/adapters/` has one test per account. Every dependency is a stub; no test
-reaches Gmail, WhatsAgent, Messages, or LinkedIn. Each test exercises every
+reaches Gmail, WhatsApp, Messages, or LinkedIn. Each test exercises every
 declared flag in the direction it is declared — a `true` reaches the stubbed
 runner, a `false` refuses and leaves the runner untouched.

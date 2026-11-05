@@ -2,10 +2,11 @@
 //
 // Lifted from WhatsAgent's `server/channels/whatsapp/connection.ts` with its collaborators intact —
 // `socketFactory`, `createAuthStore`, `resolveWaVersion`, `reconnectDelayMs`, `maxReconnectDelayMs`,
-// `onError` — and with the two halves that cannot ship here removed: the database-backed
-// `getMessage` loader (U2 puts it back as a hook) and the LID/identity backfill. What arrives whole is
-// the part that took the longest to get right: the reconnect ladder, the version probe, the
-// `pairing-needed` event, and the rule that `loggedOut` is terminal rather than retried.
+// `onError` — and with the database-backed `getMessage` loader put back as a hook (`store.ts`
+// supplies it) and the LID/identity backfill moved to the ingest, which is where identity is learned
+// from the envelopes themselves. What arrives whole is the part that took the longest to get right:
+// the reconnect ladder, the version probe, the `pairing-needed` event, and the rule that `loggedOut`
+// is terminal rather than retried.
 //
 // This module owns three things and no others: when a socket exists, what it reports, and that only
 // one exists per account state. It does not parse messages, store them, or decide whether a send is
@@ -89,6 +90,13 @@ export interface WhatsAppConnectionOptions {
   maxReconnectDelayMs?: number;
   groupCacheSize?: number;
   getMessage?: StoredMessageLoader;
+  /**
+   * Binds an open socket to whatever consumes its events (the store's ingest). Called once per
+   * socket — so once per connect, including a reconnect — and the returned function is called when
+   * that socket closes. This module decides when a socket exists; what it is bound to is the
+   * plugin's business, which is why this is a hook and not an import.
+   */
+  bindSocket?: (socket: WhatsAppSocket) => void | (() => void);
   onError?: (error: Error) => void;
 }
 
@@ -146,12 +154,14 @@ export class WhatsAppConnection {
   readonly #maxReconnectDelayMs: number;
   readonly #groupCache: GroupMetadataCache;
   readonly #getMessage?: StoredMessageLoader;
+  readonly #bindSocket?: (socket: WhatsAppSocket) => void | (() => void);
   readonly #onError?: (error: Error) => void;
 
   #authStore?: WhatsAppAuthStore;
   #lock?: WhatsAppLock;
   #waVersion?: WAVersion;
   #socket?: WhatsAppSocket;
+  #detachSocket?: () => void;
   #reconnectTimer?: ReturnType<typeof setTimeout>;
   #running = false;
   #reconnectAttempt = 0;
@@ -168,6 +178,7 @@ export class WhatsAppConnection {
     this.#maxReconnectDelayMs = Math.max(this.#reconnectDelayMs, options.maxReconnectDelayMs ?? 60_000);
     this.#groupCache = new GroupMetadataCache(options.groupCacheSize);
     this.#getMessage = options.getMessage;
+    this.#bindSocket = options.bindSocket;
     this.#onError = options.onError;
   }
 
@@ -209,6 +220,8 @@ export class WhatsAppConnection {
     this.#running = false;
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = undefined;
+    this.#detachSocket?.();
+    this.#detachSocket = undefined;
     const socket = this.#socket;
     this.#socket = undefined;
     socket?.end(new Error('WhatsApp connection stopped'));
@@ -265,6 +278,17 @@ export class WhatsAppConnection {
       if (this.#pairingPhone && !this.#authStore.state.creds.registered) {
         void this.#requestPairingCode(socket, this.#pairingPhone);
       }
+
+      // Bound after this module's own handlers, so what the socket reports and what it stores are
+      // both listening before the first event arrives. A binding that throws must not cost us the
+      // socket: the reads still work, the ingest may not.
+      if (this.#bindSocket) {
+        try {
+          this.#detachSocket = this.#bindSocket(socket) ?? undefined;
+        } catch (error) {
+          this.#surfaceError(error, false);
+        }
+      }
     } catch (error) {
       this.#surfaceError(error, true);
       this.#scheduleReconnect();
@@ -303,6 +327,8 @@ export class WhatsAppConnection {
     }
     if (update.connection !== 'close') return;
 
+    this.#detachSocket?.();
+    this.#detachSocket = undefined;
     this.#socket = undefined;
     this.#setState('disconnected');
     if (disconnectStatusCode(update.lastDisconnect?.error) === DisconnectReason.loggedOut) {

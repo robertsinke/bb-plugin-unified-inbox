@@ -538,6 +538,19 @@ export function handleHistorySet(
     for (const chat of payload.chats) ingestBaileysChat(store, chat);
     for (const contact of payload.contacts) collect(ingestBaileysContact(store, contact));
     for (const message of payload.messages) ingestBaileysMessage(store, message, { onChatsMerged: collect });
+    // History that was synced is not news. A chat the owner has never read here gets its read
+    // cursor on the newest stored row, so a first pairing — which syncs everything — does not open
+    // with every conversation marked unread. A cursor that already exists is left alone: a history
+    // batch may append rows newer than it, and those really are unread.
+    const touched: string[] = [];
+    for (const chat of payload.chats) {
+      if (chat.id) touched.push(store.canonicalChatJid(chat.id));
+    }
+    for (const message of payload.messages) {
+      const jid = chatJidFromMessage(message);
+      if (jid) touched.push(store.canonicalChatJid(jid));
+    }
+    store.markChatsRead(touched);
   });
   for (const merge of merges) options.onChatsMerged?.(merge);
 

@@ -4,8 +4,7 @@
 import type { createInboxCache } from '../inbox-cache.ts';
 import type { ImsgSender } from '../imsg-send.ts';
 import type { LinkedInPageSession } from '../linkedin-page-session.ts';
-import type { Account, GmailTransport, ProviderError } from './types.ts';
-import type { WhatsAgentClient } from './whatsagent.ts';
+import type { Account, GmailTransport, ProviderError, WhatsAppTransport } from './types.ts';
 
 export type InboxCache = ReturnType<typeof createInboxCache>;
 
@@ -13,7 +12,8 @@ export interface RegistryDeps {
   cache: InboxCache;
   /** The Gmail transport: typed reads and sends, rejecting with the raw cause. */
   gmail: GmailTransport;
-  whatsapp: WhatsAgentClient;
+  /** The WhatsApp transport: stored reads, and sends over the plugin's own socket. */
+  whatsapp: WhatsAppTransport;
   imsg: ImsgSender;
   /** One LinkedIn page session: the reads, the change probe, the recorder, and a write replay. */
   linkedInPage: LinkedInPageSession;
