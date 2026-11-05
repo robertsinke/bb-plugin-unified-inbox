@@ -65,6 +65,22 @@ test('saved contacts and other contacts are two listings, each asking for just t
   assert.equal(requests[0].authorization, `Bearer ${TOKEN}`);
 });
 
+test('Google’s own placeholder is not a face, and the real photo beside it still is', async () => {
+  // `default: true` is the green one-letter tile the People API answers for a contact with no
+  // picture — 482 of 490 saved contacts carry one. Drawing it replaced a good initial with the same
+  // letter in Google's colours, so a placeholder is reported as no photo at all.
+  const { fetch } = stubFetch([
+    { status: 200, body: { connections: [
+      { emailAddresses: [{ value: 'placeholder@example.com' }], photos: [{ url: 'https://lh3.googleusercontent.com/cm/AGPplaceholder=s100', default: true }] },
+      { emailAddresses: [{ value: 'real@example.com' }], photos: [{ url: PHOTO }] },
+    ] } },
+    { status: 200, body: { otherContacts: [] } },
+  ]);
+  const people = createPeopleClient({ account: 'gmail-personal', credentials: { accessToken: async () => TOKEN }, fetch });
+  const page = await people.connections();
+  assert.deepEqual(page.photos, [{ address: 'real@example.com', url: PHOTO }], 'only the contact with a photograph answers a face');
+});
+
 test('a page token is carried, and the last page says so by carrying none', async () => {
   const { fetch, requests } = stubFetch([
     { status: 200, body: { connections: [{ emailAddresses: [{ value: 'one@example.com' }], photos: [{ url: PHOTO }] }], nextPageToken: 'page-2' } },
