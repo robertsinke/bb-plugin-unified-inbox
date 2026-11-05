@@ -36,6 +36,18 @@ this document does not re-argue it, it divides the work.
 > Recorded decisions: `decisions/0009` (the plugin owns the account state) and `decisions/0010` (a source
 > transport is the plugin's own, or a tool it drives). Out of scope and still open: audio and document
 > playback (INBOX-26).
+>
+> **After shipping** (the plan is closed; this is what the units did not cover):
+> - Documents landed as INBOX-26: a chip named from the envelope, one click saves the file, and the bytes
+>   cache under the file's own extension.
+> - The 5 MiB attachment ceiling moved from a refusal to a destination: `src/media-save.ts` writes anything
+>   larger to the owner's Downloads folder, so a 6.5 MB HTML attachment a contact sent — which the ceiling
+>   refused outright — now opens.
+> - A linked socket was being stopped ten minutes after it opened, and nothing said so: `creds.registered` is
+>   false on a device paired by QR, and the idle rule read that as an unfinished pairing. `registered()` now
+>   answers from the device identity; `docs/bugs/2026-11-05-a-dead-socket-was-never-reopened.md` has the
+>   evidence.
+> - Audio playback is INBOX-27, in progress.
 
 ## Summary
 
