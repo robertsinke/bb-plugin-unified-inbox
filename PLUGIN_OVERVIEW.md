@@ -20,8 +20,8 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   conversation on the right, and `#` in any composer to tag one into a thread.
 - Personal and business Gmail: read, archive, read/unread, and a reply /
   reply-all / forward / new-mail composer that sends.
-- WhatsApp through the running WhatsAgent backend: replies to a person or a
-  group, photos, stickers, video, and mark-read.
+- WhatsApp through the plugin's own socket: paired from the tab by scanning a
+  QR, replies to a person or a group, photos, stickers, video, and mark-read.
 - Local Messages through `imsg`: the latest conversations, their messages and
   attachments, and a reply into an open conversation.
 - LinkedIn: DMs, InMail and pending invitations, with reply, read mark, and
@@ -64,10 +64,20 @@ deletes a record because a grant failed. An account with no credential file is n
 crash: that mailbox's refresh fails with one scrubbed line naming the account, the
 panel keeps the rows it has and marks them as possibly stale, and
 `bb unified-inbox import-gws-account <account>` copies an existing `gws` config in
-once — the one remaining use of that CLI. WhatsApp attaches to
-the WhatsAgent backend on loopback — this plugin never starts or restarts it,
-and fails closed when discovery fails rather than opening a second connection.
-Messages runs a supervised `imsg rpc` child and needs Full Disk Access. LinkedIn
+once — the one remaining use of that CLI. WhatsApp needs no second program: the
+plugin opens its own Baileys socket in its own process and keeps the linked
+account state in `~/.bb/plugins/unified-inbox/whatsapp-auth` — one 0700 directory
+of 0600 files holding AES-256-GCM blobs under a key kept beside them, so the
+directory's permissions are the protection rather than the encryption. The panel
+never sees those bytes and no RPC returns them. One socket per state directory,
+held by a pid lock and stopped when the plugin unloads; a socket opened for a QR
+nobody scanned is stopped after ten minutes, while a linked one stays up because
+it is how messages arrive. A start that fails says why to the pairing card
+instead of leaving an account that only looks connected. Scanning a code counts
+as a linked device, like WhatsApp Web: WhatsApp prohibits bulk and automated
+messaging and has banned linked-device sessions, and the card says so before it
+draws a code. Messages runs a
+supervised `imsg rpc` child and needs Full Disk Access. LinkedIn
 is read and written inside a Chrome the plugin starts with its own profile: no
 cookie store, Keychain entry or session export leaves that browser
 (`decisions/0003`). Every source, including LinkedIn, refreshes in a backend
@@ -97,7 +107,10 @@ age. `cached_open` and failed Gmail/LinkedIn opens explicitly report
 Background list refresh never opens or marks conversations read. Refresh stops
 when BB or the plugin stops; authentication and provider failures remain visible.
 The inbox cache, freshness, unread marks, and send audit live in this plugin's
-unencrypted SQLite storage on the BB server.
+unencrypted SQLite storage on the BB server, and so do the `wa_*` tables: the
+WhatsApp messages with their raw envelopes, chats with the read cursor, contacts
+and reactions, written by the plugin's own socket. `clear_cache` empties those
+copies along with the cached pictures and leaves the linked account alone.
 
 ## For agents
 

@@ -9,6 +9,17 @@
 - **Verified against the code:** 2026-11-05 — `src/whatsapp/connection.ts` holds one socket with its reconnect ladder; `src/whatsapp/auth.ts` resolves the state to `~/.bb/plugins/unified-inbox/whatsapp-auth` (overridable with `UNIFIED_INBOX_WHATSAPP_AUTH`), creates it `0o700`, writes files `0o600`, and keeps the AES-256-GCM key beside the ciphertext; `src/whatsapp/lock.ts` takes an `O_EXCL` `socket.lock` per state directory; `src/whatsapp/version.ts` pairs a live version probe with a fallback constant; `_tools/patch-baileys.mjs` patches the pinned client and `npm run build` runs it before `bb plugin build`; `bb unified-inbox whatsapp-link [phone]` opens the socket from the CLI; `src/adapters/whatsagent.ts` still answers reads and sends, unchanged, because the store has not moved yet.
 - **Tags:** whatsapp, transport, credentials, portability, security
 
+> **Current state (2026-11-05, plan U7): the decision holds and the coupling it replaced is gone.**
+> `src/adapters/whatsagent.ts` and its runtime-file discovery are deleted, which retires the last
+> sentence of the verification line above: reads answer from `src/whatsapp/store.ts` and sends from
+> `src/whatsapp/send.ts`. What the record does not name, because it did not exist yet, is the lifetime:
+> `src/whatsapp/lifecycle.ts` now decides when the one socket exists — opened on first ask, closed on
+> dispose, and stopped after a ten-minute idle window only when it never became a linked device, since
+> a linked socket is how messages arrive. A start that is refused (the lock is held elsewhere, the state
+> will not decrypt) is kept there and drawn by the pairing card as `failed`, because the credential
+> files say an account exists and never say a socket is up. Nothing below is rewritten: an ADR records
+> what was decided, not what the code looks like today.
+
 ## Context
 
 WhatsApp is the plugin's only source that was never really ours. `src/adapters/whatsapp.ts` speaks to WhatsAgent, whose backend is a separate program on this machine: the plugin reads a runtime file for its port and bearer token, checks a pid, and calls MCP tools over loopback. Everything below that — the Baileys socket, the encrypted auth state, the outbox, the reconnect supervisor — belonged to the other program.

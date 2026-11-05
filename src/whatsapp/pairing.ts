@@ -1,4 +1,4 @@
-// Where a WhatsApp pairing stands, and the three acts that change it (plan U4, requirements R2, R5, R8).
+// Where a WhatsApp pairing stands, and the acts that change it (plan U4 and U7, requirements R2, R5, R8).
 //
 // The socket is the only thing that knows what WhatsApp offered — a QR string, eight characters, a
 // terminal unlink. This module is the only writer of what the panel draws from that: it subscribes to
@@ -15,6 +15,10 @@
 //
 // The account state itself is not read here. `auth.ts` owns whether an account exists and how it is
 // forgotten; `connection.ts` owns the socket and says whether its credentials are registered.
+//
+// Socket health is not pairing state, which is why `failure` is a dependency rather than an inference:
+// an account on disk that the boot service could not open would otherwise draw `connected` and nothing
+// else, and the owner would be looking at a source that is not connected and not told.
 import type { WhatsAppPairingRequest, WhatsAppPairingSnapshot } from '../rpc-contract.ts';
 import { clearAccountState, whatsAppAccountExists, whatsAppAuthDir } from './auth.ts';
 import type { WhatsAppConnection } from './connection.ts';
@@ -26,6 +30,11 @@ export interface WhatsAppPairingDeps {
   current?: () => WhatsAppConnection | undefined;
   /** Stops the socket and releases its lock: the act before a deliberate re-pair. */
   close?: () => Promise<void>;
+  /**
+   * What a start that failed said, until one succeeds (`src/whatsapp/lifecycle.ts` keeps it). The
+   * only way the card can tell "linked" from "linked and connected".
+   */
+  failure?: () => string | undefined;
   now?: () => number;
   /** Baileys' own rotation: the first payload lives a minute, its replacements twenty seconds. */
   firstQrMs?: number;
@@ -35,7 +44,7 @@ export interface WhatsAppPairingDeps {
 export interface WhatsAppPairing {
   /** What the card draws. Synchronous, because the panel reads it on every tick; it starts nothing. */
   state(): WhatsAppPairingSnapshot;
-  /** A read when `op` is absent, otherwise one of the three acts. */
+  /** A read when `op` is absent, otherwise one of the four acts. */
   handle(request: WhatsAppPairingRequest): Promise<WhatsAppPairingSnapshot>;
   /** Follow one socket's events. Idempotent, and a new socket replaces the old subscription. */
   attach(connection: WhatsAppConnection): void;
@@ -126,6 +135,17 @@ export function createWhatsAppPairing(deps: WhatsAppPairingDeps): WhatsAppPairin
     // already rotating, and a card that cannot see it would offer a pairing that is in progress.
     const present = deps.current?.();
     if (present && present !== tracked) attach(present);
+    if (!present && tracked) {
+      // The socket went away without this module asking — the lifecycle's idle stop, or a host that
+      // closed it. A payload belongs to the socket that offered it, so it goes with the socket, and
+      // the card is back to reading the account state rather than a code nothing is expecting.
+      detach?.();
+      detach = undefined;
+      tracked = undefined;
+      qr = undefined;
+      code = undefined;
+      codeRequested = false;
+    }
 
     if (loggedOut) return { state: 'logged-out', ...(note ? { message: note } : {}) };
 
@@ -143,8 +163,12 @@ export function createWhatsAppPairing(deps: WhatsAppPairingDeps): WhatsAppPairin
       };
     }
     if (tracked) return { state: 'connecting', ...(note ? { message: note } : {}) };
-    // No socket and nothing said yet: a linked account waits for the next read, an unpaired one is
-    // the card. Both are states; neither is a failure.
+    // An account state the plugin could not open a socket for is neither connected nor pairing: it is
+    // a failed start, in the socket's own words, with the one action that can change it.
+    const failure = deps.failure?.();
+    if (failure) return { state: 'failed', message: failure };
+    // No socket and nothing said: a linked account waits for the next read, an unpaired one is the
+    // card. Both are states; neither is a failure.
     return linked(undefined) ? { state: 'connected' } : { state: 'unpaired' };
   }
 
@@ -163,10 +187,31 @@ export function createWhatsAppPairing(deps: WhatsAppPairingDeps): WhatsAppPairin
     return state();
   }
 
+  /**
+   * Opens the one socket and follows it, or says why it will not open. `pair` and `reconnect` differ
+   * only in what they are allowed to replace, so both end here.
+   */
+  async function connect(): Promise<{ connection: WhatsAppConnection } | { refused: string }> {
+    try {
+      const connection = await deps.open();
+      attach(connection);
+      return { connection };
+    } catch (error) {
+      return { refused: messageOf(error) };
+    }
+  }
+
   async function handle(request: WhatsAppPairingRequest): Promise<WhatsAppPairingSnapshot> {
     const op = request.op ?? 'state';
     if (op === 'state') return state();
     if (op === 'unpair') return unpair();
+    // Reopening a socket that is already linked replaces nothing — no QR is offered to a registered
+    // device — so it is the retry the card offers when a start failed. Pairing is still the one act
+    // that can replace a linked device, and it still has to be asked for explicitly below.
+    if (op === 'reconnect') {
+      const opened = await connect();
+      return 'refused' in opened ? { ...state(), message: opened.refused } : state();
+    }
     // A number is checked before a socket exists: a wrong one costs a pairing request on WhatsApp's
     // side, and a request is the one thing this module refuses to spend on a typo.
     const phone = (request.phone ?? '').replace(/\D/g, '');
@@ -179,14 +224,9 @@ export function createWhatsAppPairing(deps: WhatsAppPairingDeps): WhatsAppPairin
     codeRequested = false;
     code = undefined;
 
-    let connection: WhatsAppConnection;
-    try {
-      connection = await deps.open();
-    } catch (error) {
-      return { ...state(), message: messageOf(error) };
-    }
-    attach(connection);
-    if (op === 'request-code') await connection.requestPairingCode(phone);
+    const opened = await connect();
+    if ('refused' in opened) return { ...state(), message: opened.refused };
+    if (op === 'request-code') await opened.connection.requestPairingCode(phone);
     return state();
   }
 

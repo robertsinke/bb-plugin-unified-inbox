@@ -58,6 +58,7 @@ export interface WhatsAppPairingCardProps {
   onPair: () => void;
   onCode: (phone: string) => void;
   onRePair: () => void;
+  onReconnect: () => void;
 }
 
 /**
@@ -67,7 +68,7 @@ export interface WhatsAppPairingCardProps {
  * socket, so a state it does not recognise draws the note and nothing to press, rather than a spinner
  * that claims to know what is happening.
  */
-export function WhatsAppPairingCard({ pairing, busy, onPair, onCode, onRePair }: WhatsAppPairingCardProps) {
+export function WhatsAppPairingCard({ pairing, busy, onPair, onCode, onRePair, onReconnect }: WhatsAppPairingCardProps) {
   const state = pairing.state;
   if (state === 'connected') return null;
   return (
@@ -97,6 +98,17 @@ export function WhatsAppPairingCard({ pairing, busy, onPair, onCode, onRePair }:
 
       {state === 'connecting' ? (
         <p className="ui-pairing-state" role="status">Asking WhatsApp for a code…</p>
+      ) : null}
+
+      {state === 'failed' ? (
+        <>
+          <p className="ui-pairing-state">
+            This phone is still linked, but the plugin could not open its WhatsApp connection.
+          </p>
+          <button type="button" className="ui-text-button" disabled={busy} onClick={onReconnect}>
+            Try again
+          </button>
+        </>
       ) : null}
 
       {state === 'qr' && pairing.qr ? (

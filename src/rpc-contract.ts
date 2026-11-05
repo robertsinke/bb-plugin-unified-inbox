@@ -34,9 +34,11 @@ const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid he
 const noArgs = z.union([z.null(), z.object({}).strict()]);
 // Where a WhatsApp pairing stands (plan U4). A read is the same call with no op, because the card
 // polls while a code is on screen. `unpaired` is a state here and nowhere an error: nothing in the
-// contract has a slot for "this source has never been used", so it must not need one.
+// contract has a slot for "this source has never been used", so it must not need one. `failed` is the
+// seventh: an account the plugin could not open a socket for, which is not the same claim as
+// `connected` and cannot be inferred from the credential files.
 export const whatsappPairing = z.object({
-  state: z.enum(['unpaired', 'connecting', 'qr', 'code', 'connected', 'logged-out']),
+  state: z.enum(['unpaired', 'connecting', 'qr', 'code', 'connected', 'logged-out', 'failed']),
   /** The payload Baileys offered; the panel draws it, so it never leaves as an image. */
   qr: z.string().min(1).max(4096).optional(),
   /** When that payload stops being a code WhatsApp will accept. */
@@ -47,7 +49,9 @@ export const whatsappPairing = z.object({
   message: z.string().max(2000).optional(),
 });
 const whatsappPairingRequest = z.object({
-  op: z.enum(['pair', 'unpair', 'request-code']).optional(),
+  // `reconnect` reopens a socket for an account that is already linked: the retry for a start that
+  // failed. It is not an unpair, and it is not the act that can replace a device.
+  op: z.enum(['pair', 'unpair', 'request-code', 'reconnect']).optional(),
   phone: z.string().min(7).max(20).optional(),
 }).strict();
 export type WhatsAppPairingRequest = z.infer<typeof whatsappPairingRequest>;
