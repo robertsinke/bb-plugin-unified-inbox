@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { createInboxCache } from '../src/inbox-cache.ts';
+import { createGmailFaces, createGmailFaceStore } from '../src/gmail-faces.ts';
 import { canChange } from '../src/adapters/capability.ts';
 import { createRegistry, registryCapabilities } from '../src/adapters/index.ts';
 import { toProviderError } from '../src/adapters/provider-error.ts';
@@ -84,6 +85,12 @@ function fixture(sendReply: any = { id: 'm-sent' }) {
       sendRaw: async message => { calls.push('gmail:send'); sent.push(message); return sendReply; },
     }),
     whatsapp: fakeWhatsAppTransport(calls),
+    // No People client answers here either: a Gmail row draws initials until a face is cached.
+    gmailFaces: account => createGmailFaces({
+      account,
+      store: createGmailFaceStore(db),
+      people: { connections: async () => ({ photos: [] }), otherContacts: async () => ({ photos: [] }) },
+    }),
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
     armLinkedInRecorder: async () => {
       calls.push('linkedin:arm');

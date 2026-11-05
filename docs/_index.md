@@ -9,7 +9,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`README.md`](../README.md) | current | 2026-11-02 |  |
+| [`README.md`](../README.md) | current | 2026-11-05 |  |
 | [`PLUGIN_OVERVIEW.md`](../PLUGIN_OVERVIEW.md) | current |  |  |
 
 ## Decisions

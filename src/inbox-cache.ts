@@ -49,7 +49,7 @@ function parseAttachments(value: string | null): string[] | undefined {
   } catch { return undefined; }
 }
 
-export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
+export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; senderAddress?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
 export function createInboxCache(db: Database.Database, options: { alsoClear?: Array<() => void> } = {}) {
   // What a cache clear covers is wider than this module's own tables: the WhatsApp transport keeps
@@ -69,19 +69,22 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   if (!columns.some(column => column.name === 'recipients')) db.exec('ALTER TABLE inbox_cache ADD COLUMN recipients TEXT');
   if (!columns.some(column => column.name === 'attachments')) db.exec('ALTER TABLE inbox_cache ADD COLUMN attachments TEXT');
   if (!columns.some(column => column.name === 'avatar_url')) db.exec('ALTER TABLE inbox_cache ADD COLUMN avatar_url TEXT');
+  // A face is keyed by the sender's address, and a cached row that kept only the display name could
+  // never be given the picture that arrived after it was cached (`src/gmail-faces.ts`).
+  if (!columns.some(column => column.name === 'sender_address')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sender_address TEXT');
   const threadColumns = db.prepare('PRAGMA table_info(inbox_thread)').all() as { name: string }[];
   if (!threadColumns.some(column => column.name === 'updated_at')) db.exec('ALTER TABLE inbox_thread ADD COLUMN updated_at INTEGER');
   migrateGmailAccountIds(db);
-  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, avatar_url, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
+  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, sender_address, avatar_url, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
-  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,avatar_url,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@avatarUrl,@recipients,@attachments)');
+  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,sender_address,avatar_url,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@senderAddress,@avatarUrl,@recipients,@attachments)');
   const save = db.transaction((account: CachedItem['account'], items: CachedItem[]) => {
     if (items.some(item => item.account !== account)) throw new Error('Cache account mismatch');
     clear.run(account);
-    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', avatarUrl: item.avatarUrl ?? null, recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null });
+    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', senderAddress: item.senderAddress ?? null, avatarUrl: item.avatarUrl ?? null, recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null });
   });
   return {
-    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'avatarUrl'|'recipients'|'attachments'> & {unread:number; sender:string; avatar_url:string|null; recipients:string|null; attachments:string|null}>).map(({sender,avatar_url,recipients,attachments,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{})};}); },
+    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'senderAddress'|'avatarUrl'|'recipients'|'attachments'> & {unread:number; sender:string; sender_address:string|null; avatar_url:string|null; recipients:string|null; attachments:string|null}>).map(({sender,sender_address,avatar_url,recipients,attachments,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(sender_address!==null?{senderAddress:sender_address}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{})};}); },
     save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); listener?.({kind:'items', account}); },
     onChange(fn: (change: CacheChange) => void) { listener = fn; },
     freshness(account: CachedItem['account']): SourceFreshness {

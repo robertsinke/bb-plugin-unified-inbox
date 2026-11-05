@@ -5,10 +5,11 @@
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { createInboxCache } from '../../src/inbox-cache.ts';
+import { createGmailFaces, createGmailFaceStore, type GmailFaces } from '../../src/gmail-faces.ts';
 import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
-import type { Account, Adapter, GmailClient, GmailTransport, WhatsAppTransport } from '../../src/adapters/types.ts';
+import type { Account, Adapter, GmailAccount, GmailClient, GmailTransport, GooglePeopleClient, WhatsAppTransport } from '../../src/adapters/types.ts';
 
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
@@ -179,6 +180,10 @@ export interface HarnessOptions {
   imsgChats?: (params?: Record<string, unknown>) => unknown;
   /** Replace the fake WhatsApp transport, or one of its answers. */
   whatsapp?: Partial<WhatsAppTransport>;
+  /** Replace the People client behind the Gmail face cache; the default answers no photos. */
+  people?: Partial<GooglePeopleClient>;
+  /** One line per refused or failed address book read, as the plugin log would carry it. */
+  notes?: string[];
 }
 
 /** Registry wired to stubs; `calls` is the only record of source traffic. */
@@ -187,6 +192,26 @@ export function harness(options: HarnessOptions = {}): Harness {
   const cache = createInboxCache(db);
   const calls: string[] = [];
   const sent: Harness['sent'] = [];
+  // The real face store over this test's database, and a People client that answers nothing unless a
+  // test hands one over: a Gmail row draws initials until then, exactly as it does before consent.
+  const faceStore = createGmailFaceStore(db);
+  const faces = new Map<GmailAccount, GmailFaces>();
+  const facesFor = (account: GmailAccount): GmailFaces => {
+    const known = faces.get(account);
+    if (known) return known;
+    const created = createGmailFaces({
+      account,
+      store: faceStore,
+      people: {
+        connections: async () => ({ photos: [] }),
+        otherContacts: async () => ({ photos: [] }),
+        ...options.people,
+      },
+      note: line => { options.notes?.push(line); },
+    });
+    faces.set(account, created);
+    return created;
+  };
   const deps: RegistryDeps = {
     cache,
     // One typed client per account: no test in this directory spawns a CLI or opens a socket.
@@ -210,6 +235,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       };
     }),
     whatsapp: fakeWhatsAppTransport(calls, options.whatsapp),
+    gmailFaces: facesFor,
     imsg: {
       request: async (method, params) => {
         calls.push(`imsg:${method}`);

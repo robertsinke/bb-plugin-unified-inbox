@@ -51,6 +51,8 @@ function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: Partial<WhatsAp
   };
   const deps = {
     cache,
+    // No contact photo is cached in this fixture: a face is not what a cursor test is about.
+    gmailFaces: () => ({ url: () => undefined }),
     gmail: () => ({
       profile: client('profile'),
       threadsList: client('threadsList'),

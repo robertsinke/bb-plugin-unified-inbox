@@ -16,6 +16,16 @@ function addresses(value: string): string[] {
   return addressparser(value, { flatten: true }).map(x => x.address?.trim() || '').filter(Boolean);
 }
 
+/**
+ * The address a From header names, lowercased; empty when it names none. This is the key a Gmail
+ * row's contact photo is cached under (`src/gmail-faces.ts`), so it is parsed here rather than in
+ * the adapter: one module parses From, and a display name is never used as an address.
+ */
+export function mailSenderAddress(from: string): string {
+  if (!from) return '';
+  return addressparser(from, { flatten: true }).find(entry => entry.address?.trim())?.address?.trim().toLowerCase() ?? '';
+}
+
 /** Derive editable reply suggestions. The caller must show them to the user. */
 export function replyRecipients(input: { from: string; replyTo: string; to: string; cc: string; self: string }): { to: string; cc: string } {
   const self = input.self.toLowerCase();

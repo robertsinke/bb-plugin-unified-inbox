@@ -7,7 +7,8 @@ import { buildGmailMime } from '../gmail-mime.ts';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
 import { latestReceivedMessage } from '../gmail-inbox.ts';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor } from '../sync-plan.ts';
-import { mailSenderName, replyRecipients } from '../recipients.ts';
+import { mailSenderAddress, mailSenderName, replyRecipients } from '../recipients.ts';
+import { sourceAvatarUrl } from '../avatar-url.ts';
 import { z } from 'zod';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
@@ -71,6 +72,19 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   // Which implementation answers is the wiring's business, so nothing below knows whether a CLI
   // or the plugin's own HTTPS client is behind this.
   const mail = deps.gmail(account);
+  const faces = deps.gmailFaces(account);
+
+  /**
+   * The one place a row is given a face, applied to every row a list answers: a face is keyed by the
+   * sender's address, and the store answers without a network call. An address the store does not
+   * know is asked for behind this call, so a row draws initials on the draw it first appears and its
+   * picture on a later one. The allowlist stays `src/avatar-url.ts`: a URL it refuses is dropped.
+   */
+  const withFace = (item: Conversation): Conversation => {
+    const { avatarUrl: _stale, ...rest } = item;
+    const avatarUrl = rest.senderAddress ? sourceAvatarUrl(faces.url(rest.senderAddress), 'gmail') : undefined;
+    return avatarUrl ? { ...rest, avatarUrl } : rest;
+  };
 
   /** Every transport failure becomes one scrubbed ProviderError message, at the source boundary. */
   const gmail = async <T>(call: () => Promise<T>): Promise<T> => {
@@ -124,11 +138,15 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // "none" would be a lie, so the field is left out; only the newest page reaches the cache, and
     // the cache is what search reads, so nothing that is indexed loses an attachment name.
     const attachments = headersOnly ? undefined : [...new Set(ms.flatMap((m: any) => pickGmailAttachments(m.payload)))].slice(0, 20);
+    // The address is carried on the row because a face is keyed by it: the display name alone could
+    // never be turned into a picture afterwards, and the cache is what survives a restart.
+    const from = String(head.from || '');
     return {
       account,
       id: String(t.id),
       title: String(head.subject || '(no subject)'),
-      sender: mailSenderName(String(head.from || '')),
+      sender: mailSenderName(from),
+      senderAddress: mailSenderAddress(from),
       recipients,
       ...(attachments ? { attachments } : {}),
       preview: String(last.snippet || ''),
@@ -155,7 +173,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
         const id = String(entry.id);
         return previous.get(id) ?? row(await thread(id, 'metadata'), true);
       }));
-      return { items, ...nextCursor(page) };
+      return { items: items.map(withFace), ...nextCursor(page) };
     }
     const profile = await gmail(() => mail.profile());
     const historyId = String(profile.historyId ?? '');
@@ -163,13 +181,13 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // whether a page exists beyond this one: "show older" is offered on evidence, not guessed.
     const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit }));
     const next = nextCursor(page);
-    const complete = storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined);
-    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete) return { items: storedItems.slice(0, limit), ...next };
+    const complete = storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined && item.senderAddress !== undefined);
+    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete) return { items: storedItems.slice(0, limit).map(withFace), ...next };
     const listed = (page.threads ?? []).map((entry: any) => ({ id: String(entry.id), historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }));
     const changed = new Set<string>(gmailInboxIdsToFetch(cache.cursor(account), cache.revisions(account), listed));
     for (const entry of listed) {
       const known = previous.get(entry.id);
-      if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined)) changed.add(entry.id);
+      if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined || known.senderAddress === undefined)) changed.add(entry.id);
     }
     const fetched = new Map<string, Conversation>();
     for (const id of changed) fetched.set(id, row(await thread(id)));
@@ -177,10 +195,13 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       const found = fetched.get(entry.id) ?? previous.get(entry.id);
       return found ? [found] : [];
     });
-    cache.save(account, items);
+    const faced = items.map(withFace);
+    // The face is written with the row: the cache is what a search hit and a later list read draw,
+    // so a row that carries no face would keep showing initials until its thread changed again.
+    cache.save(account, faced);
     cache.saveRevisions(account, listed.map((entry: { id: string; historyId: string; snippet: string }) => ({ id: entry.id, historyId: entry.historyId, preview: entry.snippet })));
     if (historyId) cache.setCursor(account, gmailSummaryCursor(historyId));
-    return { items: items.slice(0, limit), ...next };
+    return { items: faced.slice(0, limit), ...next };
   }
 
   async function openThread(id: string): Promise<OpenResult> {

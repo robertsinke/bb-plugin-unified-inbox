@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createGmailClient, GmailApiError } from '../../src/gmail-client.ts';
 import { createGmailCredentials } from '../../src/gmail-oauth.ts';
+import { PeopleApiError } from '../../src/google-people.ts';
 import { harness } from './harness.ts';
 
 const TOKEN = 'ya29.a0AfH6SMBx9TcdefGHijklmnopqrstuvwxyz1234567890';
@@ -105,4 +106,59 @@ test('an account with no stored credential fails as one scrubbed ProviderError, 
     assert.deepEqual(h.calls, [], 'nothing crossed the adapter boundary: there was no token to send');
     assert.equal((await credentials.status('gmail-personal')).present, false, 'the state is inspectable without an exception');
   } finally { h.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+// INBOX-38 — a Gmail row's face. The adapter stamps what the contact store already knows, and the
+// ask that fills it runs behind the draw: initials first, the picture on a later read, and a URL the
+// allowlist refuses is dropped rather than drawn.
+
+const FACE = 'https://lh3.googleusercontent.com/a/ACg8ocPhoto=s96-c';
+
+/** The background drain is deliberately not awaited by the read that started it. */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) await new Promise(resolve => setImmediate(resolve));
+}
+
+test('a row draws initials first, and its sender’s contact photo on a later read', async () => {
+  const photos = [{ address: 'ada@example.com', url: FACE }];
+  const h = harness({ people: { connections: async () => ({ photos }) } });
+  try {
+    const first = await h.registry['gmail-personal'].list();
+    assert.equal(first.items[0]?.senderAddress, 'ada@example.com', 'the address is carried, because a face is keyed by it');
+    assert.equal(first.items[0]?.avatarUrl, undefined, 'nothing was cached yet, so the row drew initials');
+    await settle();
+    const second = await h.registry['gmail-personal'].list();
+    assert.equal(second.items[0]?.avatarUrl, FACE, 'the same cached row now draws the picture');
+  } finally { h.close(); }
+});
+
+test('a photo URL the allowlist refuses is dropped, so the row keeps drawing initials', async () => {
+  const h = harness({ people: { connections: async () => ({ photos: [{ address: 'ada@example.com', url: 'https://evil.example/face.png' }] }) } });
+  try {
+    await h.registry['gmail-personal'].list();
+    await settle();
+    const rows = await h.registry['gmail-personal'].list();
+    assert.equal(rows.items[0]?.avatarUrl, undefined, 'a URL from another host never reaches the frame');
+  } finally { h.close(); }
+});
+
+test('a refused People read leaves the row alone and makes no error row', async () => {
+  const notes: string[] = [];
+  const refused = new PeopleApiError(403, 'forbidden', 'Request had insufficient authentication scopes.', 'people/me/connections');
+  const h = harness({
+    notes,
+    people: {
+      connections: async () => { throw refused; },
+      otherContacts: async () => { throw refused; },
+    },
+  });
+  try {
+    const result = await h.registry['gmail-personal'].list();
+    await settle();
+    assert.equal(result.errors.length, 0, 'a source without consent is inert, not broken');
+    assert.equal(result.items.length, 1, 'and the row is still drawn');
+    assert.equal(result.items[0]?.avatarUrl, undefined);
+    assert.equal(notes.length, 1, 'one line names what is missing, not one per row');
+    assert.match(notes[0], /contacts\.readonly is not granted/);
+  } finally { h.close(); }
 });

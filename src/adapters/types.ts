@@ -103,6 +103,35 @@ export interface GmailClient {
  */
 export type GmailTransport = (account: GmailAccount) => GmailClient;
 
+/** One contact photo as Google answers it: the address it belongs to, and the picture. */
+export interface GooglePhoto {
+  /** Lowercased: a face is keyed by address, and two spellings of one address are one face. */
+  address: string;
+  url: string;
+}
+
+/** One page of one People listing. `nextPageToken` is absent on the last page. */
+export interface GooglePeoplePage {
+  photos: GooglePhoto[];
+  nextPageToken?: string;
+}
+
+/**
+ * The People API seam (INBOX-38): two listings, one per grant. Google splits the address book into
+ * saved contacts and other contacts, and a consent can cover one and not the other, so they are
+ * separate calls and a refusal of one must not cost the other. The implementation is
+ * `src/google-people.ts`; nothing behind this seam shells out.
+ */
+export interface GooglePeopleClient {
+  /** The contacts the owner saved. Needs `contacts.readonly`. */
+  connections(pageToken?: string): Promise<GooglePeoplePage>;
+  /** The people he emailed but never saved. Needs `contacts.other.readonly`. */
+  otherContacts(pageToken?: string): Promise<GooglePeoplePage>;
+}
+
+/** Which implementation answers a People call is wiring (`server.ts`), as with `GmailTransport`. */
+export type GooglePeopleTransport = (account: GmailAccount) => GooglePeopleClient;
+
 /** One chat as the WhatsApp transport answers it: WhatsApp's own facts, not the panel's shape. */
 export interface WhatsAppChatRow {
   jid: string;
@@ -220,6 +249,12 @@ export interface Conversation {
   unread: boolean;
   sender?: string;
   avatarUrl?: string;
+  /**
+   * The address `sender` displays, lowercased; empty when the header names none. It is what a face
+   * is keyed on (`src/gmail-faces.ts`), so it is carried on the row: a cached row that kept only the
+   * display name could never be given the picture that arrived after it was cached. Gmail rows only.
+   */
+  senderAddress?: string;
   recipients?: string;
   attachments?: string[];
   participants?: string[];
