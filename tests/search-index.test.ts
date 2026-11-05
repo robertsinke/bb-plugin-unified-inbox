@@ -153,6 +153,23 @@ test('the prepared index survives a restart, and warms again from the corpus', a
   }
 });
 
+test('a reloaded index can name a hit before any corpus is read again', async () => {
+  const db = new Database(':memory:');
+  try {
+    const store = createSearchStore(db);
+    const first = fixture(store);
+    assert.deepEqual(await first.ids('delta'), ['whatsapp\u0000d']);
+    // A restart: the documents come back from disk, and the source answers nothing until a corpus
+    // read succeeds. The row has to travel with the terms, or a search returns ids the list cannot draw.
+    const second = fixture(store);
+    const row = second.row('whatsapp', 'd');
+    assert.ok(row, 'the row is restored from what the index persisted');
+    assert.equal(row.title, 'Chat four');
+  } finally {
+    db.close();
+  }
+});
+
 test('a changed thread is rebuilt after restart while other documents are reused', async () => {
   const db = new Database(':memory:');
   try {

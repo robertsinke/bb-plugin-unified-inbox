@@ -16,20 +16,26 @@ export type SearchSource = {
   onChange(listener: (change: CacheChange) => void): void;
 };
 
-type StoredDocument = { id: string; signature: string; length: number; freq: Map<string, number> };
+type StoredDocument = { id: string; signature: string; length: number; freq: Map<string, number>; item?: Conversation };
 
 export function createSearchStore(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_search (id TEXT PRIMARY KEY, signature TEXT NOT NULL, length INTEGER NOT NULL, terms TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox_search_meta (id INTEGER PRIMARY KEY CHECK(id = 1), updated_at INTEGER NOT NULL);`);
+  // A document is worth nothing to the panel unless it can draw the row it belongs to, and the
+  // terms alone cannot: after a reload the index knew 845 documents and could name none of them,
+  // so a search answered ids with no rows and the list showed nothing. The row travels with its
+  // terms, so the index can always answer with what it matched.
+  const columns = db.prepare('PRAGMA table_info(inbox_search)').all() as Array<{ name: string }>;
+  if (!columns.some(column => column.name === 'item')) db.exec('ALTER TABLE inbox_search ADD COLUMN item TEXT');
   migrateGmailAccountIds(db);
-  const readDocs = db.prepare('SELECT id, signature, length, terms FROM inbox_search');
+  const readDocs = db.prepare('SELECT id, signature, length, terms, item FROM inbox_search');
   const readMeta = db.prepare('SELECT updated_at FROM inbox_search_meta WHERE id = 1');
-  const insert = db.prepare('INSERT INTO inbox_search (id, signature, length, terms) VALUES (@id, @signature, @length, @terms) ON CONFLICT(id) DO UPDATE SET signature = excluded.signature, length = excluded.length, terms = excluded.terms');
+  const insert = db.prepare('INSERT INTO inbox_search (id, signature, length, terms, item) VALUES (@id, @signature, @length, @terms, @item) ON CONFLICT(id) DO UPDATE SET signature = excluded.signature, length = excluded.length, terms = excluded.terms, item = excluded.item');
   const remove = db.prepare('DELETE FROM inbox_search WHERE id = ?');
   const writeMeta = db.prepare('INSERT INTO inbox_search_meta (id, updated_at) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at');
   const clearDocs = db.prepare('DELETE FROM inbox_search');
   const write = db.transaction((changed: StoredDocument[], removed: string[], updatedAt: number) => {
-    for (const doc of changed) insert.run({ id: doc.id, signature: doc.signature, length: doc.length, terms: JSON.stringify([...doc.freq]) });
+    for (const doc of changed) insert.run({ id: doc.id, signature: doc.signature, length: doc.length, terms: JSON.stringify([...doc.freq]), item: doc.item ? JSON.stringify(doc.item) : null });
     for (const id of removed) remove.run(id);
     if (changed.length || removed.length) writeMeta.run(updatedAt);
   });
@@ -37,7 +43,7 @@ export function createSearchStore(db: Database.Database) {
   return {
     load() {
       const documents: StoredDocument[] = [];
-      for (const row of readDocs.all() as Array<{ id: string; signature: string; length: number; terms: string }>) {
+      for (const row of readDocs.all() as Array<{ id: string; signature: string; length: number; terms: string; item: string | null }>) {
         try {
           const terms = JSON.parse(row.terms);
           if (!Array.isArray(terms)) continue;
@@ -45,7 +51,9 @@ export function createSearchStore(db: Database.Database) {
           for (const entry of terms) {
             if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number' && entry[1] > 0) freq.set(entry[0], entry[1]);
           }
-          documents.push({ id: row.id, signature: row.signature, length: row.length, freq });
+          let item: Conversation | undefined;
+          if (row.item) { try { item = JSON.parse(row.item) as Conversation; } catch { item = undefined; } }
+          documents.push({ id: row.id, signature: row.signature, length: row.length, freq, item });
         } catch { /* skip malformed persisted rows */ }
       }
       const meta = readMeta.get() as { updated_at: number } | undefined;
@@ -74,6 +82,8 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     for (const doc of persisted.documents) {
       documents.set(doc.id, { id: doc.id, freq: doc.freq, length: doc.length });
       signatures.set(doc.id, doc.signature);
+      // The row it was built from, so a hit can be drawn before any corpus is read again.
+      if (doc.item) rows.set(doc.id, { item: doc.item });
     }
   }
 
@@ -114,7 +124,7 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     const changed = [...dirty].flatMap(id => {
       const doc = documents.get(id);
       const signature = signatures.get(id);
-      return doc && signature ? [{ id, signature, length: doc.length, freq: doc.freq }] : [];
+      return doc && signature ? [{ id, signature, length: doc.length, freq: doc.freq, item: rows.get(id)?.item }] : [];
     });
     if (!changed.length && !removed.size) return;
     const now = Date.now();
