@@ -104,6 +104,9 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
       <button type="button" className="ui-text-button" disabled={busy} onClick={onDiscard}>Discard</button>
       <button type="submit" className="ui-prompt-send" disabled={busy || !ready} title={ready ? `Send from ${accountLabel}` : 'Add a recipient and a message or file first'} aria-label="Send">{sendIcon}</button>
     </div>
-    <p className="ui-notice">{status || 'Drop files here, or use Attach. They stay in this panel until the draft is sent.'}</p>
+    {/* A send result keeps the notice; the hint below it only says what this box is for. */}
+    {status
+      ? <p className="ui-notice" role="status">{status}</p>
+      : <p className="ui-composer-hint">Drop files here, or use Attach. They stay in this panel until the draft is sent.</p>}
   </form>;
 }
