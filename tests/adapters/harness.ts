@@ -101,6 +101,17 @@ export function fakeWhatsAppTransport(
         }],
       };
     },
+    async listCorpus() {
+      calls.push('whatsapp:listCorpus');
+      return [{
+        jid: WHATSAPP_ID,
+        name: 'Ada',
+        kind: '1:1',
+        lastMsgAt: 1_700_000_000_000,
+        unread: 2,
+        messages: [{ id: 'm1', chatJid: WHATSAPP_ID, fromMe: false, ts: 1_700_000_000_000, type: 'text', text: 'See you', sender: 'Ada', edited: false }],
+      }];
+    },
     async openChat() {
       calls.push('whatsapp:openChat');
       return [{ id: 'm1', chatJid: WHATSAPP_ID, fromMe: false, ts: 1_700_000_000_000, type: 'text', text: 'See you', sender: 'Ada', edited: false }];
@@ -160,6 +171,8 @@ export interface HarnessOptions {
   linkedInThread?: () => Promise<unknown>;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
+  /** Replace the Messages chat list, for the paging and search-corpus cases. */
+  imsgChats?: (params?: Record<string, unknown>) => unknown;
   /** Replace the fake WhatsApp transport, or one of its answers. */
   whatsapp?: Partial<WhatsAppTransport>;
 }
@@ -196,6 +209,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     imsg: {
       request: async (method, params) => {
         calls.push(`imsg:${method}`);
+        if (method === 'chats.list' && options.imsgChats) return options.imsgChats(params);
         return method === 'messages.history' && options.imsgHistory ? options.imsgHistory(params) : imsgResponse(method, params);
       },
     },

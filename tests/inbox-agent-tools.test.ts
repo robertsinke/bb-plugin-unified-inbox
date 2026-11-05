@@ -23,7 +23,12 @@ function fixture() {
       freshness: { whatsapp: fresh, 'gmail-personal': fresh, 'gmail-business': fresh, imessage: fresh, linkedin: fresh },
       more: { whatsapp: false, 'gmail-personal': false, 'gmail-business': false, imessage: false, linkedin: false },
     }),
-    search: (_input: { query: string }) => ({ ids: [{ account: 'whatsapp' as const, id: 'chat-1', score: 1 }], truncated: false }),
+    search: (_input: { query: string }) => ({
+      ids: [{ account: 'whatsapp' as const, id: 'chat-1', score: 1 }],
+      // A hit the cache never held still carries the row it matched.
+      items: [{ account: 'whatsapp' as const, id: 'chat-1', title: 'Grace', preview: '', date: 1, unread: false }],
+      truncated: false,
+    }),
     search_status: () => ({ size: 2, updatedAt: 100, ready: true }),
     sources: () => ({
       'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },

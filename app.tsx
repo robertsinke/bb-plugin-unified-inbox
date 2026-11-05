@@ -21,6 +21,7 @@ import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterActions, menuTrigger } from './src/inbox-menu.tsx';
 import { WhatsAppPairingCard } from './src/whatsapp-pairing.tsx';
 import { sourceLabel } from './src/source-label.ts';
+import { loadFootnote } from './src/inbox-footnote.ts';
 import type { SourceMap } from './src/adapters/types';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
@@ -476,8 +477,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
   }
   const latestRefresh=Math.max(0,...Object.values(refreshedAt).filter((value): value is number => typeof value==='number'));
   const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
-  const filtered=items.filter(i=>filter==='all'||(filter==='unread'?i.unread:i.account===filter));
-  const shown=hits===null?filtered:hits.flatMap(hit=>{const item=filtered.find(row=>row.account===hit.account&&row.id===hit.id);return item?[item]:[];});
+  /* A search shows what it matched: a hit is a row, so it is drawn even when this list never loaded
+     it. The filter is the owner's, so it still narrows both. */
+  const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:i.account===filter);
+  const shown=(hits??items).filter(matches);
   /* The header is one control now: the filter is a group inside its menu, so the trigger is what
      says the list is narrowed, and it says it in the name as well as in the dot. */
   const trigger=menuTrigger(sources,filter,errors.length?`Some messages couldn't load: ${errors.map(error=>errorLine(error,sources)).join(' ')}`:'');
@@ -521,7 +524,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
         ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><span className="ui-row-meta"><time className="ui-row-time">{date(i.date)}</time>{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></div><div className="ui-row-side"><div className="ui-row-actions"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
       { label: 'Add to chat', run: () => tag(i) },
       ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
-    ]}/></div></div></div>)}</div><p className="ui-footnote">{hasOlder&&hits===null?<button type="button" className="ui-more" aria-busy={loadingOlder} disabled={loadingOlder} onClick={()=>void session.more()}>{loadingOlder?'Loading older…':'Show older'}</button>:null}The newest 20 threads per Gmail and Messages account, 50 WhatsApp chats, and the newest 20 LinkedIn conversations load first.</p></>}
+    ]}/></div></div></div>)}</div><p className="ui-footnote">{hasOlder&&hits===null?<button type="button" className="ui-more" aria-busy={loadingOlder} disabled={loadingOlder} onClick={()=>void session.more()}>{loadingOlder?'Loading older…':'Show older'}</button>:null}{loadFootnote(sources)}</p></>}
   </div>;
 }
 /**

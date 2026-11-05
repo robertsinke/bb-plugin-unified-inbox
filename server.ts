@@ -69,7 +69,6 @@ export default function plugin(bb: BbPluginApi) {
     // demand rather than left dead because no timer or service happened to hold it.
     ensure: () => whatsappLifecycle.ensure(),
   });
-  const searchIndex = createSearchIndex(cache, createSearchStore(db));
   // Every send attempt is written here: one table in the plugin's own database.
   const sendAudit = createSendAudit(db);
   const now = () => Date.now();
@@ -121,6 +120,18 @@ export default function plugin(bb: BbPluginApi) {
     armLinkedInRecorder: armLinkedInWriteRecorder,
     providerError: toProviderError,
   });
+
+  // What search holds for one account: a source that keeps its own corpus answers for all of it, and
+  // a networked source answers with the cache's newest page. One hook, so no source is named here.
+  const searchIndex = createSearchIndex({
+    corpus: async account => {
+      const own = registry[account].searchCorpus;
+      if (own) return own();
+      return cache.list().filter(row => row.account === account).map(item => ({ item }));
+    },
+    readThread: (account, id) => cache.readThread(account, id),
+    onChange: listener => cache.onChange(listener),
+  }, createSearchStore(db));
 
   const gateway = createGateway({
     cache,

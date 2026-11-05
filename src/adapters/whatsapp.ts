@@ -19,7 +19,7 @@ import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, ListResult,
-  MediaPayload, Message, OpenOptions, OpenResult, SourceDeclaration, SyncResult,
+  MediaPayload, Message, OpenOptions, OpenResult, SearchRow, SourceDeclaration, SyncResult,
 } from './types.ts';
 
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true };
@@ -309,6 +309,39 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         ...(group ? { participants: participants(item.id) } : {}),
         ...(avatarUrl ? { avatarUrl } : {}),
       };
+    },
+
+    /**
+     * What search can reach: every chat the store holds, with every message in it. Read from SQLite,
+     * so the 5,000-odd messages past the newest page are searchable without a socket or a network
+     * call — and a message a search matches is a row the panel can then open, because the corpus
+     * carries the chat's own row too.
+     */
+    async searchCorpus(): Promise<SearchRow[]> {
+      const rows = await transport.listCorpus();
+      return rows.map(row => {
+        const group = row.kind === 'group';
+        // The same noise rule the list applies, so a protocol row or a "you were added" system
+        // message never becomes a match nobody can act on.
+        const kept = row.messages.filter(message => !isWhatsAppNoise(message.type, message.text));
+        const last = kept.at(-1);
+        return {
+          item: {
+            account: ACCOUNT,
+            id: row.jid,
+            title: whatsappTitle(row.name, row.jid),
+            preview: last ? (group ? groupPreview(last.text, last.fromMe, last.sender) : last.text) : '',
+            date: whatsappTimestamp(row.lastMsgAt),
+            unread: row.unread > 0,
+          },
+          messages: kept.map(message => ({
+            sender: whatsappSender(message.fromMe, message.sender, group, ''),
+            fromMe: message.fromMe,
+            text: whatsappText(message.text, message.type),
+            date: whatsappTimestamp(message.ts),
+          })),
+        };
+      });
     },
 
     async repairThread(id: string, messages: Message[]): Promise<Message[]> {

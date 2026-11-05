@@ -68,7 +68,7 @@ export type Note = (level: 'info' | 'warn', line: string) => void;
 
 export interface GatewayDeps {
   cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt'>;
-  search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm'>;
+  search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm' | 'row'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
   registry: Record<Account, Adapter>;
@@ -116,6 +116,28 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   /** Whether any source still holds rows older than the newest page it showed. */
   const hasOlder = () => accounts.some(name => typeof olderCursor[name] === 'string');
 
+  /**
+   * A search answers with the row it matched, not only its id: a hit can be a conversation the list
+   * never loaded, and the panel has nothing else to draw it from. The cache's row wins where there
+   * is one — it is what the list is showing, decorations and all — and the index's corpus row
+   * answers for everything past it.
+   */
+  async function searchAnswered(query: string) {
+    const ranked = await search.search(query);
+    const ids = ranked.slice(0, 50).flatMap(row => {
+      const split = row.id.indexOf('\u0000');
+      const name = row.id.slice(0, split);
+      if (!isSourceAccount(name)) return [];
+      return [{ account: name, id: row.id.slice(split + 1), score: row.score }];
+    });
+    const cached = new Map(cachedRows().map(row => [`${row.account}\u0000${row.id}`, row]));
+    const items = decorated(ids.flatMap(hit => {
+      const row = cached.get(`${hit.account}\u0000${hit.id}`) ?? search.row(hit.account, hit.id);
+      return row ? [row] : [];
+    }));
+    return { ids, items, truncated: ranked.length > 50 };
+  }
+
   return {
     capabilities() {
       return registryCapabilities(registry);
@@ -128,14 +150,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     },
     freshness() { return freshness(); },
     search({ query }) {
-      const ranked = search.search(query);
-      const ids = ranked.slice(0, 50).flatMap(row => {
-        const split = row.id.indexOf('\u0000');
-        const name = row.id.slice(0, split);
-        if (!isSourceAccount(name)) return [];
-        return [{ account: name, id: row.id.slice(split + 1), score: row.score }];
-      });
-      return { ids, truncated: ranked.length > 50 };
+      return searchAnswered(query);
     },
     search_status() { return search.status(); },
     async cached_open({ account, id }) {
@@ -150,12 +165,12 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       // The newest page is what seeds the walk; once `older` has advanced it, a refresh leaves it
       // alone, or every poll would drop the owner back to page two.
       if (olderCursor[account] === undefined) olderCursor[account] = cursor ?? null;
-      search.warm();
+      void search.warm();
       return { ...result, items: decorated(result.items), more: typeof olderCursor[account] === 'string' };
     },
     async open({ account, id }) {
       const result = await registry[account].open(id);
-      search.warm();
+      void search.warm();
       return { ...result, cacheFallback: result.cacheFallback ?? false, updatedAt: cache.threadUpdatedAt(account, id) };
     },
     // Slice D, observation first: arming watches the page's own fetch, and `writes` reports only
@@ -276,7 +291,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
         if (older) olderCursor[name] = undefined;
         errors.push(listError(registry, name, result.reason, note));
       });
-      search.warm();
+      void search.warm();
       // A call that named one source answers for that source; the whole-inbox call answers for all.
       const more = options?.account ? typeof olderCursor[options.account] === 'string' : hasOlder();
       return { items: decorated(items.sort((a, b) => b.date - a.date)), errors, more };

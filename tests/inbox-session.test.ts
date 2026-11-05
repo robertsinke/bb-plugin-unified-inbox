@@ -43,7 +43,7 @@ function defaults(name: string): unknown {
   if (name === 'cached_open') return { messages: [] };
   if (name === 'open') return { messages: [] };
   if (name === 'sync') return { items: [], updatedAt: 0 };
-  if (name === 'search') return { ids: [] };
+  if (name === 'search') return { ids: [], items: [] };
   if (name === 'action') return { status: 'Done' };
   if (name === 'send_gmail') return { status: 'Sent' };
   return null;
@@ -153,6 +153,41 @@ test('two failures that say exactly the same words are cleared by the source tha
   const remaining = session.snapshot().errors;
   assert.deepEqual(remaining.map(error => error.account), ['gmail-personal'], 'the source that answered is cleared, the other keeps its identical line');
   assert.equal(remaining[0].message, 'could not refresh. the token expired Previously loaded messages may be stale.');
+});
+
+test('a search hit the list never loaded is carried as a row, and opens', async () => {
+  const listed = row({ unread: false });
+  const hit = row({ id: 'chat-99', title: 'Grace Hopper', preview: 'the lighthouse keeper', date: 1 });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [listed] }),
+    search: () => ({
+      ids: [{ account: 'whatsapp', id: 'chat-99', score: 3 }],
+      // The gateway answers with the row it matched; the index knows conversations the cache never held.
+      items: [hit],
+    }),
+    open: () => ({ messages: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 1_000 });
+  session.start();
+  await settle();
+
+  session.setQuery('lighthouse');
+  session.tick(1_000 + 150);
+  await settle();
+
+  const snapshot = session.snapshot();
+  assert.deepEqual(snapshot.hits?.map(item => item.id), ['chat-99'], 'a hit absent from items is still a row');
+  assert.equal(snapshot.hits?.[0].title, 'Grace Hopper');
+  assert.equal(snapshot.items.some(item => item.id === 'chat-99'), false, 'and the list itself never loaded it');
+
+  rpc.calls.length = 0;
+  await session.open(snapshot.hits![0]);
+  assert.ok(rpc.calls.some(call => call.name === 'open' && (call.input as { id?: string })?.id === 'chat-99'), 'the row opens like any other');
+  assert.equal(session.snapshot().selected?.id, 'chat-99');
+
+  // Clearing the query is the end of the search: the list draws its own rows again.
+  session.setQuery('');
+  assert.equal(session.snapshot().hits, null);
 });
 
 test('one tick reads the backend cache once, never syncing providers, even with two subscribers', async () => {
