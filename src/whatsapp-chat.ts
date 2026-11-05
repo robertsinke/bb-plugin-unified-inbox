@@ -23,11 +23,20 @@ export function whatsappTitle(name: string, displayJid: string): string {
   return whatsappPhone(displayJid) || displayJid.trim();
 }
 
-/** 1:1 messages carry no sender in WhatsAgent; fall back to the chat name. */
+/** A 1:1 message carries no participant; fall back to the chat's own name. */
 export function whatsappSender(fromMe: boolean, senderName: string, group: boolean, chatTitle: string): string {
   if (fromMe) return 'You';
   const name = senderName.trim() || (group ? '' : chatTitle.trim());
   return name || 'Unknown';
+}
+
+/**
+ * What a row shows when it has no text of its own: a picture speaks for itself, anything else names
+ * its type — a call or a protocol stub is not an empty bubble.
+ */
+export function whatsappText(text: string, type: string, hasMedia: boolean): string {
+  if (text.trim()) return text;
+  return hasMedia || !type || type === 'text' ? '' : `[${type}]`;
 }
 
 /** WhatsApp stub/protocol events have no readable text and only add noise. */

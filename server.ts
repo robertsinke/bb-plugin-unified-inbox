@@ -5,6 +5,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
 import { createWhatsAppStore } from './src/whatsapp/store';
+import { createWhatsAppTransport } from './src/whatsapp/transport';
+import { attachIngest } from './src/whatsapp/ingest';
+import type { WhatsAppConnection } from './src/whatsapp/connection';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { createSendAudit } from './src/send-audit';
 import { ImsgClient } from './src/imsg-client';
@@ -19,7 +22,6 @@ import { message, rpcContract } from './src/rpc-contract';
 import { createRegistry } from './src/adapters/index';
 import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
-import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
 import { createGmailClient } from './src/gmail-client';
 import { createGmailCredentials } from './src/gmail-oauth';
@@ -39,6 +41,13 @@ export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const whatsappStore = createWhatsAppStore(db);
   const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear()] });
+  // The plugin's own WhatsApp socket when the background service has one open. Absent is the normal
+  // state for a stranger — and reads still answer, because the store holds what already arrived.
+  let whatsappConnection: WhatsAppConnection | undefined;
+  const whatsappTransport = createWhatsAppTransport({
+    store: whatsappStore,
+    connection: () => whatsappConnection,
+  });
   const searchIndex = createSearchIndex(cache, createSearchStore(db));
   // Every send attempt is written here: one table in the plugin's own database.
   const sendAudit = createSendAudit(db);
@@ -68,7 +77,7 @@ export default function plugin(bb: BbPluginApi) {
     cache,
     // Gmail reads and sends go over HTTPS with the plugin's own credential — no CLI, no shell.
     gmail: account => createGmailClient({ account, credentials: gmailCredentials }),
-    whatsapp: createWhatsAgent(),
+    whatsapp: whatsappTransport,
     imsg,
     linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),
     armLinkedInRecorder: armLinkedInWriteRecorder,
@@ -100,6 +109,28 @@ export default function plugin(bb: BbPluginApi) {
       start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
     });
   }
+  // The socket is the other half of the WhatsApp transport: it ingests what arrives, so the next
+  // read has something to answer from. Opened only when an account state exists — an unpaired
+  // source is a state, not a socket waiting on a QR (R5) — and stopped when the host reloads.
+  bb.background.service('whatsapp-connection', {
+    async start(signal) {
+      const { whatsAppAccountExists } = await import('./src/whatsapp/auth');
+      if (!whatsAppAccountExists()) return;
+      const { WhatsAppConnection } = await import('./src/whatsapp/connection');
+      const connection = new WhatsAppConnection({
+        getMessage: whatsappStore.storedMessageLoader(),
+        bindSocket: socket => attachIngest(socket.ev, whatsappStore),
+      });
+      whatsappConnection = connection;
+      try {
+        await connection.start();
+        await untilAborted(signal);
+      } finally {
+        whatsappConnection = undefined;
+        await connection.stop();
+      }
+    },
+  });
 
   bb.cli.register({
     name: 'unified-inbox',
@@ -134,14 +165,15 @@ export default function plugin(bb: BbPluginApi) {
         return { exitCode: 0, stdout: rows.map(row => `${new Date(row.at).toISOString()} ${row.decision.padEnd(7)} ${row.account} ${row.conversationId}${row.bcc ? ` bcc ${row.bcc}` : ''}${row.reason ? ` — ${row.reason}` : ''}\n`).join('') };
       }
       if (argv[0] === 'whatsapp-link') {
-        // U1's proof, run by a human with a phone: no WhatsAgent process, no runtime file, just this
-        // plugin's own socket over its own account state. Without a number it connects, reports what
-        // the socket said, and stops before asking WhatsApp for anything — which is how the socket is
-        // proven on a machine that has never been paired. With a number it requests a pairing code,
-        // and the code is the only thing printed: no body, no bytes, no auth state.
+        // The pairing proof, run by a human with a phone: this plugin's own socket over its own
+        // account state, with the ingest bound, so what it receives is stored and the panel has
+        // something to show afterwards. Without a number it connects, reports what the socket said,
+        // and stops before asking WhatsApp for anything — which is how the socket is proven on a
+        // machine that has never been paired. With a number it requests a pairing code, and the code
+        // is the only thing printed: no body, no bytes, no auth state.
         const parsed = parseWhatsAppLinkArgs(argv.slice(1));
         if ('error' in parsed) return { exitCode: 1, stderr: `${parsed.error}\n` };
-        return await runWhatsAppLink(parsed.phone, parsed.waitSeconds);
+        return await runWhatsAppLink(parsed.phone, parsed.waitSeconds, whatsappStore);
       }
       return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|import-gws-account|send-audit|whatsapp-link>' };
     },
@@ -209,10 +241,14 @@ function parseWhatsAppLinkArgs(args: string[]): { phone?: string; waitSeconds: n
 }
 
 /**
- * `bb unified-inbox whatsapp-link [phone-number]` — the proof that a machine with no WhatsAgent has
- * WhatsApp. Every line it prints is a fact about the socket: the state it moved to, what WhatsApp
- * offered, and the metadata of each message that arrived. It never prints a message body, an auth
- * byte, or a path inside the account state beyond the directory's own name, mode and file count.
+ * `bb unified-inbox whatsapp-link [phone-number]` — the proof that this plugin, alone, has WhatsApp.
+ * Every line it prints is a fact about the socket: the state it moved to, what WhatsApp offered, and
+ * the metadata of each message that arrived. It never prints a message body, an auth byte, or a path
+ * inside the account state beyond the directory's own name, mode and file count.
+ *
+ * What arrives goes through the same ingest the background socket uses, so a message received here
+ * is stored and readable in the panel afterwards — the run is not a preview of the transport, it is
+ * the transport.
  *
  * Without a phone number it stops at the pairing prompt, so the socket can be proven live without
  * asking WhatsApp to pair anything. With one, the eight characters are the only output that matters.
@@ -220,11 +256,16 @@ function parseWhatsAppLinkArgs(args: string[]): { phone?: string; waitSeconds: n
 async function runWhatsAppLink(
   phone: string | undefined,
   waitSeconds: number,
+  store: ReturnType<typeof createWhatsAppStore>,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   // A deliberate pairing touches the owner's own device slots, so it happens only when they run this
   // with their number. The plugin never pairs on its own.
   const { WhatsAppConnection } = await import('./src/whatsapp/connection');
-  const connection = new WhatsAppConnection(phone ? { pairingPhone: phone } : {});
+  const connection = new WhatsAppConnection({
+    ...(phone ? { pairingPhone: phone } : {}),
+    getMessage: store.storedMessageLoader(),
+    bindSocket: socket => attachIngest(socket.ev, store),
+  });
   const state = connection.accountState();
   const output: string[] = [
     `Account state ${state.dir}: mode ${state.dirMode ? state.dirMode.toString(8).padStart(4, '0') : 'absent'}, ${state.fileCount} files\n`,
@@ -288,4 +329,13 @@ async function runWhatsAppLink(
     ? `connected; account state now mode ${after.dirMode.toString(8)} with ${after.fileCount} files\n`
     : 'not connected\n');
   return { exitCode, stdout: output.join(''), stderr: '' };
+}
+
+/**
+ * Resolves when the host asks a background service to stop. A service's `start` must resolve on
+ * dispose, reload or shutdown, and the socket is stopped in the `finally` either way.
+ */
+function untilAborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
 }

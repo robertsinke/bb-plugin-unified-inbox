@@ -1,4 +1,5 @@
 import type { LinkedInRecorderStats } from '../linkedin-page-session.ts';
+import type { WhatsAppMedia } from '../whatsapp-media.ts';
 
 // Shared adapter contract for the unified inbox gateway.
 // Spec: specs/001-unified-inbox-gateway/spec.md — Migration state 3: the
@@ -101,6 +102,73 @@ export interface GmailClient {
  * dependency is asked per account rather than fixed for both.
  */
 export type GmailTransport = (account: GmailAccount) => GmailClient;
+
+/** One chat as the WhatsApp transport answers it: WhatsApp's own facts, not the panel's shape. */
+export interface WhatsAppChatRow {
+  jid: string;
+  /** The name to show: the chat's own, else the contact's best known one; empty when neither. */
+  name: string;
+  kind: '1:1' | 'group';
+  /** When the newest stored message arrived, in milliseconds; null for a chat with no stored row. */
+  lastMsgAt: number | null;
+  /** The newest stored message, shaped for a list preview. */
+  preview?: { text: string; fromMe: boolean; sender: string };
+  /** Other people's stored messages newer than the read cursor. */
+  unread: number;
+}
+
+/** One message as the WhatsApp transport answers it: stored facts, not yet the panel's shape. */
+export interface WhatsAppMessageRow {
+  id: string;
+  chatJid: string;
+  fromMe: boolean;
+  /** Unix milliseconds. */
+  ts: number;
+  /** WhatsApp's own content type: text, image, video, sticker, call, system, protocol… */
+  type: string;
+  text: string;
+  /** Display name of who wrote it; empty when the chat's own name stands in (a 1:1). */
+  sender: string;
+  edited: boolean;
+  media?: WhatsAppMedia;
+}
+
+/** One media answer: the stored descriptor, and the cached bytes when there are any. */
+export interface WhatsAppMediaAnswer {
+  info?: WhatsAppMedia;
+  bytes?: Uint8Array;
+}
+
+/** What the account is doing, in the words a caller can act on. */
+export interface WhatsAppTransportStatus {
+  connection: 'connecting' | 'connected' | 'disconnected';
+  /** Whether the account state on disk holds a pairing; `connection` says whether it is live. */
+  paired: boolean;
+}
+
+/**
+ * The WhatsApp transport seam (plan U3): one method per thing the adapter asks for, so the adapter
+ * stops knowing whether an answer came from WhatsApp a second ago or from what the socket stored
+ * last night. The implementation is `src/whatsapp/transport.ts` over the plugin's own store and
+ * socket; nothing behind this seam speaks MCP or opens a loopback port.
+ *
+ * A read is a store read: it answers with the socket down, and an unpaired account answers an empty
+ * list rather than an error (R5). A send needs the socket, and a send or read-receipt failure is
+ * the socket's own error — classified where it is raised.
+ */
+export interface WhatsAppTransport {
+  /** One page of chats, newest activity first. `cursor` is the row offset the store pages by. */
+  listChats(input: { cursor?: string; limit: number }): Promise<{ chats: WhatsAppChatRow[]; cursor?: string }>;
+  /** The newest `limit` stored messages of one chat, oldest first. */
+  openChat(input: { id: string; limit: number }): Promise<WhatsAppMessageRow[]>;
+  /** The stored media descriptor and, when cached, the bytes. Nothing is fetched from WhatsApp. */
+  loadMedia(messageId: string): Promise<WhatsAppMediaAnswer>;
+  /** Records where reading stopped; a live socket also tells WhatsApp. */
+  markRead(input: { id: string; messageId?: string }): Promise<void>;
+  /** Sends text over the socket. Rejects when there is no socket to send over. */
+  sendText(input: { id: string; text: string }): Promise<void>;
+  status(): Promise<WhatsAppTransportStatus>;
+}
 
 /**
  * Conversation summary as cached and listed (rpcContract `list` item).

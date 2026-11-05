@@ -13,9 +13,15 @@
 // Lifted from WhatsAgent's `server/store/{messages,chats,contacts,identity}.ts`, with three
 // deliberate differences:
 //   - columns that served WhatsAgent's own UI and nothing here are gone: `channel` (this database is
-//     WhatsApp only), `chats.unread/muted/archived/agent_state/last_read_msg_id` (the panel keeps its
-//     own unread marks in `inbox_unread_mark`, and this plugin never drives WhatsApp receipts from
-//     storage) and `contacts.avatar_url` (no reader — the plugin shows initials avatars).
+//     WhatsApp only), `chats.unread/muted/archived/agent_state` (WhatsApp's own counter, mute and
+//     archive are not things this plugin shows) and `contacts.avatar_url` (no reader — the plugin
+//     shows initials avatars). `chats.last_read_msg_id` comes back in U3: it is the only place a
+//     read mark can live, because the panel's `inbox_unread_mark` records a deliberate mark, not
+//     where reading stopped, so unread would otherwise have no source at all.
+//
+// The cursor is a message id, not a timestamp: WhatsApp message ids are not ordered, so "read up to
+// here" has to name a row. It moves forward only (`markRead`), and a chat with no cursor counts no
+// unread — history that was just synced is not news.
 //   - the LID merge moves only the children this database has (messages, reactions). WhatsAgent also
 //     moved drafts, outbox rows and proposals, which live in its schema and not in ours.
 //   - one module owns the shape, as `src/inbox-cache.ts` does, instead of one file per table.
@@ -86,6 +92,8 @@ export type Chat = {
   name: string | null;
   kind: ChatKind;
   last_msg_at: number | null;
+  /** The newest message the owner has read here; null until something is read. */
+  last_read_msg_id: string | null;
 };
 
 export type ChatInput = {
@@ -158,7 +166,8 @@ const SCHEMA = `
     jid TEXT PRIMARY KEY NOT NULL,
     name TEXT,
     kind TEXT NOT NULL CHECK (kind IN ('1:1', 'group')),
-    last_msg_at INTEGER
+    last_msg_at INTEGER,
+    last_read_msg_id TEXT
   );
   CREATE TABLE IF NOT EXISTS wa_messages (
     id TEXT PRIMARY KEY NOT NULL,
@@ -206,12 +215,32 @@ function mapMessage(row: MessageRow): Message {
   return { ...row, from_me: row.from_me !== 0 };
 }
 
+/** One chat with what a list row needs: its newest message and how much of it is unread. */
+export type ChatPageRow = { chat: Chat; last: Message | null; unread: number };
+
+/**
+ * A column added after the tables first shipped. `CREATE TABLE IF NOT EXISTS` leaves an existing
+ * table alone, so this is the one place that notices — the plugin has no migration runner.
+ */
+function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((row) => row.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+/** Where a message sits in its chat: timestamps collide, so the id is the tie-break. */
+function comparePosition(a: { ts: number; id: string }, b: { ts: number; id: string }): number {
+  return a.ts === b.ts ? a.id.localeCompare(b.id) : a.ts - b.ts;
+}
+
 /**
  * One store per plugin database. Every statement is prepared once here, and the store — not its
  * callers — owns the write ordering (a chat row before the message that references it).
  */
 export function createWhatsAppStore(db: Database.Database) {
   db.exec(SCHEMA);
+  ensureColumn(db, 'wa_chats', 'last_read_msg_id', 'TEXT');
 
   const insertMessage = db.prepare(
     `INSERT INTO wa_messages (
@@ -267,6 +296,29 @@ export function createWhatsAppStore(db: Database.Database) {
        last_msg_at = excluded.last_msg_at`,
   );
   const readChat = db.prepare('SELECT * FROM wa_chats WHERE jid = ?');
+  const readChatPage = db.prepare(
+    `SELECT * FROM wa_chats
+      ORDER BY last_msg_at IS NULL, last_msg_at DESC, jid ASC
+      LIMIT ? OFFSET ?`,
+  );
+  const readLastMessage = db.prepare(
+    'SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT 1',
+  );
+  const readRecentMessages = db.prepare(
+    `SELECT * FROM (
+       SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT ?
+     ) ORDER BY ts ASC, id ASC`,
+  );
+  const readNewestMessageId = db.prepare(
+    'SELECT id FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT 1',
+  );
+  // Row values are what makes "newer than the cursor" one comparison instead of two.
+  const countUnread = db.prepare(
+    `SELECT COUNT(*) AS c FROM wa_messages
+      WHERE chat_jid = ? AND from_me = 0
+        AND (ts, id) > (SELECT ts, id FROM wa_messages WHERE id = ?)`,
+  );
+  const setReadCursor = db.prepare('UPDATE wa_chats SET last_read_msg_id = ? WHERE jid = ?');
   const insertContact = db.prepare(
     `INSERT INTO wa_contacts (jid, name, push_name, lid_jid, phone_jid)
      VALUES (@jid, @name, @push_name, @lid_jid, @phone_jid)
@@ -319,6 +371,9 @@ export function createWhatsAppStore(db: Database.Database) {
         kind: winner?.kind ?? loser.kind,
         last_msg_at: Math.max(winner?.last_msg_at ?? 0, loser.last_msg_at ?? 0) || null,
       });
+      // A cursor names a message id, and ids survive the move, so the best known one carries over.
+      const cursor = winner?.last_read_msg_id ?? loser.last_read_msg_id;
+      if (cursor) setReadCursor.run(cursor, to);
       // Message ids are unique on their own, so a moved row can never collide.
       moveMessages.run(to, from);
       // The same actor may have reacted under both identities; the newer verdict wins.
@@ -368,6 +423,58 @@ export function createWhatsAppStore(db: Database.Database) {
     upsertChat,
     getChat(jid: string): Chat | undefined {
       return readChat.get(jid) as Chat | undefined;
+    },
+    /**
+     * One page of chats in the order the panel shows them — newest activity first, so paging by
+     * offset never repeats a row. `last` is the newest stored message, and `unread` counts only
+     * other people's messages newer than the read cursor.
+     */
+    listChats(input: { offset?: number; limit: number }): ChatPageRow[] {
+      const chats = readChatPage.all(input.limit, input.offset ?? 0) as ChatRow[];
+      return chats.map((chat) => {
+        const last = readLastMessage.get(chat.jid) as MessageRow | undefined;
+        const unread = chat.last_read_msg_id
+          ? (countUnread.get(chat.jid, chat.last_read_msg_id) as { c: number }).c
+          : 0;
+        return { chat, last: last ? mapMessage(last) : null, unread };
+      });
+    },
+    /** The newest `limit` messages of one chat, oldest first — the order a thread reads in. */
+    listRecentMessages(chatJid: string, limit: number): Message[] {
+      return (readRecentMessages.all(chatJid, limit) as MessageRow[]).map(mapMessage);
+    },
+    /** Where a read stops: the newest stored message of a chat. */
+    newestMessageId(chatJid: string): string | undefined {
+      const row = readNewestMessageId.get(chatJid) as { id: string } | undefined;
+      return row?.id;
+    },
+    /**
+     * Move the read cursor to `messageId`, forward only: re-reading an older row must never claim a
+     * newer message was read, and an id from another chat is refused rather than recorded.
+     */
+    markRead(chatJid: string, messageId: string): boolean {
+      const chat = readChat.get(chatJid) as ChatRow | undefined;
+      const target = readMessage.get(messageId) as MessageRow | undefined;
+      if (!chat || !target || target.chat_jid !== chatJid) return false;
+      const current = chat.last_read_msg_id
+        ? (readMessage.get(chat.last_read_msg_id) as MessageRow | undefined)
+        : undefined;
+      if (current && comparePosition(current, target) >= 0) return false;
+      setReadCursor.run(messageId, chatJid);
+      return true;
+    },
+    /**
+     * History that was synced is not news: a chat with no cursor yet gets its newest stored message,
+     * so a first pairing does not open with every chat marked unread. An existing cursor is left
+     * where it is — a history batch may append messages newer than it, and those really are unread.
+     */
+    markChatsRead(chatJids: Iterable<string>): void {
+      for (const jid of new Set(chatJids)) {
+        const chat = readChat.get(jid) as ChatRow | undefined;
+        if (!chat || chat.last_read_msg_id) continue;
+        const newest = readNewestMessageId.get(jid) as { id: string } | undefined;
+        if (newest) setReadCursor.run(newest.id, jid);
+      }
     },
     canonicalChatJid,
     linkIdentityAndMergeChats(identity: ContactIdentity): ChatMerge | null {

@@ -8,7 +8,7 @@ import { createInboxCache } from '../../src/inbox-cache.ts';
 import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
-import type { Account, Adapter, GmailClient, GmailTransport } from '../../src/adapters/types.ts';
+import type { Account, Adapter, GmailClient, GmailTransport, WhatsAppTransport } from '../../src/adapters/types.ts';
 
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
@@ -16,7 +16,7 @@ export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAte
 /** A pending invitation the read carries, with the params its answer needs. */
 export const LINKEDIN_INVITE = 'urn:li:fs_relInvitation:12345';
 export const WHATSAPP_ID = '15551234567@s.whatsapp.net';
-/** A group chat: the composer endpoint accepts one, the agent's proposal tool does not. */
+/** A group chat: the transport sends to one, and its preview is `sender: body`. */
 export const WHATSAPP_GROUP_ID = '120363413535442462@g.us';
 export const IMSG_ID = '50';
 
@@ -79,18 +79,48 @@ function gmailResponse(call: GmailCall): unknown {
   throw new Error(`unexpected Gmail call: ${call.method}`);
 }
 
-function whatsappResponse(tool: string): unknown {
-  if (tool === 'list-chats') {
-    return { items: [{ jid: WHATSAPP_ID, name: 'Ada', preview: 'See you', last_msg_at: 1_700_000_000_000, unread: 2, kind: 'dm' }] };
-  }
-  if (tool === 'get-messages') {
-    return { items: [{ id: 'm1', type: 'chat', text: 'See you', ts: 1_700_000_000_000, from_me: false, sender: { name: 'Ada' } }] };
-  }
-  if (tool === 'mark-read') return {};
-  if (tool === 'propose-send') return { proposal_id: 7, proposal: { text: 'On my way' } };
-  if (tool === 'reject-proposal') return {};
-  if (tool === 'load-media') return { id: 'm1', type: 'image', media: { cached: true, mime: 'image/png' } };
-  throw new Error(`unexpected WhatsAgent call: ${tool}`);
+/**
+ * A fake WhatsApp transport: the adapter suite must run with no socket, no HTTP and no fixture
+ * server, so every answer a read needs is a literal here, recorded under the call that asked.
+ */
+export function fakeWhatsAppTransport(
+  calls: string[],
+  overrides: Partial<WhatsAppTransport> = {},
+): WhatsAppTransport {
+  return {
+    async listChats() {
+      calls.push('whatsapp:listChats');
+      return {
+        chats: [{
+          jid: WHATSAPP_ID,
+          name: 'Ada',
+          kind: '1:1',
+          lastMsgAt: 1_700_000_000_000,
+          preview: { text: 'See you', fromMe: false, sender: 'Ada' },
+          unread: 2,
+        }],
+      };
+    },
+    async openChat() {
+      calls.push('whatsapp:openChat');
+      return [{ id: 'm1', chatJid: WHATSAPP_ID, fromMe: false, ts: 1_700_000_000_000, type: 'text', text: 'See you', sender: 'Ada', edited: false }];
+    },
+    async loadMedia() {
+      calls.push('whatsapp:loadMedia');
+      return {};
+    },
+    async markRead() {
+      calls.push('whatsapp:markRead');
+    },
+    async sendText() {
+      calls.push('whatsapp:sendText');
+    },
+    async status() {
+      calls.push('whatsapp:status');
+      return { connection: 'disconnected', paired: false };
+    },
+    ...overrides,
+  };
 }
 
 function imsgResponse(method: string, params?: Record<string, unknown>): unknown {
@@ -119,6 +149,8 @@ export interface HarnessOptions {
   linkedInThread?: () => Promise<unknown>;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
+  /** Replace the fake WhatsApp transport, or one of its answers. */
+  whatsapp?: Partial<WhatsAppTransport>;
 }
 
 /** Registry wired to stubs; `calls` is the only record of source traffic. */
@@ -149,10 +181,7 @@ export function harness(options: HarnessOptions = {}): Harness {
         },
       };
     }),
-    whatsapp: {
-      call: async tool => { calls.push(`whatsapp:${tool}`); return whatsappResponse(tool); },
-      runtime: async () => { calls.push('whatsapp:runtime'); return { baseUrl: 'http://whatsapp.test', token: 'test-token', port: 1 }; },
-    },
+    whatsapp: fakeWhatsAppTransport(calls, options.whatsapp),
     imsg: {
       request: async (method, params) => {
         calls.push(`imsg:${method}`);

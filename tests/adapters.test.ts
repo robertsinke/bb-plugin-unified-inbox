@@ -13,6 +13,7 @@ import { toProviderError } from '../src/adapters/provider-error.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { RegistryDeps } from '../src/adapters/deps.ts';
 import type { GmailCall } from './adapters/harness.ts';
+import { fakeWhatsAppTransport } from './adapters/harness.ts';
 
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
@@ -44,16 +45,6 @@ function gmail(call: GmailCall): any {
   if (call.method === 'threadGet') return GMAIL_THREAD;
   if (call.method === 'threadsModify') return {};
   throw new Error(`unexpected Gmail call: ${call.method}`);
-}
-
-function whatsapp(tool: string): unknown {
-  if (tool === 'list-chats') {
-    return { items: [{ jid: '15551234567@s.whatsapp.net', name: 'Ada', preview: 'See you', last_msg_at: 1_700_000_000_000, unread: 2, kind: 'dm' }] };
-  }
-  if (tool === 'get-messages') return { items: [{ id: 'm1', type: 'chat', text: 'See you', ts: 1_700_000_000_000, from_me: false, sender: { name: 'Ada' } }] };
-  if (tool === 'mark-read') return {};
-  if (tool === 'load-media') return { id: 'm1', type: 'chat' };
-  throw new Error(`unexpected WhatsAgent call: ${tool}`);
 }
 
 function imsg(method: string): unknown {
@@ -91,11 +82,7 @@ function fixture(sendReply: any = { id: 'm-sent' }) {
       attachmentGet: async input => { calls.push(`gmail:${account}:messages:attachments`); return gmail({ method: 'attachmentGet', input }); },
       sendRaw: async message => { calls.push('gmail:send'); sent.push(message); return sendReply; },
     }),
-    whatsapp: {
-      call: async tool => { calls.push(`whatsapp:${tool}`); return whatsapp(tool); },
-      // The loopback API is down in every test: group previews fall back and media has no source.
-      runtime: async () => { calls.push('whatsapp:runtime'); throw new Error('WhatsAgent loopback is not running in this test.'); },
-    },
+    whatsapp: fakeWhatsAppTransport(calls),
     imsg: { request: async method => { calls.push(`imsg:${method}`); return imsg(method); } },
     armLinkedInRecorder: async () => {
       calls.push('linkedin:arm');
@@ -205,9 +192,9 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['whatsapp', '15551234567@s.whatsapp.net', 'Ada', true]]);
 
-    assert.deepEqual(await adapter.action('read', '15551234567@s.whatsapp.net'), { status: 'Marked read in WhatsAgent (no WhatsApp read receipt).' });
+    assert.deepEqual(await adapter.action('read', '15551234567@s.whatsapp.net'), { status: 'Marked read.' });
     assert.equal(canChange(caps, 'archive'), false);
-    await assert.rejects(adapter.action('archive', '15551234567@s.whatsapp.net'), /not supported by WhatsAgent/);
+    await assert.rejects(adapter.action('archive', '15551234567@s.whatsapp.net'), /not supported for WhatsApp/);
     await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no image or video/);
   } finally { f.done(); }
 });

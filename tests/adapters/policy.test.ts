@@ -182,7 +182,7 @@ test('a blind copy is written down, and a send without one leaves the column emp
 // The composition the spec asks for: the gate in front of the real registry. Every
 // source's send is refused before its adapter is touched, and the one enabled path
 // reaches the source exactly once with an allowed row behind it.
-test('a refusal stops before every adapter, and an approved WhatsApp send reaches the composer', async () => {
+test('a refusal stops before every adapter, and an approved WhatsApp send reaches the transport', async () => {
   const h = harness();
   const originalFetch = globalThis.fetch;
   const fetched: string[] = [];
@@ -216,11 +216,8 @@ test('a refusal stops before every adapter, and an approved WhatsApp send reache
       await send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'On my way' }, approval, () => h.registry.whatsapp.action('reply', WHATSAPP_ID, { text: 'On my way' })),
       { status: 'Sending.' },
     );
-    assert.deepEqual(
-      fetched.map(url => url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '')),
-      [`/api/chats/${encodeURIComponent(WHATSAPP_ID)}/messages`],
-      'the composer path ran once',
-    );
+    assert.deepEqual(h.calls, ['whatsapp:sendText'], 'the approved text reaches the transport once, and nothing else runs');
+    assert.deepEqual(fetched, [], 'a WhatsApp send is the plugin socket, not an HTTP call');
     assert.equal(rows.at(-1)!.decision, 'allowed');
     assert.ok(!JSON.stringify(rows).includes('On my way'), 'the allowed row still carries no text');
   } finally {
@@ -256,11 +253,8 @@ test('a reply without allow: send is refused and audited, and with it delivers o
     assert.match(String(rows.at(-1)!.reason), /approv/i);
 
     assert.deepEqual(await reply('send'), { status: 'Sending.' });
-    assert.deepEqual(
-      fetched.map(url => url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '')),
-      [`/api/chats/${encodeURIComponent(WHATSAPP_ID)}/messages`],
-      'the owner statement reaches the composer once',
-    );
+    assert.deepEqual(h.calls, ['whatsapp:sendText'], 'the owner statement reaches the transport once');
+    assert.deepEqual(fetched, [], 'a WhatsApp send is the plugin socket, not an HTTP call');
     assert.equal(rows.at(-1)!.decision, 'allowed');
   } finally {
     globalThis.fetch = originalFetch;

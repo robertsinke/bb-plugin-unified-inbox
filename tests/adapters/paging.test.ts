@@ -1,7 +1,8 @@
 // Paging, proved at the transport seam. Gmail hands back its own `pageToken` for the page after
-// the newest rows; WhatsAgent pages chats with a row `offset` and says `has_more`. Both answers
-// are reads only: the cache keeps holding the newest page, because every refresh replaces it
-// wholesale and a second page written into it would vanish on the next one.
+// the newest rows; the WhatsApp transport pages its store by row offset and answers a cursor only
+// when another page exists. Both answers are reads only: the cache keeps holding the newest page,
+// because every refresh replaces it wholesale and a second page written into it would vanish on the
+// next one.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
@@ -10,6 +11,8 @@ import { createGmailAdapter } from '../../src/adapters/gmail.ts';
 import { createWhatsAppAdapter } from '../../src/adapters/whatsapp.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
+import type { WhatsAppTransport } from '../../src/adapters/types.ts';
+import { fakeWhatsAppTransport } from './harness.ts';
 
 /** One Gmail thread as `threads.get` answers it: a subject, a sender and an internal date. */
 function thread(id: string, subject: string, date: number) {
@@ -34,12 +37,12 @@ function thread(id: string, subject: string, date: number) {
 }
 
 type GmailCall = { method: string; input?: any };
-type WhatsCall = { tool: string; args: Record<string, unknown> };
 
-function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: (call: WhatsCall) => unknown) {
+function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: Partial<WhatsAppTransport>) {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
-  const calls: { gmail: GmailCall[]; whatsapp: WhatsCall[] } = { gmail: [], whatsapp: [] };
+  const whatsappCalls: string[] = [];
+  const calls: { gmail: GmailCall[] } = { gmail: [] };
   /** Every typed endpoint answers through the one stub, and the call itself is the record. */
   const client = (method: string) => async (input?: any) => {
     const call = { method, input };
@@ -57,14 +60,7 @@ function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: (call: WhatsCal
       attachmentGet: client('attachmentGet'),
       sendRaw: async (input: unknown) => { calls.gmail.push({ method: 'sendRaw', input }); return { id: 'sent' }; },
     }),
-    whatsapp: {
-      call: async (tool: string, args: Record<string, unknown>) => {
-        const call = { tool, args };
-        calls.whatsapp.push(call);
-        return whatsapp ? whatsapp(call) : {};
-      },
-      runtime: async () => ({ baseUrl: 'http://whatsapp.test', token: 'test-token', port: 1 }),
-    },
+    whatsapp: fakeWhatsAppTransport(whatsappCalls, whatsapp),
     imsg: { request: async () => ({}) },
     linkedInPage: {},
     armLinkedInRecorder: async () => ({}),
@@ -123,39 +119,37 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
   }
 });
 
-test('WhatsApp pages by row offset, advances past the rows it was given, and stops where WhatsAgent says', async () => {
-  const page = (offset: number) => offset === 0
-    ? {
-      items: [
-        { jid: 'a@s.whatsapp.net', name: 'Ada', preview: 'Newest', last_msg_at: 1_700_000_000_000, unread: 0, kind: 'dm' },
-        { jid: 'archived@s.whatsapp.net', name: 'Archived', preview: '', last_msg_at: 1_699_000_000_000, unread: 0, kind: 'dm', archived: true },
-      ],
-      total: 3,
-      offset,
-      limit: 50,
-      has_more: true,
-    }
-    : {
-      items: [{ jid: 'b@s.whatsapp.net', name: 'Grace', preview: 'Older', last_msg_at: 1_600_000_000_000, unread: 0, kind: 'dm' }],
-      total: 3,
-      offset,
-      limit: 50,
-      has_more: false,
-    };
-  const f = fixture(() => ({}), call => page(Number(call.args.offset ?? 0)));
+test('WhatsApp pages by the row offset the transport answers, and an older page leaves the cache alone', async () => {
+  const asked: Array<{ cursor?: string; limit: number }> = [];
+  const row = (jid: string, name: string, text: string, at: number) => ({
+    jid, name, kind: '1:1' as const, lastMsgAt: at,
+    preview: { text, fromMe: false, sender: name },
+    unread: 0,
+  });
+  const pages: Record<string, { chats: ReturnType<typeof row>[]; cursor?: string }> = {
+    '': { chats: [row('a@s.whatsapp.net', 'Ada', 'Newest', 1_700_000_000_000), row('b@s.whatsapp.net', 'Grace', 'Also newest', 1_699_000_000_000)], cursor: '2' },
+    '2': { chats: [row('c@s.whatsapp.net', 'Older', 'Older', 1_600_000_000_000)] },
+  };
+  const f = fixture(() => ({}), {
+    async listChats(input) {
+      asked.push(input);
+      return pages[input.cursor ?? ''] ?? { chats: [] };
+    },
+  });
   try {
     const adapter = createWhatsAppAdapter(f.deps);
 
     const first = await adapter.list();
-    assert.deepEqual(first.items.map(item => item.id), ['a@s.whatsapp.net'], 'an archived chat is filtered out of the page');
-    assert.deepEqual(f.calls.whatsapp[0].args, { filter: 'all', limit: 50, offset: 0 }, 'the newest page is the read it always was');
-    assert.equal(first.cursor, '2', 'the offset advances by the rows WhatsAgent returned, not the rows kept');
+    assert.deepEqual(first.items.map(item => item.id), ['a@s.whatsapp.net', 'b@s.whatsapp.net'], 'the newest page is what the list shows');
+    assert.deepEqual(asked, [{ limit: 50 }], 'the newest page is one store read');
+    assert.equal(first.cursor, '2', 'the transport said another page exists, so one is offered');
+    assert.deepEqual(f.cache.list().map(item => item.id), ['a@s.whatsapp.net', 'b@s.whatsapp.net'], 'the cache holds the newest page');
 
     const older = await adapter.list('2');
-    assert.deepEqual(older.items.map(item => item.id), ['b@s.whatsapp.net']);
-    assert.equal(older.cursor, undefined, 'has_more is false, so nothing older is offered');
-    assert.deepEqual(f.calls.whatsapp.at(-1)!.args, { filter: 'all', limit: 50, offset: 2 });
-    assert.deepEqual(f.cache.list().map(item => item.id), ['a@s.whatsapp.net'], 'an older page does not rewrite the cache');
+    assert.deepEqual(older.items.map(item => item.id), ['c@s.whatsapp.net']);
+    assert.equal(older.cursor, undefined, 'the last page offers nothing older');
+    assert.deepEqual(asked.at(-1), { cursor: '2', limit: 50 }, 'the cursor travels back as the offset the store pages by');
+    assert.deepEqual(f.cache.list().map(item => item.id), ['a@s.whatsapp.net', 'b@s.whatsapp.net'], 'an older page does not rewrite the cache');
   } finally {
     f.close();
   }

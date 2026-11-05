@@ -22,7 +22,7 @@ import {
   type SignalDataTypeMap,
 } from 'baileys';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -248,4 +248,13 @@ export function accountStateSummary(dir = whatsAppAuthDir()): WhatsAppAccountSta
     // Absent is a state: an unpaired source has no directory yet.
     return { dir, dirMode: 0, fileCount: 0 };
   }
+}
+
+/**
+ * Whether a paired account exists, without opening it. `creds` is the file pairing writes first, so
+ * a directory holding only a key or a lock file is a socket that never paired — which is a state,
+ * not an account (R5).
+ */
+export function whatsAppAccountExists(dir = whatsAppAuthDir()): boolean {
+  return existsSync(join(dir, CREDS_FILE));
 }

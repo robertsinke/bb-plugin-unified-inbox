@@ -8,8 +8,9 @@
 // docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md.
 import { BufferJSON, downloadMediaMessage, type WAMessage } from 'baileys';
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { MediaFailureReason, WhatsAppStore } from './store.ts';
 
 export type MediaDownloader = (
@@ -23,7 +24,7 @@ export type MediaDownloader = (
 ) => Promise<Buffer>;
 
 export type DownloadMediaOptions = {
-  /** Where the cached bytes live: the plugin's own media directory, never the account state. */
+  /** Where the cached bytes live: the plugin's own data directory, never the account state. */
   dataDir: string;
   /** Injected for tests; defaults to Baileys' `downloadMediaMessage`. */
   download?: MediaDownloader;
@@ -34,6 +35,49 @@ export type DownloadMediaOptions = {
 export type DownloadMediaResult = { mediaRef: string; bytes: number };
 
 const noopLogger = { info: () => undefined, error: () => undefined };
+
+/**
+ * The plugin's data directory — `{dataDir}/media` is where cached bytes live, beside `data.db`. The
+ * override exists for tests and for a second BB pointed at a scratch directory, the way
+ * `whatsAppAuthDir()` has one for the account state.
+ */
+export function whatsAppDataDir(): string {
+  return process.env.UNIFIED_INBOX_WHATSAPP_DATA || join(homedir(), '.bb/plugins/unified-inbox');
+}
+
+/**
+ * The bytes behind a stored `media_ref`, or nothing when the file is gone or the ref walks out of
+ * the cache directory. No reader supplies a path: the ref is what `downloadAndCacheMedia` wrote.
+ */
+export function readCachedMedia(dataDir: string, mediaRef: string): Uint8Array | undefined {
+  const mediaDir = resolve(join(dataDir, 'media'));
+  const absolutePath = resolve(dataDir, mediaRef);
+  const insideMedia = relative(mediaDir, absolutePath);
+  if (!insideMedia || insideMedia.startsWith('..') || isAbsolute(insideMedia)) return undefined;
+  try {
+    return readFileSync(absolutePath);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The type to serve a cached file as, from the extension `extensionForType` gave it. */
+export function mediaMime(mediaRef: string): string | undefined {
+  switch (extname(mediaRef).toLowerCase()) {
+    case '.jpg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.mp4':
+      return 'video/mp4';
+    case '.ogg':
+      return 'audio/ogg';
+    default:
+      return undefined;
+  }
+}
 
 /** Raised by {@link downloadAndCacheMedia}; carries the persisted failure reason. */
 export class MediaDownloadFailure extends Error {
