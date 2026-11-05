@@ -281,6 +281,10 @@ note "Route if the link has moved: APIs & Services → Library → search People
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
 stage "Personal · allow the two contact scopes"
+note "The console calls this project 'executor-mcp-gateway'. That is only its display"
+note "name, from work this project was made for; the id in the URL is the project that"
+note "issued this account's Gmail client, so it is the right screen."
+say ""
 open_url "https://console.cloud.google.com/auth/scopes?project=$PERSONAL_PROJECT"
 step "Press Add or remove scopes."
 step "Paste and add both, then Save:"
@@ -308,6 +312,9 @@ note "If step 7 refuses, that is the reason, and it is theirs to lift."
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
 stage "Business · allow the two contact scopes"
+note "This project should read 'bb-inbox-513016'. If the console shows another"
+note "name, you are on the wrong project: check the id in the address bar."
+say ""
 open_url "https://console.cloud.google.com/auth/scopes?project=$BUSINESS_PROJECT"
 step "Press Add or remove scopes."
 step "Paste and add both, then Save:"
