@@ -66,6 +66,29 @@ mtime() {
   if stat -f %m "$1" >/dev/null 2>&1; then stat -f %m "$1"; else stat -c %Y "$1" 2>/dev/null; fi
 }
 
+# grant_has_contacts prints "yes" when the grant on disk actually carries a contact scope, and
+# "no" otherwise. `gws auth export` carries no scope list, and `gws auth login` exits 0 without a
+# new consent when a usable token is already there — so a wizard that trusted the exit code
+# "authorised" an account whose grant had not changed at all, and the plugin said so afterwards.
+grant_has_contacts() {
+  local token answer
+  token=$(GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$CONFIG_DIR" gws auth export --unmasked 2>/dev/null) || { printf 'no'; return 0; }
+  answer=$(printf '%s' "$token" | node -e '
+    let raw = "";
+    process.stdin.on("data", chunk => { raw += chunk; });
+    process.stdin.on("end", async () => {
+      try {
+        const c = JSON.parse(raw);
+        const body = new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: "refresh_token" });
+        const answer = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body }).then(r => r.json());
+        const scopes = String(answer.scope || "").split(" ");
+        process.stdout.write(scopes.some(s => s.endsWith("/contacts.readonly")) ? "yes" : "no");
+      } catch { process.stdout.write("no"); }
+    });
+  ' 2>/dev/null) || answer="no"
+  printf '%s' "${answer:-no}"
+}
+
 note() { printf '  %s%s%s\n' "$DIM" "$1" "$RESET"; }
 warn() { printf '  %s⚠ %s%s\n' "$YELLOW" "$1" "$RESET"; }
 
@@ -303,6 +326,15 @@ say "This runs the login in $CONFIG_DIR and copies the grant into the plugin."
 say "A browser opens on Google's consent screen: it must name this account's"
 say "contacts as well as Gmail."
 say ""
+# `gws auth login` exits 0 whether or not the consent gave anything new — an existing grant that
+# answers the old scope set returns success — so what is on disk is checked before the login rather
+# than trusted after it. The plugin keeps its own copy of the token, so mail keeps working while
+# this consent is asked.
+if [[ "$(grant_has_contacts)" == "no" ]] && GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$CONFIG_DIR" gws auth status >/dev/null 2>&1; then
+  note "the grant already on disk has no contact scope, and a login over it would change nothing"
+  note "clearing it first, so the consent is asked again"
+  GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$CONFIG_DIR" gws auth logout >/dev/null 2>&1 || true
+fi
 if GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$CONFIG_DIR" gws auth login --scopes "$SCOPES"; then
   if bb unified-inbox import-gws-account "$ACCOUNT" --force; then
     printf '  %s✓ imported%s %s\n' "$GREEN" "$RESET" "$ACCOUNT"
