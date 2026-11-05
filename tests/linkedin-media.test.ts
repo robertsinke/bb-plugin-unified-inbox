@@ -46,7 +46,7 @@ test('a photo is fetched without following a redirect', async () => {
   const { calls, fetcher } = stub(answer(PNG, { 'content-type': 'image/png', 'content-length': String(PNG.byteLength) }));
   const payload = await readLinkedInImage(PHOTO, fetcher);
   assert.equal(payload.mime, 'image/png');
-  assert.match(payload.dataUrl, /^data:image\/png;base64,/);
+  assert.match(payload.dataUrl ?? '', /^data:image\/png;base64,/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, PHOTO);
   assert.equal(calls[0].options?.redirect, 'error');

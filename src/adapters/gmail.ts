@@ -19,7 +19,8 @@ import type {
 import type { MediaRequest } from './media.ts';
 
 /** Largest attachment a media request will hand a frame. */
-import { ATTACHMENT_LIMIT, attachmentPayload } from './media.ts';
+import { SAVE_LIMIT } from './media.ts';
+import { savedPayload } from '../media-save.ts';
 
 /** Largest HTML body kept on a message; larger bodies are dropped, not truncated. */
 const HTML_LIMIT = 800_000;
@@ -105,13 +106,13 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     const message = await gmail(() => mail.messageGet({ id: gmailId, format: 'full' }));
     const part = findGmailAttachment(message?.payload, filename);
     if (!part) throw new Error('This attachment is no longer in the message.');
-    if (part.size !== undefined && part.size > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
+    if (part.size !== undefined && part.size > SAVE_LIMIT) throw new Error('This attachment is too large to save.');
     // The transport decodes once and hands back bytes; only an inline part still holds base64.
     const attachmentId = part.attachmentId;
     let bytes: Uint8Array | undefined = part.data ? Buffer.from(part.data, 'base64url') : undefined;
     if (!bytes?.length && attachmentId) bytes = await gmail(() => mail.attachmentGet({ messageId: gmailId, id: attachmentId }));
     if (!bytes?.length) throw new Error('This attachment could not be read.');
-    return attachmentPayload(bytes, { mime: part.mimeType, filename: part.filename });
+    return savedPayload(bytes, { mime: part.mimeType, filename: part.filename });
   }
 
   function row(t: any, headersOnly = false): Conversation {

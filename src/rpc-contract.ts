@@ -4,7 +4,6 @@
 // must not touch.
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { ATTACHMENT_LIMIT } from './adapters/media.ts';
 import { accounts, gmailAccounts } from './adapters/types.ts';
 import { MEDIA_KINDS, attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
@@ -110,7 +109,7 @@ export const rpcContract = defineRpcContract({
       imsgMediaRequestSchema.extend({ account }),
       attachmentMediaRequestSchema.extend({ account }),
     ]),
-    output: z.object({ dataUrl: z.string(), mime: z.string(), filename: z.string().max(255).optional(), size: z.number().int().nonnegative().max(ATTACHMENT_LIMIT).optional(), url: z.string().optional() }),
+    output: z.object({ dataUrl: z.string().optional(), savedPath: z.string().optional(), mime: z.string(), filename: z.string().max(255).optional(), size: z.number().int().nonnegative().optional(), url: z.string().optional() }),
   },
   // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
   // refuses and records the attempt: a send is never approved by merely happening.

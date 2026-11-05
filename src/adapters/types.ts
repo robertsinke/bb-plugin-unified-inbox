@@ -281,7 +281,10 @@ export interface ProviderError {
  * then.
  */
 export interface MediaPayload {
-  dataUrl: string;
+  /** Absent when the file was too large to hand to the browser and was saved to disk instead. */
+  dataUrl?: string;
+  /** Where a file over the inline ceiling landed; the panel reports it rather than downloading twice. */
+  savedPath?: string;
   mime: string;
   filename?: string;
   size?: number;

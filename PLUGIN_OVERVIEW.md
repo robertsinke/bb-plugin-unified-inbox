@@ -112,7 +112,10 @@ unencrypted SQLite storage on the BB server, and so do the `wa_*` tables: the
 WhatsApp messages with their raw envelopes, chats with the read cursor, contacts
 and reactions, written by the plugin's own socket. `clear_cache` empties those
 copies along with the cached media — pictures, video and documents — and leaves
-the linked account alone.
+the linked account alone. A Gmail attachment or WhatsApp document is served inline
+up to 5 MiB; a larger file is written to the owner's Downloads folder instead and
+answered with `savedPath`, which the panel reports. The 100 MiB save ceiling exists
+only to stop a runaway download, not to decide what the owner may receive.
 
 ## For agents
 

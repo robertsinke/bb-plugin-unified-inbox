@@ -197,7 +197,7 @@ export function registerInboxAgentTools(bb: BbPluginApi, gateway: Gateway) {
       signal.throwIfAborted();
       const result = await gateway.media({ account: selected, ...media });
       signal.throwIfAborted();
-      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(result.dataUrl);
+      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(result.dataUrl ?? '');
       if (!match || result.mime !== match[1]) throw new Error('This attachment is not a supported image.');
       const data = match[2];
       if (data.length > Math.ceil(IMAGE_LIMIT / 3) * 4 || Buffer.from(data, 'base64').length > IMAGE_LIMIT) throw new Error('This image exceeds the 6 MiB limit.');

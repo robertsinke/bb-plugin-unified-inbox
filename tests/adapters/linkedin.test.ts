@@ -85,7 +85,7 @@ test('LinkedIn: a photo is served from the CDN through the media path', async ()
     cachedConversation(h);
     const payload = await h.registry.linkedin.media({ kind: 'message', id: PHOTO_URN, index: 0 });
     assert.equal(payload.mime, 'image/png');
-    assert.match(payload.dataUrl, /^data:image\/png;base64,/);
+    assert.match(payload.dataUrl ?? '', /^data:image\/png;base64,/);
     // The browser read is never repeated for a thumbnail.
     assert.deepEqual(h.calls, []);
     assert.deepEqual(stub.urls, [PHOTO]);
