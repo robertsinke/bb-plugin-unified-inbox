@@ -21,7 +21,8 @@ import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
-import { accounts } from './src/adapters/types';
+import { accounts, gmailAccounts, type GmailAccount } from './src/adapters/types';
+import { importGwsAccount } from './src/account-import';
 import { runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
 import { parseMailKeyIds, type MailMode } from './src/mail-approval';
@@ -94,9 +95,10 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: 'unified-inbox',
-    summary: 'Unified Inbox helpers: the one-time LinkedIn sign-in, and the send gate audit',
+    summary: 'Unified Inbox helpers: the one-time LinkedIn sign-in and Gmail credential import, and the send gate audit',
     commands: [
       { name: 'linkedin-signin', summary: 'Open the inbox LinkedIn profile so you can sign in once', usage: 'bb unified-inbox linkedin-signin' },
+      { name: 'import-gws-account', summary: 'Copy one Gmail account out of its gws config into the plugin credential store, once', usage: 'bb unified-inbox import-gws-account <gmail-personal|gmail-business> [--force]' },
       { name: 'send-audit', summary: 'Show what the send gate allowed or refused, newest first', usage: 'bb unified-inbox send-audit [limit]' },
     ],
     async run(argv) {
@@ -104,12 +106,25 @@ export default function plugin(bb: BbPluginApi) {
         const profile = await openLinkedInSignIn();
         return { exitCode: 0, stdout: `Sign in to LinkedIn in the window that just opened, then close it. Profile: ${profile}\n` };
       }
+      if (argv[0] === 'import-gws-account') {
+        const account = argv[1];
+        if (!gmailAccounts.includes(account as GmailAccount)) {
+          return { exitCode: 1, stderr: `Usage: bb unified-inbox import-gws-account <${gmailAccounts.join('|')}> [--force]\n` };
+        }
+        try {
+          const imported = await importGwsAccount({ account: account as GmailAccount, force: argv.includes('--force') });
+          return { exitCode: 0, stdout: `${imported.replaced ? 'Replaced' : 'Imported'} ${imported.account} from gws into ${imported.path} (source gws-import).\n` };
+        } catch (error) {
+          // Every message the import throws is already secret-free; it names the account, not the token.
+          return { exitCode: 1, stderr: `${error instanceof Error ? error.message : String(error)}\n` };
+        }
+      }
       if (argv[0] === 'send-audit') {
         const rows = sendAudit.list(Number(argv[1] ?? 20));
         if (!rows.length) return { exitCode: 0, stdout: 'No send attempts recorded yet.\n' };
         return { exitCode: 0, stdout: rows.map(row => `${new Date(row.at).toISOString()} ${row.decision.padEnd(7)} ${row.account} ${row.conversationId}${row.bcc ? ` bcc ${row.bcc}` : ''}${row.reason ? ` — ${row.reason}` : ''}\n`).join('') };
       }
-      return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|send-audit>' };
+      return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|import-gws-account|send-audit>' };
     },
   });
 
