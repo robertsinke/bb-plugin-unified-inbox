@@ -17,6 +17,7 @@ unsettled rather than guessing.
 | what a source is | each adapter's `source` declaration, typed by `src/adapters/source.ts` | label, icon, poll interval, page size — the one place a source describes itself |
 | what a source can do | `src/adapters/capability.ts` (`CAPABILITY_KEYS`) | the vocabulary; every adapter declares every key, so a missing capability is a type error, not a runtime surprise |
 | how a source delivers a message | `src/adapters/index.ts` (`createRegistry`) | one `sync`, one `media`, one `send` per account — transport differences are absorbed here, never in the gateway |
+| whether a Gmail credential exists, and when its access token is renewed | `src/gmail-oauth.ts` | the one 0600 record per account in the plugin data dir, the access-token cache and its expiry margin, one refresh in flight per account, and the last failure kept on the record; no other module reads or writes the credential file |
 | the RPC surface | `src/rpc-contract.ts` | every input and output schema; the handlers in `src/gateway.ts` are checked against it, and the panel's client is typed by it |
 | what an agent can read and inspect | `src/inbox-agent-tools.ts` | `inbox_list` browses the cache and `inbox_search` returns ranked cached excerpts; media references must belong to the named cached conversation; image bytes are returned as image content, never as text |
 | what the panel may ask for | `src/gateway.ts` (`createGateway(deps)`) | method bodies, paging cursors, and the older-page deadline |
@@ -36,6 +37,9 @@ unsettled rather than guessing.
   rather than a live call.
 - **Gateway ↔ source** is the adapter registry. `account ===` branches in the gateway or the panel are a bug:
   capability or declaration decides layout and behaviour.
+- **Adapter ↔ Gmail** is the `GmailTransport` factory in `src/adapters/types.ts`. `server.ts` hands out one
+  `src/gmail-client.ts` client per account over the single credential store, so no adapter knows whether a
+  read went over a socket or a process.
 - **Page ↔ plugin** is the LinkedIn page session. Nothing else evaluates an expression in that profile.
 
 ## Unsettled — do not treat as settled

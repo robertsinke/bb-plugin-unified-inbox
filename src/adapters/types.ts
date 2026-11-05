@@ -77,8 +77,8 @@ export interface GmailReadInput {
 /**
  * The Gmail transport seam (plan unit U3): one method per endpoint `src/adapters/gmail.ts` asks
  * for, so the plugin can swap what answers behind it without the adapter learning a second
- * vocabulary. Both implementations — the argv runner in `src/adapters/gws.ts` and the plugin's own
- * HTTPS client in `src/gmail-client.ts` — satisfy this one contract.
+ * vocabulary. The implementation is the plugin's own HTTPS client in
+ * `src/gmail-client.ts`; nothing behind this seam shells out to a CLI.
  *
  * Seven calls, eight call sites: `attachmentGet` serves both the HTML-body fetch and the
  * attachment fetch. A rejection is the raw cause; the adapter normalizes it through

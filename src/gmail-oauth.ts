@@ -6,9 +6,9 @@
 // whether a Gmail credential exists, when its access token is renewed, and what its last failure
 // was, so a dead token is inspectable from a log line instead of a terminal.
 //
-// Renewal is single-flight per account. Gmail reads already overlap
-// (`READ_CONCURRENCY` in src/adapters/gws.ts), and six grants fired at once can invalidate each
-// other, so concurrent callers wait on the one grant in flight.
+// Renewal is single-flight per account. Gmail reads overlap (a page fans out with `Promise.all`),
+// and several grants fired at once can invalidate each other, so concurrent callers wait on the
+// one grant in flight.
 //
 // A rejected grant throws the status and the provider's own reason — never synthesized failure
 // text. `toProviderError` turns that into the scrubbed `ProviderError` the gateway renders, so the

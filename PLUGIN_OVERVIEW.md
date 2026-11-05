@@ -54,8 +54,17 @@ or infer approval from unmarked historical UUIDs.
 There is no push alert. `bb unified-inbox send-audit [limit]` and the inbox menu's
 Send log show attempts, not proof of delivery.
 
-What each source needs, and what stays local: Gmail calls the `gws` CLI with
-credentials in `~/.config/gws` and `~/.config/gws-inhouse`. WhatsApp attaches to
+What each source needs, and what stays local: Gmail needs no CLI on the machine. The
+plugin reads and sends over HTTPS with a credential it owns — one file per account
+in `~/.bb/plugins/unified-inbox/gmail-credentials`, named for the account, mode
+0600, holding the OAuth client, the refresh token and the current access token with
+its expiry. Only `src/gmail-oauth.ts` reads or writes those files: it renews the
+token once per account, keeps a rejected grant's message on the record, and never
+deletes a record because a grant failed. An account with no credential file is not a
+crash: that mailbox's refresh fails with one scrubbed line naming the account, the
+panel keeps the rows it has and marks them as possibly stale, and
+`bb unified-inbox import-gws-account <account>` copies an existing `gws` config in
+once — the one remaining use of that CLI. WhatsApp attaches to
 the WhatsAgent backend on loopback — this plugin never starts or restarts it,
 and fails closed when discovery fails rather than opening a second connection.
 Messages runs a supervised `imsg rpc` child and needs Full Disk Access. LinkedIn

@@ -35,12 +35,11 @@ const SELF: Record<GmailAccount, string> = {
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true };
 
 /**
- * What a person knows each mailbox by, and how the panel paces it. A Gmail row costs one CLI read
- * of its thread (a listing carries only an id and a snippet), and twenty of those per account —
- * forty in a round, sharing the runner's pool with the periodic refreshes — measured 11–20s and
- * lost the panel's 15-second ceiling, so the owner saw the WhatsApp page and no mail. Ten fits:
- * the same page lands in about five seconds, and a press that is quick is worth two that never
- * arrive.
+ * What a person knows each mailbox by, and how the panel paces it. A Gmail row costs one thread
+ * read per thread; twenty of those per account, with the periodic refreshes in the same round,
+ * measured 11–20s over the CLI and lost the panel's 15-second ceiling — so the owner saw the
+ * WhatsApp page and no mail. Ten fits the panel. The ceiling, not the transport, is the reason:
+ * a read is faster now, and the page size stays until someone measures it again.
  */
 const SOURCE: Record<GmailAccount, SourceDeclaration> = {
   'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },

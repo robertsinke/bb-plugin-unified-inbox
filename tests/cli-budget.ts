@@ -5,7 +5,6 @@
 // "audit NOT CHECKED". No budget at all turns a wedged tool into a suite that never finishes, which
 // is worse than a failure because it reports nothing.
 //
-// 30 s is the figure `src/adapters/gws.ts` already allows a real CLI, and `_tools/check-send-audit.ts`
-// now allows `bb status`. The override exists so a timeout can be tested deliberately rather than
-// waited for.
+// 30 s is the budget `_tools/check-send-audit.ts` gives one `bb status` round-trip. The override
+// exists so a timeout can be tested deliberately rather than waited for.
 export const CLI_BUDGET_MS = Number(process.env.UNIFIED_INBOX_TEST_CLI_TIMEOUT_MS ?? 30_000);
