@@ -214,7 +214,7 @@ installed_client() {
 
 run_wizard() {
 
-TOTAL_STAGES=6
+TOTAL_STAGES=7
 
 banner "Move the personal Gmail client to its own Cloud project"
 
@@ -275,6 +275,18 @@ note "Audience page: https://console.cloud.google.com/auth/audience?project=$GCP
 note "Route if the link has moved: APIs & Services → OAuth consent screen."
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
+stage "Enable the two APIs this account needs"
+say "A new project has no APIs on: the grant would work and every call would answer"
+say "403 accessNotConfigured. Enable both before the login, so the consent is the"
+say "last thing that can fail."
+open_url "https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=$GCP_PROJECT_ID"
+step "Press Enable on the Gmail API, and wait for it to finish."
+open_url "https://console.cloud.google.com/apis/library/people.googleapis.com?project=$GCP_PROJECT_ID"
+step "Press Enable on the People API."
+say ""
+note "Both are free at this volume. Gmail is the mail source; People carries the faces."
+
+# ── 5 ─────────────────────────────────────────────────────────────────────
 stage "Create the OAuth client and download it"
 open_url "https://console.cloud.google.com/apis/credentials?project=$GCP_PROJECT_ID"
 step "Press Create credentials → OAuth client ID."
@@ -285,7 +297,7 @@ note "A Desktop client is the kind this OAuth flow needs; a Web client has no"
 note "redirect that works from a terminal, and the login fails with a mismatch."
 pause "Press Enter once the JSON is in your Downloads folder."
 
-# ── 5 ─────────────────────────────────────────────────────────────────────
+# ── 6 ─────────────────────────────────────────────────────────────────────
 stage "Install it as the client this account logs in with"
 downloaded="$HOME/Downloads/client_secret.json"
 while true; do
@@ -311,7 +323,7 @@ for file in credentials.enc token_cache.json; do
 done
 printf '  %s✓ installed%s %s\n' "$GREEN" "$RESET" "$CONFIG_DIR/client_secret.json (0600)"
 
-# ── 6 ─────────────────────────────────────────────────────────────────────
+# ── 7 ─────────────────────────────────────────────────────────────────────
 stage "What is true now"
 final=$(installed_client "$CONFIG_DIR/client_secret.json")
 say "The personal client: $final"

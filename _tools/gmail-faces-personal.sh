@@ -325,6 +325,8 @@ if [[ "$state" == '{"error":true}' || -z "$state" ]]; then
 else
   contacts=$(count_of "$state" contacts)
   mail=$(count_of "$state" mail)
+  note "A record imported from gws carries no scope list, so the plugin's own line is the check:"
+  note "bb plugin logs unified-inbox | grep 'Gmail faces'"
   if [[ "$mail" != "0" ]]; then
     warn "$ACCOUNT lost a mail scope in the re-consent: mail reading and sending will stop"
     SKIPPED+=("re-consent $ACCOUNT with the full scope set")
