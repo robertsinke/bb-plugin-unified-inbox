@@ -44,6 +44,41 @@ export default function plugin(bb: BbPluginApi) {
   // The plugin's own WhatsApp socket when the background service has one open. Absent is the normal
   // state for a stranger — and reads still answer, because the store holds what already arrived.
   let whatsappConnection: WhatsAppConnection | undefined;
+  let openingWhatsApp: Promise<WhatsAppConnection> | undefined;
+
+  /**
+   * The plugin's one socket, created on first use. Two callers ask for it — the boot service when an
+   * account state exists, and the pairing card when a stranger scans — and the lock below this makes
+   * one socket the fact rather than the intention, so this is deliberately not two paths.
+   */
+  async function openWhatsAppConnection(): Promise<WhatsAppConnection> {
+    if (whatsappConnection) return whatsappConnection;
+    openingWhatsApp ??= (async () => {
+      const { WhatsAppConnection } = await import('./src/whatsapp/connection');
+      const connection = new WhatsAppConnection({
+        getMessage: whatsappStore.storedMessageLoader(),
+        bindSocket: socket => attachIngest(socket.ev, whatsappStore),
+      });
+      try {
+        await connection.start();
+      } catch (error) {
+        // A refusal (another process holds the lock, or the state will not decrypt) leaves no socket,
+        // so the next ask tries again instead of handing out a connection that never started.
+        await connection.stop();
+        throw error;
+      }
+      whatsappConnection = connection;
+      return connection;
+    })().finally(() => { openingWhatsApp = undefined; });
+    return openingWhatsApp;
+  }
+
+  async function closeWhatsAppConnection(): Promise<void> {
+    const connection = whatsappConnection;
+    whatsappConnection = undefined;
+    await connection?.stop();
+  }
+
   const whatsappTransport = createWhatsAppTransport({
     store: whatsappStore,
     connection: () => whatsappConnection,
@@ -52,6 +87,17 @@ export default function plugin(bb: BbPluginApi) {
   // Every send attempt is written here: one table in the plugin's own database.
   const sendAudit = createSendAudit(db);
   const now = () => Date.now();
+  // The pairing state machine is the socket's only public story, and it is loaded with the socket:
+  // a read of the card is the first thing that needs 7.9 MB of client, and most starts never pair.
+  let pairingModule: Promise<import('./src/whatsapp/pairing.ts').WhatsAppPairing> | undefined;
+  const whatsappPairing = () => (pairingModule ??= import('./src/whatsapp/pairing').then(({ createWhatsAppPairing }) =>
+    createWhatsAppPairing({
+      open: openWhatsAppConnection,
+      current: () => whatsappConnection,
+      close: closeWhatsAppConnection,
+      now,
+    })));
+
   const mailSettings = bb.settings.define({
     mailApprovalMode: { type: 'select', label: 'Mail approval rollout', options: ['prepare', 'compatibility', 'require'], default: 'compatibility' },
     mailApprovalKeyIds: { type: 'string', label: 'Enrolled mail signing key ids', default: '', experimental_multiline: true,
@@ -65,6 +111,10 @@ export default function plugin(bb: BbPluginApi) {
   const imsgPath = [join(homedir(), '.local/bin/imsg'), '/opt/homebrew/bin/imsg', '/usr/local/bin/imsg'].find(path => existsSync(path)) ?? 'imsg';
   const imsg = new ImsgClient(imsgPath);
   bb.onDispose(() => imsg.dispose());
+  // The socket started by the pairing card is nobody's background service, so a reload has to
+  // close it here: the lock is held for the life of the socket, and a second socket on one device
+  // identity is the failure WhatsApp answers with a re-pair.
+  bb.onDispose(() => { void closeWhatsAppConnection(); });
   bb.onDispose(() => { void stopLinkedInBrowser(); });
   // Chrome's start is the slow part of a LinkedIn read; load the page once the profile exists.
   if (existsSync(linkedinProfileDir())) void prewarmLinkedInBrowser();
@@ -91,6 +141,7 @@ export default function plugin(bb: BbPluginApi) {
     gate: sendGate,
     registry,
     now,
+    pairing: async request => (await whatsappPairing()).handle(request),
     driver: {
       openInLinkedInProfile,
       inspectLinkedInPage,
@@ -110,24 +161,19 @@ export default function plugin(bb: BbPluginApi) {
     });
   }
   // The socket is the other half of the WhatsApp transport: it ingests what arrives, so the next
-  // read has something to answer from. Opened only when an account state exists — an unpaired
-  // source is a state, not a socket waiting on a QR (R5) — and stopped when the host reloads.
+  // read has something to answer from. Opened at boot only when an account state exists — an
+  // unpaired source is a state, not a socket waiting on a QR (R5), and the pairing card opens it when
+  // the owner asks. Stopped when the host reloads, and the pairing state follows it: a stopped
+  // socket is a socket whose QR and code are gone.
   bb.background.service('whatsapp-connection', {
     async start(signal) {
       const { whatsAppAccountExists } = await import('./src/whatsapp/auth');
       if (!whatsAppAccountExists()) return;
-      const { WhatsAppConnection } = await import('./src/whatsapp/connection');
-      const connection = new WhatsAppConnection({
-        getMessage: whatsappStore.storedMessageLoader(),
-        bindSocket: socket => attachIngest(socket.ev, whatsappStore),
-      });
-      whatsappConnection = connection;
       try {
-        await connection.start();
+        await openWhatsAppConnection();
         await untilAborted(signal);
       } finally {
-        whatsappConnection = undefined;
-        await connection.stop();
+        await closeWhatsAppConnection();
       }
     },
   });

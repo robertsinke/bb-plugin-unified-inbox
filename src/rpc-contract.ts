@@ -32,6 +32,26 @@ const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid he
 // and the mention provider, `{}` from a client that always sends a body. Both name the same call, so
 // they mean one thing here instead of a schema refusal for whichever way the caller happens to send.
 const noArgs = z.union([z.null(), z.object({}).strict()]);
+// Where a WhatsApp pairing stands (plan U4). A read is the same call with no op, because the card
+// polls while a code is on screen. `unpaired` is a state here and nowhere an error: nothing in the
+// contract has a slot for "this source has never been used", so it must not need one.
+export const whatsappPairing = z.object({
+  state: z.enum(['unpaired', 'connecting', 'qr', 'code', 'connected', 'logged-out']),
+  /** The payload Baileys offered; the panel draws it, so it never leaves as an image. */
+  qr: z.string().min(1).max(4096).optional(),
+  /** When that payload stops being a code WhatsApp will accept. */
+  expiresAt: z.number().int().nonnegative().optional(),
+  /** The eight characters WhatsApp shows on the phone, when one was asked for. */
+  code: z.string().min(1).max(32).optional(),
+  /** What the socket said, in its own words, when it said anything. */
+  message: z.string().max(2000).optional(),
+});
+const whatsappPairingRequest = z.object({
+  op: z.enum(['pair', 'unpair', 'request-code']).optional(),
+  phone: z.string().min(7).max(20).optional(),
+}).strict();
+export type WhatsAppPairingRequest = z.infer<typeof whatsappPairingRequest>;
+export type WhatsAppPairingSnapshot = z.infer<typeof whatsappPairing>;
 export const rpcContract = defineRpcContract({
   // `null` is the call every existing consumer makes (the panel's poll, the CLI, the mention
   // provider) and it keeps answering exactly what it always did. `{ older: true }` asks every
@@ -107,6 +127,9 @@ export const rpcContract = defineRpcContract({
     approvalId: z.string(), payloadHash: z.string(), keyId: z.string(), account: z.string(),
     state: z.enum(['spent','accepted','uncertain']), spentAt: z.number(),
   }).nullable() }) },
+  // One call, four answers: no op reads the state, and the three ops are the only acts that change
+  // it. `pair` is the QR path, which is the default one; a code is asked for by phone number.
+  whatsapp_pairing: { input: whatsappPairingRequest.nullable(), output: whatsappPairing },
   capabilities: { input: noArgs, output: z.record(account, capabilitiesSchema) },
   // What each source *is*, as opposed to what it can do: the name a person knows it by, its icon,
   // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its

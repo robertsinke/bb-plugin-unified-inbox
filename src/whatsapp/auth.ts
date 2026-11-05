@@ -225,11 +225,20 @@ export function createFileAuthStore(dir = whatsAppAuthDir(), key?: Buffer): What
       paired = true;
     },
     async clear() {
-      await rm(credsPath, { force: true });
-      await rm(keysDir, { recursive: true, force: true });
+      await clearAccountState(dir);
       paired = false;
     },
   };
+}
+
+/**
+ * Forget a linked device without opening it. `createFileAuthStore` refuses to construct over a blob
+ * it cannot decrypt, and that refusal is exactly the state a re-pair has to be able to leave, so the
+ * removal of the two files is its own export rather than a method behind the decrypt.
+ */
+export async function clearAccountState(dir = whatsAppAuthDir()): Promise<void> {
+  await rm(join(dir, CREDS_FILE), { force: true });
+  await rm(join(dir, KEYS_DIR), { recursive: true, force: true });
 }
 
 function countFiles(dir: string): number {

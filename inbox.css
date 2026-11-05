@@ -59,3 +59,18 @@
 .ui-attachment-drop{display:grid;place-items:center;width:16px;height:16px;border:0;border-radius:50%;background:transparent;color:inherit;font-size:13px;line-height:1;opacity:.65}
 .ui-attachment-drop:hover{opacity:1;background:#8883}
 .ui-more{border:1px solid #8885;border-radius:8px;background:transparent;padding:7px 10px;margin-right:10px;font-weight:650;opacity:1}
+
+/* The pairing card (plan U4): a source state, not an error line. It sits above the list because a
+   stranger's first WhatsApp view is this card, and the code inside it has to be on screen before
+   anything is scanned. */
+.ui-pairing{display:grid;gap:10px;justify-items:start;border:1px solid #8885;border-radius:10px;padding:14px;margin:12px 0}
+.ui-pairing h3{font-size:15px;margin:0}
+.ui-pairing p{margin:0;line-height:1.55}
+.ui-pairing-note{opacity:.75;font-size:12px}
+.ui-pairing-hint{opacity:.6;font-size:12px}
+.ui-pairing-message{font-size:12px;opacity:.75}
+.ui-pairing-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:22px;font-weight:700;letter-spacing:.28em}
+.ui-pairing-phone{display:grid;gap:8px;justify-items:start}
+.ui-pairing-phone label{font-size:12px;opacity:.75}
+.ui-pairing-phone input{border:1px solid #8887;border-radius:8px;background:transparent;color:inherit;padding:8px;width:220px;font:inherit}
+.ui-qr{background:#fff;padding:8px;border-radius:8px}

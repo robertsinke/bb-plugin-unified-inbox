@@ -780,3 +780,70 @@ test('the rpc dep is the contract: a dead method name or a wrong input does not 
   // The same call the session makes still compiles, at the same seam.
   assert.deepEqual(await rpc.call('sync', { account: 'whatsapp' }), { items: [], updatedAt: 0 });
 });
+
+// U4 — the pairing card's half of the session. Two facts are the plan's: an unpaired source produces
+// no failure line, and a pairing in progress is watched on a clock of its own, because a QR rotates
+// and a payload that has died must not be on screen.
+
+test('an unpaired WhatsApp is a state the panel can draw, and not a failure it has to explain', async () => {
+  const rpc = fakeRpc({ whatsapp_pairing: () => ({ state: 'unpaired' }) });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  assert.deepEqual(session.snapshot().pairing, { state: 'unpaired' }, 'the card has something to draw before anyone acts');
+  assert.deepEqual(session.snapshot().errors, [], 'an unpaired source is not a refresh failure, so no line is added');
+  assert.equal((await session.snapshot()).status, '', 'and nothing is announced in the notice area either');
+});
+
+test('a pairing act asks the gateway once, and the answer replaces the card', async () => {
+  let answer: Record<string, unknown> = { state: 'unpaired' };
+  const rpc = fakeRpc({ whatsapp_pairing: () => answer });
+  const session = createInboxSession({ rpc, now: () => 0 });
+
+  answer = { state: 'connecting' };
+  await session.pairWhatsApp();
+  assert.deepEqual(session.snapshot().pairing, { state: 'connecting' }, 'the QR path is one call');
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'whatsapp_pairing').map(call => call.input), [{ op: 'pair' }]);
+
+  answer = { state: 'code', code: 'ABCD-1234' };
+  await session.codeWhatsApp('+31 6 1234 5678');
+  assert.deepEqual(session.snapshot().pairing, { state: 'code', code: 'ABCD-1234' });
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'whatsapp_pairing').at(-1)?.input, { op: 'request-code', phone: '+31 6 1234 5678' }, 'the fallback names the number it was asked for');
+});
+
+test('a re-pair replaces the device in one intent: forget it, then pair', async () => {
+  const asked: unknown[] = [];
+  const rpc = fakeRpc({ whatsapp_pairing: input => { asked.push(input); return { state: asked.length === 1 ? 'unpaired' : 'connecting' }; } });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await session.rePairWhatsApp();
+
+  assert.deepEqual(asked, [{ op: 'unpair' }, { op: 'pair' }], 'a logged-out device is forgotten before it is linked again');
+  assert.deepEqual(session.snapshot().pairing, { state: 'connecting' });
+});
+
+test('the card is polled only while a pairing is in progress', async () => {
+  let answer: Record<string, unknown> = { state: 'qr', qr: 'payload-1', expiresAt: 10_000 };
+  const rpc = fakeRpc({ whatsapp_pairing: () => answer });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  const reads = () => rpc.calls.filter(call => call.name === 'whatsapp_pairing' && call.input === null).length;
+  const afterStart = reads();
+
+  session.tick(1_000);
+  assert.equal(reads(), afterStart, 'a QR that has not rotated is not re-read every second');
+  session.tick(2_000);
+  await settle();
+  assert.ok(reads() > afterStart, 'but a pairing in progress is watched, because its payload rotates');
+
+  answer = { state: 'connected' };
+  session.tick(4_000);
+  await settle();
+  const settled = reads();
+  session.tick(4_002);
+  session.tick(10_000);
+  await settle();
+  assert.equal(reads(), settled, 'a paired source changes only when the owner acts, so polling stops');
+  assert.deepEqual(session.snapshot().pairing, { state: 'connected' });
+});
