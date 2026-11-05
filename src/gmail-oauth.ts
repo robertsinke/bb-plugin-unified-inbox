@@ -129,7 +129,9 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
     try {
       return JSON.parse(raw) as GmailCredentialRecord;
     } catch {
-      throw new Error(`Gmail credential for ${account} is not valid JSON: ${path}`);
+      // Same rule as the missing record below: name the fix, because a path is scrubbed before the
+      // panel shows it. A corrupt file is replaced, not repaired, so the fix is the import with --force.
+      throw new Error(`Gmail credential for ${account} is not valid JSON; run bb unified-inbox import-gws-account ${account} --force`);
     }
   }
 
