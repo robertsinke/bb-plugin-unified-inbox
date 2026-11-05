@@ -57,6 +57,18 @@ export type WhatsAppSocket = Partial<WhatsAppSendSocket> & {
   ev: { on(event: string, handler: SocketEventHandler): unknown };
   end(error?: Error): void;
   requestPairingCode?(phoneNumber: string, customPairingCode?: string): Promise<string>;
+  /** Asks the phone to upload media again when the CDN refuses stale bytes. */
+  updateMediaMessage?(message: WAMessage): Promise<WAMessage>;
+};
+
+/**
+ * The one socket call a media download needs. Media bytes themselves are fetched from the envelope
+ * the store already holds — `downloadMediaMessage` needs no socket — but an expired object is only
+ * replaced by asking the owner's phone to re-upload it, so a download without this is a download
+ * that fails permanently the first time WhatsApp expires anything.
+ */
+export type WhatsAppMediaSocket = {
+  updateMediaMessage(message: WAMessage): Promise<WAMessage>;
 };
 
 export type SocketFactory = (config: UserFacingSocketConfig) => WhatsAppSocket;
@@ -251,6 +263,14 @@ export class WhatsAppConnection {
     this.#lock?.release();
     this.#lock = undefined;
     this.#setState('disconnected');
+  }
+
+  /** The re-upload call, handed out only while the socket is open — a media download needs it. */
+  getMediaSocket(): WhatsAppMediaSocket | undefined {
+    if (this.#state !== 'connected') return undefined;
+    const socket = this.#socket;
+    if (!socket?.updateMediaMessage) return undefined;
+    return socket as WhatsAppMediaSocket;
   }
 
   /** The restricted send surface, handed out only while the socket is open. */
