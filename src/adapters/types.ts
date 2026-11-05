@@ -170,6 +170,13 @@ export interface WhatsAppTransport {
   /** The stored media descriptor, the cached bytes, or one download when the socket is open. */
   loadMedia(messageId: string): Promise<WhatsAppMediaAnswer>;
   /**
+   * The chat picture the store already knows, or nothing. Synchronous by design: the row is being
+   * drawn, so a list never waits on WhatsApp. A jid with no picture stored, or one fetched longer
+   * ago than the URL can be trusted, is asked of the open socket in the background — the next draw
+   * has it, and with no socket to ask the row keeps drawing initials.
+   */
+  avatarUrl(jid: string): string | undefined;
+  /**
    * What the panel can know about a message's media before it asks for bytes — including a
    * document's declared size, which is what lets a caller refuse an oversized file without
    * downloading it.
