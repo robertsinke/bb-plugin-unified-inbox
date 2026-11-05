@@ -34,12 +34,39 @@ export type DownloadMediaOptions = {
 
 export type DownloadMediaResult = { mediaRef: string; bytes: number };
 
-/** Long-like protobuf counts (`fileLength`) and plain numbers, as one number. */
-function toNumber(value: number | { toNumber(): number } | null | undefined): number | undefined {
+/**
+ * Long-like protobuf counts (`fileLength`) and plain numbers, as one number.
+ *
+ * Three shapes reach this function and all three happen: a `Long` while a message is live, a numeric
+ * **string** after a round trip through the store (`BufferJSON` writes a Long as its decimal string —
+ * which is what the real rows hold, and what the first version of this function crashed on at
+ * `r.toNumber is not a function`), and a bare number in tests. A count that cannot be read is
+ * `undefined` rather than a throw: a read must answer, and an unreadable size only costs the ceiling.
+ */
+function toNumber(value: unknown): number | undefined {
   if (value == null) return undefined;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  const n = value.toNumber();
-  return Number.isFinite(n) ? n : undefined;
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  if (typeof value === 'string') {
+    if (!/^\d+$/.test(value.trim())) return undefined;
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : undefined;
+  }
+  if (typeof value === 'object') {
+    const candidate = value as { toNumber?: () => number; low?: number; high?: number };
+    if (typeof candidate.toNumber === 'function') {
+      const n = candidate.toNumber();
+      return Number.isFinite(n) ? n : undefined;
+    }
+    // A plain `{low, high}` long, which is what survives some JSON paths.
+    if (typeof candidate.low === 'number' && typeof candidate.high === 'number') {
+      const n = candidate.high * 2 ** 32 + (candidate.low >>> 0);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    }
+  }
+  return undefined;
 }
 
 /**

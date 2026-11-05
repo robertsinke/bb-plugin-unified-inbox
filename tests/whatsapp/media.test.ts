@@ -127,6 +127,17 @@ test('a document answers its own name, size and type, and an unusable envelope a
   assert.deepEqual(documentFacts('{ not json'), undefined, 'a row whose envelope will not parse is a read without facts, not a crash');
 });
 
+// The shape a stored row actually holds, taken from a live `wa_messages.raw`: BufferJSON writes a Long
+// as its decimal string, so `toNumber` never saw a `Long` in production and threw
+// `r.toNumber is not a function` on every document read. The fixture above used a number and missed it.
+test('a document size survives the round trip through the store as a decimal string', () => {
+  const raw = JSON.stringify({ message: { documentMessage: { fileName: 'Invoice.pdf', mimetype: 'application/pdf', fileLength: '6813813' } } });
+  assert.deepEqual(documentFacts(raw), { filename: 'Invoice.pdf', size: 6813813, mime: 'application/pdf' });
+  // A long that arrives as {low, high}, and one that is nonsense: a count or nothing, never a throw.
+  assert.equal(documentFacts(JSON.stringify({ message: { documentMessage: { fileName: 'a.bin', fileLength: { low: 1024, high: 0 } } } }))?.size, 1024);
+  assert.equal(documentFacts(JSON.stringify({ message: { documentMessage: { fileName: 'b.bin', fileLength: 'not a count' } } }))?.size, undefined);
+});
+
 test('a document is cached as the file it was sent as, and a strange name still stays inside media/', async () => {
   const db = new Database(':memory:');
   const store = createWhatsAppStore(db);
