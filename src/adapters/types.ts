@@ -25,6 +25,83 @@ export type Account = (typeof accounts)[number];
 /** Gmail accounts are the only ones with a `send_gmail` draft today. */
 export type GmailAccount = (typeof gmailAccounts)[number];
 
+/** How much of a thread or message Gmail returns: everything, headers only, or ids only. */
+export type GmailFormat = 'full' | 'metadata' | 'minimal';
+
+/** The caller's mailbox; the plugin only ever reads or sends as the account it holds. */
+export interface GmailProfile {
+  emailAddress?: string;
+  messagesTotal?: number;
+  threadsTotal?: number;
+  historyId?: string;
+}
+
+/** A thread listing page. `nextPageToken` is absent on the last page. */
+export interface GmailThreadPage {
+  threads?: { id?: string; historyId?: string; snippet?: string }[];
+  nextPageToken?: string;
+  resultSizeEstimate?: number;
+}
+
+/** A thread as Gmail returns it; the adapter models `messages` and `payload`. */
+export interface GmailThread {
+  id?: string;
+  historyId?: string;
+  messages?: any[];
+}
+
+/** A message as Gmail returns it; the adapter models `payload` and `labelIds`. */
+export interface GmailMessage {
+  id?: string;
+  threadId?: string;
+  labelIds?: string[];
+  snippet?: string;
+  internalDate?: string;
+  payload?: any;
+}
+
+/** What a send reports back: the message it created, which is the only proof of delivery. */
+export interface GmailSentMessage {
+  id?: string;
+  threadId?: string;
+  labelIds?: string[];
+}
+
+export interface GmailReadInput {
+  id: string;
+  format?: GmailFormat;
+  /** Only sent for a `metadata` read; defaulted to the headers a cached row needs. */
+  metadataHeaders?: string[];
+}
+
+/**
+ * The Gmail transport seam (plan unit U3): one method per endpoint `src/adapters/gmail.ts` asks
+ * for, so the plugin can swap what answers behind it without the adapter learning a second
+ * vocabulary. Both implementations — the argv runner in `src/adapters/gws.ts` and the plugin's own
+ * HTTPS client in `src/gmail-client.ts` — satisfy this one contract.
+ *
+ * Seven calls, eight call sites: `attachmentGet` serves both the HTML-body fetch and the
+ * attachment fetch. A rejection is the raw cause; the adapter normalizes it through
+ * `src/adapters/provider-error.ts`.
+ */
+export interface GmailClient {
+  profile(): Promise<GmailProfile>;
+  threadsList(input?: { labelIds?: string[]; maxResults?: number; pageToken?: string }): Promise<GmailThreadPage>;
+  threadGet(input: GmailReadInput): Promise<GmailThread>;
+  threadsModify(input: { id: string; addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<GmailThread>;
+  messageGet(input: GmailReadInput): Promise<GmailMessage>;
+  /** The attachment's bytes, base64url decoded. */
+  attachmentGet(input: { messageId: string; id: string }): Promise<Uint8Array>;
+  sendRaw(input: { raw: Uint8Array; threadId?: string }): Promise<GmailSentMessage>;
+}
+
+/**
+ * What the registry hands the Gmail adapters. Which implementation answers is a wiring question
+ * (`src/adapters/index.ts`, `server.ts`), and so is which account already has a credential — so the
+ * dependency is asked per account rather than fixed for both.
+ */
+export type GmailTransport = (account: GmailAccount) => GmailClient;
+
 /**
  * Conversation summary as cached and listed (rpcContract `list` item).
  * The optional fields mirror the fields the shipped item schema already

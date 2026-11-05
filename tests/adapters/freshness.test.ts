@@ -15,9 +15,9 @@ for (const account of ['gmail-personal', 'gmail-business'] as const) {
 
   test(`${account}: a current list cursor cannot validate a stale body; failed open declares fallback`, async () => {
     let fail = false;
-    const h = harness({ gmailCall: (_account, args) => {
+    const h = harness({ gmailCall: (_account, call) => {
       if (fail) throw new Error('offline');
-      assert.equal(args[1], 'threads');
+      assert.equal(call.method, 'threadGet');
       return { id: 't', messages: [{ id: 'new', internalDate: '2', snippet: 'New body', payload: { headers: [], mimeType: 'text/plain', body: { data: Buffer.from('New body').toString('base64url') } } }] };
     } });
     try {
