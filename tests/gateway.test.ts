@@ -29,6 +29,9 @@ interface FixtureOptions {
   syncFailure?: { account: Account; message: string };
   /** What the pairing module answers; the gateway only forwards, so a recorder is enough. */
   pairing?: GatewayDeps['pairing'];
+  /** What the index ranks for a query, and the rows only it holds. */
+  ranked?: { id: string; score: number }[];
+  indexRows?: Conversation[];
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
@@ -67,9 +70,10 @@ function fixture(options: FixtureOptions = {}) {
     clear: () => { cacheRows.length = 0; },
   };
   const search: GatewayDeps['search'] = {
-    search: () => [],
+    search: async () => options.ranked ?? [],
     status: () => ({ size: 0, updatedAt: null, ready: true }),
-    warm() {},
+    warm: async () => {},
+    row: (account, id) => options.indexRows?.find(row => row.account === account && row.id === id),
   };
   const driver: GatewayDriver = {
     openInLinkedInProfile: async () => {},
@@ -147,6 +151,21 @@ test('a call with nothing to say answers the same for null, empty and missing', 
   assert.deepEqual(await f.gateway.capabilities(null), await f.gateway.capabilities({}), 'capabilities reads both shapes alike');
   assert.deepEqual(await f.gateway.send_audit(null), { rows: [] }, 'the audit answers its default page for a null call');
   assert.deepEqual(await f.gateway.send_audit({}), { rows: [] }, 'and for an empty one');
+});
+
+test('a search answers with the row it matched, whether the cache holds it or only the index does', async () => {
+  const listed: Conversation = { account: 'whatsapp', id: 'chat-1', title: 'Ada', preview: 'see you', date: NOW, unread: true };
+  const hidden: Conversation = { account: 'whatsapp', id: 'chat-99', title: 'Grace Hopper', preview: 'the lighthouse keeper', date: NOW - 86_400_000, unread: false };
+  const f = fixture({
+    ranked: [{ id: 'whatsapp\u0000chat-99', score: 4 }, { id: 'whatsapp\u0000chat-1', score: 2 }],
+    indexRows: [hidden],
+  });
+  f.cacheRows.push(listed);
+
+  const answer = await f.gateway.search({ query: 'lighthouse' });
+  assert.deepEqual(answer.ids.map(row => [row.account, row.id]), [['whatsapp', 'chat-99'], ['whatsapp', 'chat-1']], 'the ranking keeps its shape');
+  assert.deepEqual(answer.items.map(row => [row.id, row.title]), [['chat-99', 'Grace Hopper'], ['chat-1', 'Ada']], 'and every id comes with the row to draw it');
+  assert.equal(rpcContract.search.output.safeParse(answer).success, true, 'the wire carries both');
 });
 
 test('an older page asks the source for the number of rows that source declares', async () => {

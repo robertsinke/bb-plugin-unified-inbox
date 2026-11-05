@@ -89,7 +89,12 @@ export interface InboxSnapshot {
   opening: boolean;
   filter: InboxFilter;
   query: string;
-  hits: { account: Account; id: string }[] | null;
+  /**
+   * The rows the search matched, in rank order, or null when no search is running. Rows rather than
+   * ids: a hit can be a conversation this list never loaded, and there is nothing else to draw it
+   * from.
+   */
+  hits: InboxItem[] | null;
   refreshedAt: Partial<Record<Account, number>>;
   refreshingInbox: boolean;
   /** Some source told the panel it still holds rows older than the ones on screen. */
@@ -869,9 +874,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       } else {
         const seq = ++searchRequest;
         void deps.rpc.call('search', { query })
-          .then((result: { ids: { account: Account; id: string }[] }) => {
+          .then((result: { items: InboxItem[] }) => {
             if (seq !== searchRequest) return;
-            state.hits = result.ids;
+            state.hits = result.items;
             notify();
           })
           .catch(() => {
