@@ -68,12 +68,19 @@ export function createSocketFactory(): RecordedSocketFactory {
   };
 }
 
-/** The auth store the connection only needs as a shape: no disk, no crypto. */
+/**
+ * The auth store the connection only needs as a shape: no disk, no crypto. `registered` in these tests
+ * means a linked device, which is the device identity — the flag of that name is not set by rc13's QR
+ * flow, so a fake that carried only the flag would test a device that does not exist.
+ */
 export function fakeAuthStore(options: { registered?: boolean } = {}): WhatsAppAuthStore {
   return {
     hasCreds: () => options.registered === true,
     state: {
-      creds: { registered: options.registered === true },
+      creds: {
+        registered: options.registered === true,
+        ...(options.registered === true ? { me: { id: '31600000222:12@s.whatsapp.net' } } : {}),
+      },
       keys: {
         get: async () => ({}),
         set: async () => {},

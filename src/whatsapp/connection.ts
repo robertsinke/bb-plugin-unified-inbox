@@ -218,12 +218,14 @@ export class WhatsAppConnection {
   }
 
   /**
-   * Whether these credentials are a linked device rather than a pairing in progress. Pairing writes
-   * `creds` before the phone has confirmed, so the file's existence cannot answer this: only the
-   * flag WhatsApp set on it can, and only this module holds the store that reads it.
+   * Whether these credentials are a linked device rather than a pairing in progress: the device
+   * identity WhatsApp assigned us. The file's existence cannot answer it, because pairing writes
+   * `creds` before the phone has confirmed, and `creds.registered` cannot either — rc13 sets that flag
+   * only on its pair-device path, so a device paired by QR can carry a live identity with the flag
+   * still false (`docs/bugs/2026-11-05-a-dead-socket-was-never-reopened.md`).
    */
   registered(): boolean {
-    return this.#authStore?.state.creds.registered === true;
+    return Boolean(this.#authStore?.state.creds.me?.id);
   }
 
   /**

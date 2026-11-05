@@ -86,9 +86,9 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
       failure = undefined;
       watch(opened);
       armIdle(opened);
-      note('info', opened.registered()
-        ? 'WhatsApp socket opened for a linked device'
-        : 'WhatsApp socket opened, waiting for a pairing');
+      // Only that a socket exists: whether it reached WhatsApp is the socket's own event, and the
+      // credentials of a linked device are already registered before the handshake finishes.
+      note('info', 'WhatsApp socket opened');
       return opened;
     })().finally(() => { opening = undefined; });
     return opening;
@@ -110,6 +110,11 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
    */
   function watch(opened: WhatsAppConnection): void {
     opened.onEvent(event => {
+      if (event.type === 'connection' && event.state === 'connected') {
+        note('info', opened.registered()
+          ? 'WhatsApp socket is connected as a linked device'
+          : 'WhatsApp socket is connected, waiting for a pairing QR');
+      }
       if (event.type === 'logged-out') {
         note('warn', 'WhatsApp reported this device logged out; pairing is needed again');
       }
