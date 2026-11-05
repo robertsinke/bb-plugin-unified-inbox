@@ -70,6 +70,19 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     };
   }
 
+  /**
+   * The media facts of one stored row: the descriptor the row itself carries, plus — for a document —
+   * the name, size and type that exist only inside its envelope. The unwrapper is the media module's
+   * (the one that already unpacks a document to download it), so it is loaded the same lazy way and
+   * not at all for the kinds this module writes as files of a known type.
+   */
+  async function factsOf(row: Message): Promise<ReturnType<typeof whatsAppMedia>> {
+    const facts = whatsAppMedia(row);
+    if (!facts || row.type !== 'document') return facts;
+    const { documentFacts } = await import('./media.ts');
+    return whatsAppMedia(row, documentFacts(row.raw));
+  }
+
   return {
     async listChats({ cursor, limit }) {
       const offset = Number.parseInt(cursor ?? '0', 10) || 0;
@@ -91,14 +104,8 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     },
 
     async openChat({ id, limit }) {
-      const rows = store.listRecentMessages(id, limit);
-      // A document's name, size and type exist only inside its envelope, so the module that already
-      // unwraps one to download it is asked once per open — and only when a document is on screen.
-      const documents = rows.some(row => row.type === 'document' && row.raw)
-        ? (await import('./media.ts')).documentFacts
-        : undefined;
-      return rows.map((message): WhatsAppMessageRow => {
-        const media = whatsAppMedia(message, documents?.(message.raw));
+      const rows = await Promise.all(store.listRecentMessages(id, limit).map(async (message): Promise<WhatsAppMessageRow> => {
+        const media = await factsOf(message);
         return {
           id: message.id,
           chatJid: message.chat_jid,
@@ -110,20 +117,29 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           edited: message.edited_at != null,
           ...(media ? { media } : {}),
         };
-      });
+      }));
+      return rows;
+    },
+
+    async mediaFacts(messageId) {
+      const stored = store.getMessage(messageId);
+      return stored ? await factsOf(stored) : undefined;
+    },
+
+    async discardMedia(messageId) {
+      const media = await import('./media.ts');
+      media.discardCachedMedia(store, messageId, options.dataDir ?? media.whatsAppDataDir());
     },
 
     async loadMedia(messageId): Promise<WhatsAppMediaAnswer> {
       const stored = store.getMessage(messageId);
       if (!stored) return {};
-      const facts = whatsAppMedia(stored);
-      if (!facts) return {};
+      const info = await factsOf(stored);
+      if (!info) return {};
       // Baileys is 7.9 MB of bundle and most starts never serve a picture, so the media module — the
       // one that owns where bytes live — loads on the first media read (the reason `server.ts`
       // imports the connection lazily, and `store.ts` its codec).
       const media = await import('./media.ts');
-      const documents = stored.type === 'document' ? media.documentFacts(stored.raw) : undefined;
-      const info = whatsAppMedia(stored, documents) ?? facts;
       const dataDir = options.dataDir ?? media.whatsAppDataDir();
 
       // Bytes already on disk answer with no socket at all, which is the point of caching them.
@@ -152,7 +168,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           reuploadRequest: message => socket.updateMediaMessage(message),
         });
         const bytes = media.readCachedMedia(dataDir, mediaRef);
-        const served = whatsAppMedia(store.getMessage(messageId) ?? stored, documents) ?? info;
+        const served = await factsOf(store.getMessage(messageId) ?? stored) ?? info;
         const extensionMime = media.mediaMime(mediaRef);
         return bytes
           ? { info: { ...served, ...(extensionMime ? { mime: extensionMime } : {}) }, bytes }
@@ -160,7 +176,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       } catch {
         // The downloader persisted why it failed, so the stored row is the report: `available`
         // already says whether a later open may try again. Nothing is thrown from this seam.
-        return { info: whatsAppMedia(store.getMessage(messageId) ?? stored, documents) ?? info };
+        return { info: (await factsOf(store.getMessage(messageId) ?? stored)) ?? info };
       }
     },
 

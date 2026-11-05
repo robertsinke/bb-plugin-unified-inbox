@@ -164,6 +164,14 @@ export interface WhatsAppTransport {
   openChat(input: { id: string; limit: number }): Promise<WhatsAppMessageRow[]>;
   /** The stored media descriptor, the cached bytes, or one download when the socket is open. */
   loadMedia(messageId: string): Promise<WhatsAppMediaAnswer>;
+  /**
+   * What the panel can know about a message's media before it asks for bytes — including a
+   * document's declared size, which is what lets a caller refuse an oversized file without
+   * downloading it.
+   */
+  mediaFacts(messageId: string): Promise<WhatsAppMedia | undefined>;
+  /** Take back cached bytes that will never be shown, so a refusal leaves no file behind. */
+  discardMedia(messageId: string): Promise<void>;
   /** Records where reading stopped; a live socket also tells WhatsApp. */
   markRead(input: { id: string; messageId?: string }): Promise<void>;
   /** Sends text over the socket. Rejects when there is no socket to send over. */

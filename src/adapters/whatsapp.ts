@@ -12,7 +12,7 @@ import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
-import { IMAGE_LIMIT, attachmentPayload, mediaDataUrl, VIDEO_LIMIT } from './media.ts';
+import { IMAGE_LIMIT, attachmentPayload, mediaDataUrl, ATTACHMENT_LIMIT, VIDEO_LIMIT } from './media.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -153,22 +153,44 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     return { messages };
   }
 
+  /** The ceiling a request is held to: what the panel will draw, or what a saved file may carry. */
+  function ceilingFor(kind: NonNullable<Message['media']>['kind']): number {
+    if (kind === 'document') return ATTACHMENT_LIMIT;
+    return kind === 'video' ? VIDEO_LIMIT : IMAGE_LIMIT;
+  }
+
+  function tooLarge(kind: NonNullable<Message['media']>['kind']): Error {
+    if (kind === 'document') return new Error('This attachment is too large to open here.');
+    return new Error(kind === 'video' ? 'This video is too large to play here.' : 'This image is too large to show here.');
+  }
+
   /**
    * The bytes behind one message: a picture or a video is bounded by what the frame will draw, a
    * document by what a download may carry, and a document is named by its own filename so the saved
    * file opens as the file it was sent as.
+   *
+   * The declared size is refused before the download, because a file nobody will show must not be
+   * fetched at all — a sender chooses its size, and `{dataDir}/media` is only ever emptied by hand.
+   * The declared length is a hint and not a promise, so what lands is checked too, and bytes this
+   * panel will refuse are taken back off the disk rather than left as a cache entry nothing reads.
    */
   async function mediaPayload(messageId: string): Promise<MediaPayload> {
+    const facts = await transport.mediaFacts(messageId);
+    if (!facts) throw new Error('This message has no media.');
+    if (!facts.available) throw new Error('This media is no longer available.');
+    const limit = ceilingFor(facts.kind);
+    if (facts.size !== undefined && facts.size > limit) throw tooLarge(facts.kind);
+
     const { info, bytes } = await transport.loadMedia(messageId);
     if (!info) throw new Error('This message has no media.');
     if (!info.available) throw new Error('This media is no longer available.');
     if (!info.cached || !bytes) throw new Error('This media could not be loaded.');
+    if (bytes.byteLength > limit) {
+      await transport.discardMedia(messageId);
+      throw tooLarge(facts.kind);
+    }
     if (info.kind === 'document') {
       return attachmentPayload(bytes, { mime: info.mime, filename: info.filename || 'WhatsApp document' });
-    }
-    const limit = info.kind === 'video' ? VIDEO_LIMIT : IMAGE_LIMIT;
-    if (bytes.byteLength > limit) {
-      throw new Error(info.kind === 'video' ? 'This video is too large to play here.' : 'This image is too large to show here.');
     }
     if (!info.mime) throw new Error('This media could not be loaded.');
     return {
