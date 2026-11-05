@@ -13,11 +13,13 @@
 // Lifted from WhatsAgent's `server/store/{messages,chats,contacts,identity}.ts`, with three
 // deliberate differences:
 //   - columns that served WhatsAgent's own UI and nothing here are gone: `channel` (this database is
-//     WhatsApp only), `chats.unread/muted/archived/agent_state` (WhatsApp's own counter, mute and
-//     archive are not things this plugin shows) and `contacts.avatar_url` (no reader — the plugin
-//     shows initials avatars). `chats.last_read_msg_id` comes back in U3: it is the only place a
-//     read mark can live, because the panel's `inbox_unread_mark` records a deliberate mark, not
-//     where reading stopped, so unread would otherwise have no source at all.
+//     WhatsApp only) and `chats.unread/muted/archived/agent_state` (WhatsApp's own counter, mute and
+//     archive are not things this plugin shows). `contacts.avatar_url` is gone as a contact column but
+//     comes back as its own table: a picture URL expires, so what the plugin needs to keep is an
+//     answer *and* when it was learned (`wa_avatars`, INBOX-29). `chats.last_read_msg_id` comes back
+//     in U3: it is the only place a read mark can live, because the panel's `inbox_unread_mark`
+//     records a deliberate mark, not where reading stopped, so unread would otherwise have no source
+//     at all.
 //
 // The cursor is a message id, not a timestamp: WhatsApp message ids are not ordered, so "read up to
 // here" has to name a row. It moves forward only (`markRead`), and a chat with no cursor counts no
@@ -28,7 +30,7 @@
 //
 // Schema shape. The plugin has no migration runner: `CREATE TABLE IF NOT EXISTS` on every start is
 // the idiom `src/inbox-cache.ts` already uses, and it is what an existing install sees the first time
-// this code runs — its cached rows are untouched and four empty `wa_*` tables appear. A future column
+// this code runs — its cached rows are untouched and five empty `wa_*` tables appear. A future column
 // follows the same module's rule rather than a second mechanism: `PRAGMA table_info(<table>)` finds
 // the column missing and `ALTER TABLE <table> ADD COLUMN …` adds it, in this constructor, once.
 import type Database from 'better-sqlite3';
@@ -101,6 +103,22 @@ export type ChatInput = {
   name?: string | null;
   kind: ChatKind;
   last_msg_at?: number | null;
+};
+
+/**
+ * Where a chat's picture stands, in the same vocabulary as media: `ready` carries the URL, `failed`
+ * means asked and answered "none" — a normal answer, kept so a redraw does not ask again. A row that
+ * does not exist has never been asked, which is the placeholder state; there is no third value to
+ * keep in step.
+ */
+export type AvatarState = 'ready' | 'failed';
+
+export type Avatar = {
+  jid: string;
+  url: string | null;
+  state: AvatarState;
+  /** Unix milliseconds when this answer was learned; the URL itself expires, so it is re-asked later. */
+  fetched_at: number | null;
 };
 
 export type Contact = {
@@ -197,6 +215,12 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS wa_contacts_lid_jid ON wa_contacts(lid_jid);
   CREATE INDEX IF NOT EXISTS wa_contacts_phone_jid ON wa_contacts(phone_jid);
+  CREATE TABLE IF NOT EXISTS wa_avatars (
+    jid TEXT PRIMARY KEY NOT NULL,
+    url TEXT,
+    state TEXT NOT NULL CHECK (state IN ('ready', 'failed')),
+    fetched_at INTEGER
+  );
   CREATE TABLE IF NOT EXISTS wa_message_reactions (
     chat_jid TEXT NOT NULL REFERENCES wa_chats(jid),
     target_msg_id TEXT NOT NULL,
@@ -332,6 +356,16 @@ export function createWhatsAppStore(db: Database.Database) {
        phone_jid = COALESCE(excluded.phone_jid, wa_contacts.phone_jid)`,
   );
   const readContact = db.prepare('SELECT * FROM wa_contacts WHERE jid = ?');
+  const readAvatar = db.prepare('SELECT * FROM wa_avatars WHERE jid = ?');
+  const insertAvatar = db.prepare(
+    `INSERT INTO wa_avatars (jid, url, state, fetched_at)
+     VALUES (@jid, @url, @state, @fetched_at)
+     ON CONFLICT(jid) DO UPDATE SET
+       url = excluded.url,
+       state = excluded.state,
+       fetched_at = excluded.fetched_at`,
+  );
+  const dropAvatar = db.prepare('DELETE FROM wa_avatars WHERE jid = ?');
   const readPhoneAlias = db.prepare(
     `SELECT phone_jid FROM wa_contacts
        WHERE (jid = ? OR lid_jid = ?)
@@ -382,6 +416,13 @@ export function createWhatsAppStore(db: Database.Database) {
       // The same actor may have reacted under both identities; the newer verdict wins.
       moveReactions.run(to, from);
       dropReactions.run(from);
+      // A picture belongs to the person, so the surviving identity keeps the fresher answer and the
+      // dead jid is not asked about again.
+      const avatars = [readAvatar.get(to), readAvatar.get(from)] as Array<Avatar | undefined>;
+      const kept = avatars.filter((avatar): avatar is Avatar => Boolean(avatar))
+        .sort((a, b) => (b.fetched_at ?? 0) - (a.fetched_at ?? 0))[0];
+      dropAvatar.run(from);
+      if (kept) insertAvatar.run({ ...kept, jid: to });
       dropChat.run(from);
     })();
     return true;
@@ -489,6 +530,16 @@ export function createWhatsAppStore(db: Database.Database) {
       return readContact.get(jid) as Contact | undefined;
     },
     /**
+     * What is known about a person's or a group's picture. Absent means never asked; `failed` means
+     * asked and answered "none", which is a fact worth keeping but not a failure.
+     */
+    getAvatar(jid: string): Avatar | undefined {
+      return readAvatar.get(jid) as Avatar | undefined;
+    },
+    setAvatar(avatar: Avatar): void {
+      insertAvatar.run(avatar);
+    },
+    /**
      * Idempotent: the same id replaces its row. `media_ref` is preserved on conflict and the media
      * state is not touched at all, so re-ingesting history never resets a cached picture.
      */
@@ -587,6 +638,7 @@ export function createWhatsAppStore(db: Database.Database) {
         db.prepare('DELETE FROM wa_message_reactions').run();
         db.prepare('DELETE FROM wa_chats').run();
         db.prepare('DELETE FROM wa_contacts').run();
+        db.prepare('DELETE FROM wa_avatars').run();
       })();
     },
   };

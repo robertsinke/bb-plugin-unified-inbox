@@ -97,6 +97,44 @@ test('WhatsApp: list is newest-first from the store, with a group preview that n
   }
 });
 
+test('WhatsApp: a row carries a stored picture, and only from a host the panel may load', async () => {
+  // INBOX-29: the adapter is where a picture becomes the panel's `avatarUrl`, so the allowlist is
+  // applied here. A stored URL never waits for anything — `decorate` is drawn from a store read, and
+  // the ask that fills that store runs behind it (`src/whatsapp/avatars.ts`).
+  const PICTURE = 'https://pps.whatsapp.net/v/t61.24694-24/1_n.jpg?oe=68a1b2c3';
+  const row = { account: 'whatsapp' as const, id: WHATSAPP_ID, title: 'Ada', preview: 'See you', date: 1_700_000_000_000, unread: false };
+
+  const withPicture = harness({ whatsapp: { avatarUrl: () => PICTURE } });
+  try {
+    assert.equal(withPicture.registry.whatsapp.decorate?.(row).avatarUrl, PICTURE);
+
+    // A group draws its own picture where its mosaic of initials would otherwise stand.
+    withPicture.cache.saveThread('whatsapp', WHATSAPP_GROUP_ID, [{ sender: 'Grace', text: 'Ship it', date: 1, fromMe: false }]);
+    const group = withPicture.registry.whatsapp.decorate?.({ ...row, id: WHATSAPP_GROUP_ID, title: 'Builders' });
+    assert.equal(group?.avatarUrl, PICTURE);
+    assert.deepEqual(group?.participants, ['Grace'], 'the mosaic stays as the fallback for a picture that fails to load');
+  } finally {
+    withPicture.close();
+  }
+
+  const foreign = harness({ whatsapp: { avatarUrl: () => 'https://evil.example/face.jpg' } });
+  try {
+    const decorated = foreign.registry.whatsapp.decorate?.(row);
+    assert.equal(decorated?.avatarUrl, undefined, 'a URL from any other host is dropped, so the row draws initials');
+    assert.deepEqual(decorated, row, 'and the row is otherwise exactly what it was');
+  } finally {
+    foreign.close();
+  }
+
+  // No picture, no stored answer: the row is untouched and the panel draws initials.
+  const none = harness();
+  try {
+    assert.deepEqual(none.registry.whatsapp.decorate?.(row), row);
+  } finally {
+    none.close();
+  }
+});
+
 test('WhatsApp: open returns stored messages oldest-first, and an empty thread is not an error', async () => {
   const opened: Array<{ id: string; limit: number }> = [];
   const rows = [
