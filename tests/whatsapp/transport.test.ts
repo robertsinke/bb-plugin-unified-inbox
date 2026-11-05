@@ -5,7 +5,7 @@
 // newest-first and pages by offset, unread counts only messages newer than the read cursor, history
 // that was synced is not news, and a send with no socket refuses rather than pretending.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -488,6 +488,52 @@ test('a document is named and sized from its envelope, and its bytes are saved u
     const offline = createWhatsAppTransport({ store, dataDir, connection: down });
     const second = await offline.loadMedia('DOC1');
     assert.deepEqual([second.info?.mime, second.info?.filename], ['application/pdf', 'Contract v2.pdf']);
+  } finally {
+    db.close();
+  }
+});
+
+test('the facts of a message answer before its bytes, and bytes nobody will show are taken back', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'wa-facts-'));
+  const { db, store } = fixture();
+  try {
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [{
+        key: { id: 'DOC1', remoteJid: DM, fromMe: false },
+        messageTimestamp: 2_000,
+        message: { documentMessage: { fileName: 'Deck.pdf', mimetype: 'application/pdf', fileLength: 9_000_000 } },
+      } as unknown as WAMessage],
+    });
+    const offline = createWhatsAppTransport({ store, dataDir, connection: down });
+
+    assert.deepEqual(await offline.mediaFacts('DOC1'), {
+      messageId: 'DOC1',
+      kind: 'document',
+      cached: false,
+      available: true,
+      filename: 'Deck.pdf',
+      size: 9_000_000,
+      mime: 'application/pdf',
+    }, 'the declared size is what lets a caller refuse a file without fetching it');
+    assert.equal(await offline.mediaFacts('no-such-message'), undefined);
+
+    const online = createWhatsAppTransport({
+      store,
+      dataDir,
+      connection: withReupload(async msg => msg),
+      download: async () => Buffer.from('pdf bytes'),
+    });
+    await online.loadMedia('DOC1');
+    const ref = store.getMessage('DOC1')?.media_ref ?? '';
+    assert.ok(existsSync(join(dataDir, ref)), 'the download wrote the file');
+
+    await online.discardMedia('DOC1');
+    assert.equal(existsSync(join(dataDir, ref)), false, 'a discarded entry takes the file with it');
+    assert.equal(store.getMessage('DOC1')?.media_ref, null, 'and the row no longer claims bytes');
+    assert.equal(store.getMessage('DOC1')?.media_state, 'placeholder');
+
+    await online.discardMedia('no-such-message');
   } finally {
     db.close();
   }

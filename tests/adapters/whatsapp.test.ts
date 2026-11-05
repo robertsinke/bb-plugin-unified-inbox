@@ -41,7 +41,7 @@ test('WhatsApp: declared capabilities match what action and media accept', async
     // media: true — but nothing is fetched from WhatsApp, so an uncached row says so.
     h.calls.length = 0;
     await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no media/);
-    assert.deepEqual(h.calls, ['whatsapp:loadMedia']);
+    assert.deepEqual(h.calls, ['whatsapp:mediaFacts'], 'a message with no media is answered before any bytes are asked for');
 
     // attachments: false — an attachment-shaped request is refused without a transport call.
     await refused(h.calls, () => adapter.media({ kind: 'attachment', id: 'm1', filename: 'photo.png' }), /no attachments/);
@@ -129,17 +129,36 @@ test('WhatsApp: open returns stored messages oldest-first, and an empty thread i
   }
 });
 
-test('WhatsApp: media is served from cached bytes, and every miss is reported without throwing at the panel', async () => {
+test('WhatsApp: media is served from cached bytes, refused from the declared size, and every miss is reported without throwing at the panel', async () => {
+  const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const facts: Record<string, unknown> = {
+    cached: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png' },
+    unavailable: { messageId: 'm1', kind: 'image', cached: false, available: false },
+    gone: { messageId: 'm1', kind: 'image', cached: false, available: true },
+    // The envelope declares more than a frame will draw: refused without fetching a byte.
+    huge: { messageId: 'm1', kind: 'video', cached: false, available: true, size: 30 * 1024 * 1024 + 1 },
+    // The envelope declares little and 10 MB arrives: refused, and the bytes are taken back off disk.
+    lying: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png', size: 10 },
+  };
   const answers: Record<string, unknown> = {
     cached: { info: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png' }, bytes: PNG_BYTES },
-    unavailable: { info: { messageId: 'm1', kind: 'image', cached: false, available: false } },
+    // A row that says available and served, with no bytes: the file the ref named is gone.
     gone: { info: { messageId: 'm1', kind: 'image', cached: false, available: true } },
-    huge: { info: { messageId: 'm1', kind: 'video', cached: true, available: true, mime: 'video/mp4' }, bytes: new Uint8Array(30 * 1024 * 1024 + 1) },
+    lying: { info: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png', size: 10 }, bytes: new Uint8Array(6 * 1024 * 1024 + 1) },
   };
+  const discarded: string[] = [];
+  const downloaded: string[] = [];
   const h = harness({
     whatsapp: {
+      async mediaFacts(messageId) {
+        return facts[messageId] as never;
+      },
       async loadMedia(messageId) {
-        return answers[messageId] as never;
+        downloaded.push(messageId);
+        return (answers[messageId] ?? {}) as never;
+      },
+      async discardMedia(messageId) {
+        discarded.push(messageId);
       },
     },
   });
@@ -150,9 +169,16 @@ test('WhatsApp: media is served from cached bytes, and every miss is reported wi
     assert.equal(image.mime, 'image/png');
     assert.equal(image.dataUrl, `data:image/png;base64,${Buffer.from(PNG_BYTES).toString('base64')}`);
 
+    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to play/);
+    assert.deepEqual(downloaded, ['cached'], 'a file the panel will not draw is never downloaded');
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'lying', index: 0 }), /too large to show/);
+    assert.deepEqual(downloaded, ['cached', 'lying'], 'a declared length is a hint, so what lands is checked');
+    assert.deepEqual(discarded, ['lying'], 'and the bytes that landed over the ceiling are taken back');
+
     await assert.rejects(adapter.media({ kind: 'message', id: 'unavailable', index: 0 }), /no longer available/);
     await assert.rejects(adapter.media({ kind: 'message', id: 'gone', index: 0 }), /could not be loaded/);
-    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to play/);
+    assert.deepEqual(discarded, ['lying'], 'a miss is a report, not an eviction');
   } finally {
     h.close();
   }
@@ -270,18 +296,33 @@ test('WhatsApp: no message the owner reads names the program this source used to
   }
 });
 
-test('WhatsApp: a document leaves as a named file under the attachment ceiling, never as a drawn frame', async () => {
+test('WhatsApp: an oversized document is refused before it is downloaded, and a document that fits saves under its own name', async () => {
   const pdf = Buffer.from('%PDF-1.4');
-  const answers: Record<string, unknown> = {
-    doc: { info: { messageId: 'd1', kind: 'document', cached: true, available: true, mime: 'application/pdf', filename: 'Contract v2.pdf' }, bytes: pdf },
-    unnamed: { info: { messageId: 'd2', kind: 'document', cached: true, available: true }, bytes: pdf },
-    huge: { info: { messageId: 'd3', kind: 'document', cached: true, available: true, mime: 'application/zip', filename: 'dump.zip' }, bytes: new Uint8Array(5 * 1024 * 1024 + 1) },
-    expired: { info: { messageId: 'd4', kind: 'document', cached: false, available: false } },
+  const facts: Record<string, Record<string, unknown>> = {
+    doc: { messageId: 'd1', kind: 'document', cached: false, available: true, mime: 'application/pdf', filename: 'Contract v2.pdf', size: pdf.byteLength },
+    unnamed: { messageId: 'd2', kind: 'document', cached: false, available: true },
+    huge: { messageId: 'd3', kind: 'document', cached: false, available: true, mime: 'application/zip', filename: 'dump.zip', size: 5 * 1024 * 1024 + 1 },
+    lying: { messageId: 'd5', kind: 'document', cached: false, available: true, mime: 'application/zip', filename: 'dump.zip', size: 10 },
+    expired: { messageId: 'd4', kind: 'document', cached: false, available: false },
   };
+  const answers: Record<string, Record<string, unknown>> = {
+    doc: { info: { ...facts.doc, cached: true }, bytes: pdf },
+    unnamed: { info: { ...facts.unnamed, cached: true }, bytes: pdf },
+    lying: { info: { ...facts.lying, cached: true }, bytes: new Uint8Array(5 * 1024 * 1024 + 1) },
+  };
+  const discarded: string[] = [];
+  const downloaded: string[] = [];
   const h = harness({
     whatsapp: {
+      async mediaFacts(messageId) {
+        return facts[messageId] as never;
+      },
       async loadMedia(messageId) {
-        return answers[messageId] as never;
+        downloaded.push(messageId);
+        return (answers[messageId] ?? {}) as never;
+      },
+      async discardMedia(messageId) {
+        discarded.push(messageId);
       },
     },
   });
@@ -293,7 +334,7 @@ test('WhatsApp: a document leaves as a named file under the attachment ceiling, 
       mime: 'application/pdf',
       filename: 'Contract v2.pdf',
       size: pdf.byteLength,
-    }, 'the chip saves the file it was sent as, under the sender\'s name');
+    }, 'the chip saves the file it was sent as, under the name the sender chose');
 
     assert.deepEqual(
       await adapter.media({ kind: 'message', id: 'unnamed', index: 0 }),
@@ -302,6 +343,12 @@ test('WhatsApp: a document leaves as a named file under the attachment ceiling, 
     );
 
     await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to open here/);
+    assert.deepEqual(downloaded, ['doc', 'unnamed'], 'a document over the ceiling is never fetched: its declared size is enough');
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'lying', index: 0 }), /too large to open here/);
+    assert.deepEqual(downloaded, ['doc', 'unnamed', 'lying'], 'the declared length is a hint, so what lands is checked');
+    assert.deepEqual(discarded, ['lying'], 'the owner\'s disk keeps no file the panel will never show');
+
     await assert.rejects(adapter.media({ kind: 'message', id: 'expired', index: 0 }), /no longer available/);
   } finally {
     h.close();

@@ -271,6 +271,9 @@ export function createWhatsAppStore(db: Database.Database) {
   const setMediaRef = db.prepare(
     "UPDATE wa_messages SET media_ref = ?, media_state = 'ready', media_error = NULL WHERE id = ?",
   );
+  const forgetMediaRef = db.prepare(
+    "UPDATE wa_messages SET media_ref = NULL, media_state = 'placeholder' WHERE id = ?",
+  );
   const readMessage = db.prepare('SELECT * FROM wa_messages WHERE id = ?');
   const readMessages = db.prepare('SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts ASC, id ASC');
   const countMessages = db.prepare('SELECT COUNT(*) AS c FROM wa_messages');
@@ -533,6 +536,14 @@ export function createWhatsAppStore(db: Database.Database) {
     /** Records a successful download: cached path + `ready`, in one statement. */
     setMediaRef(id: string, mediaRef: string): void {
       setMediaRef.run(mediaRef, id);
+    },
+    /**
+     * Take back a cache entry: a row with no ref has no bytes anything may read, so it goes back to
+     * `placeholder`. Used when what landed is a file the panel will never show, which no `media_ref`
+     * may then point at.
+     */
+    forgetMediaRef(id: string): void {
+      forgetMediaRef.run(id);
     },
     /** One actor has at most one reaction per target; a falsey emoji removes it. */
     upsertMessageReaction(reaction: MessageReactionInput): void {

@@ -241,6 +241,27 @@ export async function downloadAndCacheMedia(
   return { mediaRef: relativeRef, bytes: buffer.byteLength };
 }
 
+/**
+ * Take back the bytes of one message, when what landed is a file nothing will ever show. A refusal
+ * that leaves the file behind is disk the sender chose the size of, and `{dataDir}/media` is empty
+ * only when the owner clears the cache by hand — so the file and the row's ref go together. A ref
+ * that does not resolve inside `{dataDir}/media` is never removed.
+ */
+export function discardCachedMedia(store: WhatsAppStore, messageId: string, dataDir: string): boolean {
+  const ref = store.getMessage(messageId)?.media_ref;
+  if (!ref) return false;
+  const absolutePath = resolve(dataDir, ref);
+  const insideMedia = relative(resolve(join(dataDir, 'media')), absolutePath);
+  if (!insideMedia || insideMedia.startsWith('..') || isAbsolute(insideMedia)) return false;
+  try {
+    rmSync(absolutePath, { force: true });
+  } catch {
+    return false;
+  }
+  store.forgetMediaRef(messageId);
+  return true;
+}
+
 function extensionForType(type: string, filename?: string): string {
   switch (type) {
     case 'image':

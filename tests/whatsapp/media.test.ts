@@ -10,7 +10,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WAMessage } from 'baileys';
 import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
-import { classifyMediaFailure, clearCachedMedia, documentFacts, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
+import { classifyMediaFailure, clearCachedMedia, discardCachedMedia, documentFacts, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
 import { createWhatsAppStore } from '../../src/whatsapp/store.ts';
 
 const DAY = 86_400;
@@ -158,6 +158,30 @@ test('a document is cached as the file it was sent as, and a strange name still 
     assert.ok(second.mediaRef.startsWith(join('media', '')), 'the ref stays under media/');
     assert.equal(second.mediaRef.includes('passwd'), false, 'a path in the name never becomes part of the path');
     assert.equal(statSync(join(dataDir, second.mediaRef)).mode & 0o777, 0o600);
+  } finally {
+    db.close();
+  }
+});
+
+test('a discarded entry takes its file and its ref together, and a ref outside media/ is never removed', async () => {
+  const { db, store } = storedImage();
+  try {
+    const dataDir = mkdtempSync(join(tmpdir(), 'wa-discard-'));
+    const { mediaRef } = await downloadAndCacheMedia(store, 'IMG1', { dataDir, download: async () => Buffer.from('jpeg bytes') });
+    assert.ok(existsSync(join(dataDir, mediaRef)));
+
+    assert.equal(discardCachedMedia(store, 'IMG1', dataDir), true, 'a refusal of what landed can undo the download');
+    assert.equal(existsSync(join(dataDir, mediaRef)), false);
+    assert.equal(store.getMessage('IMG1')?.media_ref, null);
+    assert.equal(store.getMessage('IMG1')?.media_state, 'placeholder');
+    assert.equal(discardCachedMedia(store, 'IMG1', dataDir), false, 'a second discard has nothing to take back');
+
+    // A ref that walks out of the cache directory names a file this module did not write.
+    writeFileSync(join(dataDir, 'outside.txt'), 'keep me');
+    store.setMediaRef('IMG1', join('..', 'outside.txt'));
+    assert.equal(discardCachedMedia(store, 'IMG1', dataDir), false);
+    assert.ok(existsSync(join(dataDir, 'outside.txt')), 'a path outside media/ is left alone');
+    assert.equal(discardCachedMedia(store, 'no-such-message', dataDir), false);
   } finally {
     db.close();
   }

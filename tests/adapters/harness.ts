@@ -105,9 +105,16 @@ export function fakeWhatsAppTransport(
       calls.push('whatsapp:openChat');
       return [{ id: 'm1', chatJid: WHATSAPP_ID, fromMe: false, ts: 1_700_000_000_000, type: 'text', text: 'See you', sender: 'Ada', edited: false }];
     },
+    async mediaFacts() {
+      calls.push('whatsapp:mediaFacts');
+      return undefined;
+    },
     async loadMedia() {
       calls.push('whatsapp:loadMedia');
       return {};
+    },
+    async discardMedia() {
+      calls.push('whatsapp:discardMedia');
     },
     async markRead() {
       calls.push('whatsapp:markRead');
