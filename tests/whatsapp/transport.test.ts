@@ -37,15 +37,23 @@ function message(overrides: Partial<MessageInput> & Pick<MessageInput, 'id' | 'c
   return { from_me: false, type: 'text', ...overrides };
 }
 
-/** A connection that never opened a socket: the state a read finds on a cold plugin. */
-const down = () => undefined;
+/** A connection that never opened a socket: the state a read finds on a cold plugin, and no reopen. */
+const down = { connection: () => undefined, ensure: async () => undefined };
+
+/**
+ * The two ways a transport asks about its socket: the one it can see, and the one a call that needs
+ * a live socket asks for. A fake that has no reopen answers both with the same connection.
+ */
+function sockets(get: () => WhatsAppConnection | undefined) {
+  return { connection: get, ensure: async () => get() };
+}
 
 function up(socket: Partial<WhatsAppSendSocket>) {
   const connection = {
     getSendSocket: () => socket as WhatsAppSendSocket,
     status: () => 'connected',
   };
-  return () => connection as unknown as WhatsAppConnection;
+  return sockets(() => connection as unknown as WhatsAppConnection);
 }
 
 /** A socket that can answer the one media call: asking the phone to upload again. */
@@ -55,7 +63,7 @@ function withReupload(updateMediaMessage: (message: WAMessage) => Promise<WAMess
     getMediaSocket: () => ({ updateMediaMessage }),
     status: () => 'connected',
   };
-  return () => connection as unknown as WhatsAppConnection;
+  return sockets(() => connection as unknown as WhatsAppConnection);
 }
 
 /** One stored image with the envelope a download reads, as a live ingest would leave it. */
@@ -80,7 +88,7 @@ test('a read answers with no socket at all: chats newest first, with previews th
     store.upsertMessage(message({ id: 'a1', chat_jid: DM, ts: 1_700_000_000_000, text: 'See you' }));
     store.upsertMessage(message({ id: 'g1', chat_jid: GROUP, ts: 1_600_000_000_000, sender: '255700000001@s.whatsapp.net', text: 'Ship it' }));
 
-    const transport = createWhatsAppTransport({ store, connection: down });
+    const transport = createWhatsAppTransport({ store, ...down });
     const page = await transport.listChats({ limit: 50 });
 
     assert.deepEqual(
@@ -110,7 +118,7 @@ test('the list pages by row offset and offers a cursor only when another page ex
     for (let index = 0; index < 3; index += 1) {
       store.upsertChat({ jid: `1555123456${index}@s.whatsapp.net`, name: `Person ${index}`, kind: '1:1', last_msg_at: 1_700_000_000_000 - index * 1_000 });
     }
-    const transport = createWhatsAppTransport({ store, connection: down });
+    const transport = createWhatsAppTransport({ store, ...down });
 
     const first = await transport.listChats({ limit: 2 });
     assert.deepEqual(first.chats.map(chat => chat.name), ['Person 0', 'Person 1']);
@@ -132,7 +140,7 @@ test('unread counts only messages newer than the read cursor, and history sync i
     // What `handleHistorySet` does for a batch: a chat with no cursor starts read up to its newest.
     store.markChatsRead([DM]);
     store.upsertMessage(message({ id: 'm2', chat_jid: DM, ts: 2_000, text: 'also seen' }));
-    const transport = createWhatsAppTransport({ store, connection: down });
+    const transport = createWhatsAppTransport({ store, ...down });
 
     const unread = async () => (await transport.listChats({ limit: 50 })).chats[0].unread;
     assert.equal(await unread(), 1, 'a live message after the cursor is unread');
@@ -167,7 +175,7 @@ test('open answers the newest rows of one chat, oldest first, and an unknown cha
       store.upsertMessage(message({ id: `m${String(index).padStart(2, '0')}`, chat_jid: DM, ts: index * 1_000, text: `body ${index}` }));
     }
     store.upsertMessage(message({ id: 'stub', chat_jid: DM, ts: 71_000, type: 'system', text: 'You joined' }));
-    const transport = createWhatsAppTransport({ store, connection: down });
+    const transport = createWhatsAppTransport({ store, ...down });
 
     const rows = await transport.openChat({ id: DM, limit: 60 });
     assert.equal(rows.length, 60, 'the limit is what a read asks for, not everything ever stored');
@@ -191,7 +199,7 @@ test('media is served from cached bytes, and a ref whose file is gone answers no
     writeFileSync(join(dataDir, 'media', 'img.jpg'), new Uint8Array([1, 2, 3]));
     store.setMediaRef('img', join('media', 'img.jpg'));
     store.setMediaRef('gone', join('media', 'gone.jpg'));
-    const transport = createWhatsAppTransport({ store, connection: down, dataDir });
+    const transport = createWhatsAppTransport({ store, ...down, dataDir });
 
     const cached = await transport.loadMedia('img');
     assert.equal(cached.info?.cached, true);
@@ -219,7 +227,7 @@ test('a send needs the socket; a read mark does not, and neither needs another p
     store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 1_000 });
     store.upsertMessage(message({ id: 'm1', chat_jid: DM, ts: 1_000, text: 'hi' }));
 
-    const offline = createWhatsAppTransport({ store, connection: down });
+    const offline = createWhatsAppTransport({ store, ...down });
     await assert.rejects(offline.sendText({ id: DM, text: 'hello' }), WhatsAppDisconnectedError);
     await offline.markRead({ id: DM });
     assert.equal(store.getChat(DM)?.last_read_msg_id, 'm1', 'a read is recorded with the socket down');
@@ -228,7 +236,7 @@ test('a send needs the socket; a read mark does not, and neither needs another p
     const sent: Array<{ jid: string; content: unknown; options: { messageId: string } }> = [];
     const online = createWhatsAppTransport({
       store,
-      connection: up({
+      ...up({
         async sendMessage(jid: string, content: unknown, options: unknown) {
           sent.push({ jid, content, options: options as { messageId: string } });
           return {};
@@ -256,7 +264,7 @@ test('a source nobody has paired answers empty, because there is nothing to read
   // A throw here would become one error line per poll, which is the first impression the plan forbids.
   const { db, store } = fixture();
   try {
-    const transport = createWhatsAppTransport({ store, connection: down });
+    const transport = createWhatsAppTransport({ store, ...down });
     assert.deepEqual(await transport.listChats({ limit: 20 }), { chats: [] });
     assert.deepEqual(await transport.openChat({ id: 'never-seen', limit: 60 }), []);
   } finally {
@@ -278,7 +286,7 @@ test('a stored picture downloads once through the socket, then serves from disk 
     const online = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async message => message),
+      ...withReupload(async message => message),
       download: async () => { downloads += 1; return Buffer.from('jpeg bytes'); },
     });
 
@@ -295,7 +303,7 @@ test('a stored picture downloads once through the socket, then serves from disk 
     const offline = createWhatsAppTransport({
       store,
       dataDir,
-      connection: down,
+      ...down,
       download: async () => { downloads += 1; throw new Error('must not fetch cached bytes'); },
     });
     const second = await offline.loadMedia('IMG1');
@@ -316,7 +324,7 @@ test('a picture with no cached bytes and no socket reports, and never waits or t
     const transport = createWhatsAppTransport({
       store,
       dataDir,
-      connection: down,
+      ...down,
       download: async () => { downloads += 1; throw new Error('there is no socket to download over'); },
     });
 
@@ -324,6 +332,56 @@ test('a picture with no cached bytes and no socket reports, and never waits or t
     assert.equal(downloads, 0, 'no socket means no download attempt at all');
     assert.deepEqual(answer.info, { messageId: 'IMG1', kind: 'image', cached: false, available: true });
     assert.equal(answer.bytes, undefined, 'the panel is told there is no picture, not handed a broken one');
+    assert.equal(answer.notConnected, true, 'and told it is the socket, not the message');
+    assert.equal(store.getMessage('IMG1')?.media_state, 'placeholder', 'a request with nowhere to go is not a verdict on the message');
+    assert.equal(store.getMessage('IMG1')?.media_error, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('a picture no socket could serve is fetched by opening one, not reported dead', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'wa-serve-'));
+  const { db, store } = fixture();
+  try {
+    storedPicture(store);
+    let opened = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      dataDir,
+      // What a lifecycle looks like after the boot service's abort path: nothing open, an account
+      // that can still be opened, and a call that needs a socket asking for one.
+      connection: down.connection,
+      ensure: async () => {
+        opened += 1;
+        return withReupload(async message => message).connection();
+      },
+      download: async () => Buffer.from('jpeg bytes'),
+    });
+
+    const answer = await transport.loadMedia('IMG1');
+    assert.equal(opened, 1, 'the request that needed a socket asked for one');
+    assert.equal(answer.notConnected, undefined);
+    assert.deepEqual([answer.info?.cached, [...(answer.bytes ?? [])]], [true, [...Buffer.from('jpeg bytes')]]);
+  } finally {
+    db.close();
+  }
+});
+
+test('a send asks for a socket before it reports the source disconnected', async () => {
+  const { db, store } = fixture();
+  try {
+    const sent: string[] = [];
+    const transport = createWhatsAppTransport({
+      store,
+      connection: down.connection,
+      ensure: async () => up({
+        async sendMessage(_jid: string, content: { text: string }) { sent.push(content.text); return {}; },
+      } as unknown as Partial<WhatsAppSendSocket>).connection(),
+    });
+
+    await transport.sendText({ id: DM, text: 'hello' });
+    assert.deepEqual(sent, ['hello'], 'the socket the send opened is the one it sent over');
   } finally {
     db.close();
   }
@@ -338,7 +396,7 @@ test('a 404 or 410 is permanent and is not asked again on the next open', async 
     const transport = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async message => message),
+      ...withReupload(async message => message),
       download: async () => { downloads += 1; throw Object.assign(new Error('gone'), { statusCode: 404 }); },
     });
 
@@ -368,7 +426,7 @@ test('a 412 or 418 asks the phone to re-upload exactly once per request, and age
       reuploads += refreshed ? 1 : 0;
       throw Object.assign(new Error('decrypt failed'), { statusCode: 412 });
     };
-    const transport = createWhatsAppTransport({ store, dataDir, connection: withReupload(async message => message), download });
+    const transport = createWhatsAppTransport({ store, dataDir, ...withReupload(async message => message), download });
 
     const first = await transport.loadMedia('IMG1');
     assert.deepEqual([downloads, reuploads], [1, 1], 'one download, one re-upload request');
@@ -382,7 +440,7 @@ test('a 412 or 418 asks the phone to re-upload exactly once per request, and age
     const old = createWhatsAppTransport({
       store: (() => { storedPicture(store, 'OLD1', Math.floor(Date.now() / 1000) - 30 * 86_400); return store; })(),
       dataDir,
-      connection: withReupload(async message => message),
+      ...withReupload(async message => message),
       download: async () => { throw Object.assign(new Error('general error'), { statusCode: 418 }); },
     });
     const aged = await old.loadMedia('OLD1');
@@ -401,7 +459,7 @@ test('a 5xx is temporary and a later open may try again', async () => {
     const transport = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async message => message),
+      ...withReupload(async message => message),
       download: async () => {
         downloads += 1;
         if (downloads === 1) throw Object.assign(new Error('CDN hiccup'), { statusCode: 502 });
@@ -433,7 +491,7 @@ test('audio is not media the panel draws, and a document is', async () => {
     const transport = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async msg => msg),
+      ...withReupload(async msg => msg),
       download: async () => { downloads += 1; return Buffer.from('never'); },
     });
 
@@ -463,7 +521,7 @@ test('a document is named and sized from its envelope, and its bytes are saved u
     const transport = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async msg => msg),
+      ...withReupload(async msg => msg),
       download: async () => Buffer.from('%PDF-1.4'),
     });
 
@@ -485,7 +543,7 @@ test('a document is named and sized from its envelope, and its bytes are saved u
     assert.deepEqual([...(served.bytes ?? [])], [...Buffer.from('%PDF-1.4')]);
 
     // Serving it again is a read from disk, with the envelope's type still the answer.
-    const offline = createWhatsAppTransport({ store, dataDir, connection: down });
+    const offline = createWhatsAppTransport({ store, dataDir, ...down });
     const second = await offline.loadMedia('DOC1');
     assert.deepEqual([second.info?.mime, second.info?.filename], ['application/pdf', 'Contract v2.pdf']);
   } finally {
@@ -505,7 +563,7 @@ test('the facts of a message answer before its bytes, and bytes nobody will show
         message: { documentMessage: { fileName: 'Deck.pdf', mimetype: 'application/pdf', fileLength: 9_000_000 } },
       } as unknown as WAMessage],
     });
-    const offline = createWhatsAppTransport({ store, dataDir, connection: down });
+    const offline = createWhatsAppTransport({ store, dataDir, ...down });
 
     assert.deepEqual(await offline.mediaFacts('DOC1'), {
       messageId: 'DOC1',
@@ -521,7 +579,7 @@ test('the facts of a message answer before its bytes, and bytes nobody will show
     const online = createWhatsAppTransport({
       store,
       dataDir,
-      connection: withReupload(async msg => msg),
+      ...withReupload(async msg => msg),
       download: async () => Buffer.from('pdf bytes'),
     });
     await online.loadMedia('DOC1');

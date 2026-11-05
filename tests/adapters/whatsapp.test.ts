@@ -135,6 +135,7 @@ test('WhatsApp: media is served from cached bytes, refused from the declared siz
     cached: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png' },
     unavailable: { messageId: 'm1', kind: 'image', cached: false, available: false },
     gone: { messageId: 'm1', kind: 'image', cached: false, available: true },
+    offline: { messageId: 'm1', kind: 'image', cached: false, available: true },
     // The envelope declares more than a frame will draw: refused without fetching a byte.
     huge: { messageId: 'm1', kind: 'video', cached: false, available: true, size: 30 * 1024 * 1024 + 1 },
     // The envelope declares little and 10 MB arrives: refused, and the bytes are taken back off disk.
@@ -144,6 +145,8 @@ test('WhatsApp: media is served from cached bytes, refused from the declared siz
     cached: { info: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png' }, bytes: PNG_BYTES },
     // A row that says available and served, with no bytes: the file the ref named is gone.
     gone: { info: { messageId: 'm1', kind: 'image', cached: false, available: true } },
+    // The message is fine and WhatsApp would serve it, but no socket could be opened to fetch it.
+    offline: { info: { messageId: 'm1', kind: 'image', cached: false, available: true }, notConnected: true },
     lying: { info: { messageId: 'm1', kind: 'image', cached: true, available: true, mime: 'image/png', size: 10 }, bytes: new Uint8Array(6 * 1024 * 1024 + 1) },
   };
   const discarded: string[] = [];
@@ -178,6 +181,9 @@ test('WhatsApp: media is served from cached bytes, refused from the declared siz
 
     await assert.rejects(adapter.media({ kind: 'message', id: 'unavailable', index: 0 }), /no longer available/);
     await assert.rejects(adapter.media({ kind: 'message', id: 'gone', index: 0 }), /could not be loaded/);
+    // Two failures that used to read the same: the socket is missing (the owner can act) rather than
+    // WhatsApp having stopped serving this message (nothing to do).
+    await assert.rejects(adapter.media({ kind: 'message', id: 'offline', index: 0 }), /not connected.*Reconnect it and try again/);
     assert.deepEqual(discarded, ['lying'], 'a miss is a report, not an eviction');
   } finally {
     h.close();

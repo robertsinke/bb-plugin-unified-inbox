@@ -53,6 +53,23 @@ test('the reconnect ladder doubles from 5 s and stops at the 60 s ceiling', asyn
   }
 });
 
+test('a close says why it happened and how long the wait is, so a deaf source is not silent', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { connection, sockets, events } = await connectionUnderTest(t);
+  await connection.start();
+
+  sockets.sockets.at(-1)!.emit('connection.update', {
+    connection: 'close',
+    lastDisconnect: { error: Object.assign(new Error('Stream Errored (restart required)'), { statusCode: 515 }) },
+  });
+
+  assert.deepEqual(events.at(-1), {
+    type: 'connection-closed',
+    reason: 'Stream Errored (restart required) (status 515)',
+    retryMs: 5_000,
+  });
+});
+
 test('a loggedOut close is terminal: no ladder, and the listener is told', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { connection, sockets, events } = await connectionUnderTest(t);

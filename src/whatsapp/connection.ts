@@ -84,6 +84,12 @@ export type WhatsAppConnectionEvent =
   | { type: 'pairing-code'; code: string }
   /** Metadata only: the CLI's proof of ingest must not put a message body in a log. */
   | { type: 'message'; id: string; chatId: string; fromMe: boolean }
+  /**
+   * The socket went away without this module asking, in WhatsApp's own words and with the delay the
+   * ladder waits before trying again. A close is otherwise a silent fact: the socket is gone, the
+   * reads keep answering from the store, and nothing says the source has gone deaf.
+   */
+  | { type: 'connection-closed'; reason: string; retryMs?: number }
   | { type: 'logged-out' }
   | { type: 'error'; error: Error; fatal: boolean };
 
@@ -110,6 +116,14 @@ export interface WhatsAppConnectionOptions {
    */
   bindSocket?: (socket: WhatsAppSocket) => void | (() => void);
   onError?: (error: Error) => void;
+}
+
+/** WhatsApp's own words for a close, with the status code a reader can look up. Never a payload. */
+function describeClose(error: unknown): string {
+  if (error === undefined) return 'WhatsApp closed the socket without saying why';
+  const status = disconnectStatusCode(error);
+  const text = asError(error).message || 'no message';
+  return status === undefined ? text : `${text} (status ${status})`;
 }
 
 function asError(error: unknown): Error {
@@ -374,18 +388,24 @@ export class WhatsAppConnection {
     this.#detachSocket = undefined;
     this.#socket = undefined;
     this.#setState('disconnected');
-    if (disconnectStatusCode(update.lastDisconnect?.error) === DisconnectReason.loggedOut) {
+    // A close this module asked for — `stop()`, or the terminal path below — is not something the
+    // listener needs told twice, and the ladder must not run for it.
+    if (!this.#running) return;
+    const closed = update.lastDisconnect?.error;
+    if (disconnectStatusCode(closed) === DisconnectReason.loggedOut) {
       // Terminal — no reconnect helps. The owner must re-pair, which is why it is never automatic.
       this.#running = false;
       this.#emit({ type: 'logged-out' });
       return;
     }
-    this.#scheduleReconnect();
+    // The retry is scheduled first, so a listener that throws costs the report and not the recovery.
+    const retryMs = this.#scheduleReconnect();
+    this.#emit({ type: 'connection-closed', reason: describeClose(closed), ...(retryMs === undefined ? {} : { retryMs }) });
   }
 
   /** 5 s doubling to a 60 s ceiling: a socket blip recovers fast, a bad night does not spin. */
-  #scheduleReconnect(): void {
-    if (!this.#running || this.#reconnectTimer) return;
+  #scheduleReconnect(): number | undefined {
+    if (!this.#running || this.#reconnectTimer) return undefined;
     const delay = Math.min(
       this.#reconnectDelayMs * 2 ** Math.min(this.#reconnectAttempt, 10),
       this.#maxReconnectDelayMs,
@@ -395,6 +415,7 @@ export class WhatsAppConnection {
       this.#reconnectTimer = undefined;
       void this.#connect();
     }, delay);
+    return delay;
   }
 
   #setState(state: WhatsAppConnectionState): void {

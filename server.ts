@@ -57,11 +57,17 @@ export default function plugin(bb: BbPluginApi) {
         bindSocket: socket => attachIngest(socket.ev, whatsappStore),
       });
     },
+    // One line per socket opened, closed or refused: a dead source is otherwise only visible as a
+    // lie on the pairing card, and a repeat has to be diagnosable without a reload and a guess.
+    note: (level, line) => bb.log[level](line),
   });
 
   const whatsappTransport = createWhatsAppTransport({
     store: whatsappStore,
     connection: () => whatsappLifecycle.current(),
+    // A read never needs a socket; a download and a send do, and a linked account is reopened on
+    // demand rather than left dead because no timer or service happened to hold it.
+    ensure: () => whatsappLifecycle.ensure(),
   });
   const searchIndex = createSearchIndex(cache, createSearchStore(db));
   // Every send attempt is written here: one table in the plugin's own database.
@@ -74,8 +80,9 @@ export default function plugin(bb: BbPluginApi) {
     createWhatsAppPairing({
       open: () => whatsappLifecycle.open(),
       current: () => whatsappLifecycle.current(),
-      close: () => whatsappLifecycle.close(),
+      close: reason => whatsappLifecycle.close(reason),
       failure: () => whatsappLifecycle.failure(),
+      opening: () => whatsappLifecycle.opening(),
       now,
     })));
 
@@ -95,7 +102,7 @@ export default function plugin(bb: BbPluginApi) {
   // The socket started by the pairing card is nobody's background service, so a reload has to
   // close it here: the lock is held for the life of the socket, and a second socket on one device
   // identity is the failure WhatsApp answers with a re-pair.
-  bb.onDispose(() => { void whatsappLifecycle.close(); });
+  bb.onDispose(() => { void whatsappLifecycle.close('the plugin was disposed'); });
   bb.onDispose(() => { void stopLinkedInBrowser(); });
   // Chrome's start is the slow part of a LinkedIn read; load the page once the profile exists.
   if (existsSync(linkedinProfileDir())) void prewarmLinkedInBrowser();
@@ -162,7 +169,9 @@ export default function plugin(bb: BbPluginApi) {
       try {
         await untilAborted(signal);
       } finally {
-        await whatsappLifecycle.close();
+        // Every way a socket ends here is written down: without this line the owner, and the next
+        // reader, cannot tell a host that stopped the service from a source that never had a socket.
+        await whatsappLifecycle.close('the host stopped the whatsapp-connection service');
       }
     },
   });
