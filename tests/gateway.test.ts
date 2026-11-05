@@ -115,6 +115,7 @@ function fixture(options: FixtureOptions = {}) {
       ? { sync: async (): Promise<never> => { calls.push(`${name}:sync`); throw new Error(options.syncFailure!.message); } }
       : {}),
   })])) as Record<Account, Adapter>;
+  const notes: string[] = [];
   const gateway = createGateway({
     cache,
     search,
@@ -126,8 +127,9 @@ function fixture(options: FixtureOptions = {}) {
     // No socket in this file: an unpaired source is the honest default, and the pairing module has
     // its own tests over a real connection.
     pairing: options.pairing ?? (async () => ({ state: 'unpaired' })),
+    note: (level, line) => notes.push(`${level} ${line}`),
   });
-  return { gateway, calls, auditRows, cacheRows, registry };
+  return { gateway, calls, auditRows, cacheRows, registry, notes };
 }
 
 test('the panel receives each source\'s declaration, and the contract accepts it', async () => {
@@ -249,6 +251,9 @@ test('one failing source becomes one line and the rest still list', async () => 
   assert.deepEqual(listed.items.map(row => row.id), [FIRST.id]);
   assert.deepEqual(listed.errors, ['WhatsApp unavailable. Check its connection.']);
   assert.equal(listed.more, true);
+  // The row says what the owner can do; the log says what happened. Without the second, "LinkedIn
+  // unavailable" once cost an afternoon while an orphaned browser held the profile.
+  assert.deepEqual(f.notes, ['warn WhatsApp failed: provider exploded']);
 });
 
 test('a source failure that already names itself keeps its own words', async () => {

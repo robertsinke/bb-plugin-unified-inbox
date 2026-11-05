@@ -130,6 +130,9 @@ export default function plugin(bb: BbPluginApi) {
     registry,
     now,
     pairing: async request => (await whatsappPairing()).handle(request),
+    // A source that fails says "check its connection" to the owner and its real cause here: one is
+    // the act they can take, the other is what a repeat is diagnosed from.
+    note: (level, line) => bb.log[level](line),
     driver: {
       openInLinkedInProfile,
       inspectLinkedInPage,

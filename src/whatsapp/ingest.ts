@@ -24,6 +24,7 @@ import {
   type Chat,
   type ChatUpdate,
   type Contact,
+  type GroupMetadata,
   type LIDMapping,
   type MessageUpsertType,
   type WAMessage,
@@ -329,6 +330,26 @@ export function ingestBaileysContact(store: WhatsAppStore, contact: ContactPatch
     phone_jid: phoneJid ?? existing?.phone_jid ?? null,
   });
   return null;
+}
+
+/**
+ * Record the names WhatsApp hands over with a group's participant list. A group's participants carry
+ * a `name` (the address-book entry the owner's contacts hold) and a `notify` (the name someone chose
+ * themselves), and neither arrives any other way: history sync omits `pushName`, and a contact is
+ * only pushed when it changes. Without this the sender of a synced message is a LID with no name and
+ * the bubble reads "Unknown".
+ *
+ * A participant with no usable name is skipped rather than written, because a row of two nulls only
+ * makes the next lookup slower.
+ */
+export function ingestBaileysGroup(store: WhatsAppStore, group: GroupMetadata): ChatMerge[] {
+  const merges: ChatMerge[] = [];
+  for (const participant of group.participants ?? []) {
+    if (!usableName(participant.name) && !usableName(participant.notify)) continue;
+    const merge = ingestBaileysContact(store, participant);
+    if (merge) merges.push(merge);
+  }
+  return merges;
 }
 
 /**
@@ -681,6 +702,11 @@ export function attachIngest(
   const onChatUpdates = (updates: ChatUpdate[]) => handleChatsUpdate(store, updates);
   const onContacts = (contacts: Contact[]) => publishMerges(handleContactsUpsert(store, contacts));
   const onContactUpdates = (contacts: ContactPatch[]) => publishMerges(handleContactsUpdate(store, contacts));
+  // `groups.update` is also how `groupFetchAllParticipating()` answers, so binding it is what lets
+  // the connection backfill every group's names once per open.
+  const onGroups = (groups: GroupMetadata[]) => {
+    for (const group of groups) publishMerges(ingestBaileysGroup(store, group));
+  };
   const onLidMapping = (mapping: LIDMapping) => {
     const merge = handleLidMappingUpdate(store, mapping);
     if (merge) publishMerges([merge]);
@@ -698,6 +724,8 @@ export function attachIngest(
       ['chats.update', onChatUpdates],
       ['contacts.upsert', onContacts],
       ['contacts.update', onContactUpdates],
+      ['groups.upsert', onGroups],
+      ['groups.update', onGroups],
       ['lid-mapping.update', onLidMapping],
     ] as Array<[string, (...args: any[]) => void]>
   ).map(([event, handler]) => [event, contain(event, handler)]);

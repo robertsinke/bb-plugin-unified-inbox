@@ -32,9 +32,14 @@ const DESCRIBED_FAILURE = /^(?:LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \S+ re
  * One failed source never hides the others: it becomes one line in `list`'s `errors`. The fallback
  * names the source the way the source declares itself, so there is no second spelling to drift.
  */
-function listError(registry: Record<Account, Adapter>, account: Account, cause: unknown): string {
+function listError(registry: Record<Account, Adapter>, account: Account, cause: unknown, note?: Note): string {
   const message = cause instanceof Error ? cause.message : '';
-  return DESCRIBED_FAILURE.test(message) ? message : `${registry[account].source.label} unavailable. Check its connection.`;
+  if (DESCRIBED_FAILURE.test(message)) return message;
+  // The row says "check its connection", because that is the one act an owner can take. The cause is
+  // still worth one line: "LinkedIn unavailable" once hid an orphaned browser holding the profile,
+  // and no amount of re-checking a connection would have said so.
+  note?.('warn', `${registry[account].source.label} failed: ${message || String(cause)}`);
+  return `${registry[account].source.label} unavailable. Check its connection.`;
 }
 
 /**
@@ -58,6 +63,9 @@ export interface GatewayDriver {
  * `plugin` already creates per instance; `now` is the clock the approval window reads, and
  * `driver` is the page. A test passes fakes for all of it.
  */
+/** One line into the plugin log, the way the WhatsApp lifecycle already reports its sockets. */
+export type Note = (level: 'info' | 'warn', line: string) => void;
+
 export interface GatewayDeps {
   cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm'>;
@@ -71,6 +79,7 @@ export interface GatewayDeps {
    * so the socket — 7.9 MB of client and a lazy import — is only loaded when someone pairs.
    */
   pairing: (request: WhatsAppPairingRequest) => Promise<WhatsAppPairingSnapshot>;
+  note?: Note;
 }
 
 /**
@@ -80,13 +89,13 @@ export interface GatewayDeps {
  * (src/adapters/policy.ts), so the refusal and the audit record are owned in one place. How a
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, note }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
     hasCachedRows: account => cache.list().some(row => row.account === account),
     save: (account, state) => cache.saveFreshness(account, state),
-    error: (account, cause) => listError(registry, account, cause),
+    error: (account, cause) => listError(registry, account, cause, note),
     now,
   });
   const freshness = () => Object.fromEntries(accounts.map(account => [account, cache.freshness(account)])) as Record<Account, ReturnType<InboxCache['freshness']>>;
@@ -265,7 +274,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
         // A page that failed may be a token the source has since dropped: forget it so the next
         // refresh reseeds the walk from the newest page instead of retrying a dead one forever.
         if (older) olderCursor[name] = undefined;
-        errors.push(listError(registry, name, result.reason));
+        errors.push(listError(registry, name, result.reason, note));
       });
       search.warm();
       // A call that named one source answers for that source; the whole-inbox call answers for all.

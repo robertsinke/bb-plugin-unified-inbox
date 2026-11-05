@@ -17,6 +17,7 @@ import { createSendAudit } from '../../src/send-audit.ts';
 import { deepenChatHistory } from '../../src/whatsapp/history.ts';
 import {
   attachIngest,
+  ingestBaileysGroup,
   handleLidMappingUpdate,
   handleMessagesReaction,
   handleMessagesUpdate,
@@ -289,6 +290,43 @@ test('asking for older history uses the oldest stored envelope', async () => {
       requested: false,
       reason: 'no-messages',
     });
+  } finally {
+    db.close();
+  }
+});
+
+test('a group participant list is where a synced sender gets their name', (t) => {
+  const { db, store } = fixture();
+  try {
+    // The state the owner saw: a stored message whose sender is a LID with no contact row, because
+    // history sync carries no `pushName` and a contact is only pushed when it changes.
+    const sender = '69763254460511@lid';
+    handleHistorySet(store, {
+      chats: [{ id: '491700000000-1000000000@g.us', name: 'Family', conversationTimestamp: 1_700_000 }],
+      contacts: [],
+      messages: [
+        {
+          key: { id: 'A1', remoteJid: '491700000000-1000000000@g.us', fromMe: false, participant: sender },
+          messageTimestamp: 1_700_001,
+          message: { conversation: 'Hello' },
+        },
+      ] as WAMessage[],
+    } as HistorySetPayload);
+
+    const group = {
+      id: '491700000000-1000000000@g.us',
+      subject: 'Family',
+      participants: [{ id: sender, name: '', notify: 'Ignacio Joaristi', admin: null }],
+    } as unknown as Parameters<typeof ingestBaileysGroup>[1];
+
+    ingestBaileysGroup(store, group);
+
+    const contact = store.getContact(sender);
+    assert.equal(contact?.push_name, 'Ignacio Joaristi', 'the self-chosen name reaches the contact row');
+    assert.equal(store.getContact('nobody@lid'), undefined, 'a participant with no name writes nothing');
+
+    ingestBaileysGroup(store, { ...group, participants: [{ id: 'nobody@lid', admin: null }] } as never);
+    assert.equal(store.getContact('nobody@lid'), undefined);
   } finally {
     db.close();
   }
