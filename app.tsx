@@ -5,7 +5,7 @@ import type { ExperimentalBadge } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './src/rpc-contract';
 import { bubbleClass } from './src/inbox-appearance.ts';
 import { composerMode, draftForConversation } from './src/composer-mode.ts';
-import { formatBytes } from './src/format.ts';
+import { formatBytes, formatDuration } from './src/format.ts';
 import { MailComposer } from './src/mail-composer.tsx';
 import { mailDocument, sanitizeMailMarkup } from './src/mail-html';
 import type { WhatsAppMedia } from './src/whatsapp-media';
@@ -276,6 +276,34 @@ function WhatsAppVideo({ media }: { media: WhatsAppMedia }) {
   </button>;
 }
 /**
+ * A voice note or an audio file in a thread: the same bounded whole-file fetch a picture gets, drawn as
+ * a player instead of a frame. `preload="none"` and no autoplay — a thread of voice notes must not start
+ * talking when it opens. The length is the envelope's own `seconds`, so the player is labelled before a
+ * byte is decoded; a note recorded in WhatsApp is named for what it is, a forwarded audio file for its
+ * type and size. Expired media is a line, not a control — the bytes are gone and no retry helps.
+ */
+function WhatsAppAudio({ media }: { media: WhatsAppMedia }) {
+  const holder = useRef<HTMLDivElement>(null);
+  const { src, state, error, load } = useMediaSource(media);
+  useEffect(() => {
+    if (src || state !== 'idle' || !media.available) return;
+    const node = holder.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === 'undefined') { void load(); return; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); void load(); }
+    }, { rootMargin: '160px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [src, state, media.available, load]);
+  const voice = media.voice === true;
+  const name = voice ? 'Voice message' : 'Audio';
+  const label = [name, media.seconds ? formatDuration(media.seconds) : '', voice || !media.size ? '' : formatBytes(media.size)].filter(Boolean).join(' · ');
+  if (!media.available) return <p className="ui-media-note">This {voice ? 'voice message' : 'audio'} is no longer available from WhatsApp.</p>;
+  if (src) return <div className="ui-bubble-media" ref={holder}><audio className="ui-bubble-audio" src={src} controls preload="none" aria-label={label} /><span className="ui-media-note">{label}</span></div>;
+  return <div className="ui-bubble-media ui-media-prompt ui-audio-prompt" ref={holder}>{state === 'error' ? <><button type="button" className="ui-text-button" onClick={() => void load()}>Retry audio</button><span role="status">{error}</span></> : <span className="ui-media-note">{state === 'loading' ? 'Loading audio…' : label}</span>}</div>;
+}
+/**
  * The mail draft is the bottom composer, the same slot a chat reply uses: the addresses, the
  * subject and the body are one form, and reply / reply all / forward / new all open it here.
  */
@@ -367,7 +395,7 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account }: { me
     <span className="ui-sr">{m.fromMe ? 'You' : m.sender || 'WhatsApp'}</span>
     {!inlineSender && !m.fromMe && m.sender && <div className="ui-bubble-sender">{m.sender}</div>}
     {m.replyContext && <p className="ui-media-note">Reply to an earlier message</p>}
-    {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
+    {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media?.kind === 'audio' ? <WhatsAppAudio media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
     {m.edited && <span className="ui-media-note">Edited</span>}

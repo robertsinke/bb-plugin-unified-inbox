@@ -12,21 +12,31 @@ export const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
 export const SAVE_LIMIT = 100 * 1024 * 1024;
 export const IMAGE_LIMIT = 6 * 1024 * 1024;
 export const VIDEO_LIMIT = 30 * 1024 * 1024;
+/**
+ * A voice note is played whole, so its ceiling is what one data URL may carry — not what a stream may.
+ * Measured from the live account's stored envelopes on 2026-11-05: 7 voice notes, 5,184 B … 175,401 B,
+ * 2 … 69 s (≈2.5 kB/s), every one `audio/ogg; codecs=opus`. 4 MiB is 23× the largest of those and
+ * ≈27 minutes at the same rate: a bound for what WhatsApp will record, not only for what it did.
+ */
+export const AUDIO_LIMIT = 4 * 1024 * 1024;
 
 /**
  * The kinds a message may carry as media. One list: the message shape, the RPC schema and the panel
  * each used to spell it out, and a kind added to one of them was a hole in the other two.
  */
-export const MEDIA_KINDS = ['image', 'sticker', 'video', 'document'] as const;
+export const MEDIA_KINDS = ['image', 'sticker', 'video', 'audio', 'document'] as const;
 
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 /** A bounded, renderable data URL; the frame must never render arbitrary bytes. */
 export function mediaDataUrl(bytes: Uint8Array, mime: string): string {
   const type = mime.split(';')[0].trim().toLowerCase();
-  if (!type.startsWith('image/') && !type.startsWith('video/')) throw new Error('Unsupported media type.');
-  if (type === 'image/svg+xml') throw new Error('Unsupported media type.');
-  const limit = type.startsWith('video/') ? VIDEO_LIMIT : IMAGE_LIMIT;
+  const family = type.slice(0, type.indexOf('/'));
+  if (family !== 'image' && family !== 'video' && family !== 'audio') throw new Error('Unsupported media type.');
+  // An XML document is not a picture, a video or a sound: `image/svg+xml` is the trick, and any other
+  // spelling of it that reached a media slot is refused the same way.
+  if (type.endsWith('xml')) throw new Error('Unsupported media type.');
+  const limit = family === 'video' ? VIDEO_LIMIT : family === 'audio' ? AUDIO_LIMIT : IMAGE_LIMIT;
   if (bytes.byteLength > limit) throw new Error('This media is too large to show here.');
   return `data:${type};base64,${Buffer.from(bytes).toString('base64')}`;
 }
