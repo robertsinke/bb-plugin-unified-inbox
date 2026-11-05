@@ -4,7 +4,11 @@
 // reported rather than thrown at the panel, and that no string the owner reads mentions the program
 // this source used to depend on.
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { SAVE_LIMIT } from '../../src/adapters/media.ts';
 import { approvalFor, createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
 import { WhatsAppDisconnectedError } from '../../src/whatsapp/send.ts';
 import { harness, refused, LINKEDIN_ID, WHATSAPP_GROUP_ID, WHATSAPP_ID } from './harness.ts';
@@ -296,22 +300,26 @@ test('WhatsApp: no message the owner reads names the program this source used to
   }
 });
 
-test('WhatsApp: an oversized document is refused before it is downloaded, and a document that fits saves under its own name', async () => {
+test('WhatsApp: an oversized document is refused before it is downloaded, a big one is saved to Downloads, and a small one saves under its own name', async () => {
   const pdf = Buffer.from('%PDF-1.4');
   const facts: Record<string, Record<string, unknown>> = {
     doc: { messageId: 'd1', kind: 'document', cached: false, available: true, mime: 'application/pdf', filename: 'Contract v2.pdf', size: pdf.byteLength },
     unnamed: { messageId: 'd2', kind: 'document', cached: false, available: true },
-    huge: { messageId: 'd3', kind: 'document', cached: false, available: true, mime: 'application/zip', filename: 'dump.zip', size: 5 * 1024 * 1024 + 1 },
+    huge: { messageId: 'd3', kind: 'document', cached: false, available: true, mime: 'application/zip', filename: 'dump.zip', size: SAVE_LIMIT + 1 },
     lying: { messageId: 'd5', kind: 'document', cached: false, available: true, mime: 'application/zip', filename: 'dump.zip', size: 10 },
     expired: { messageId: 'd4', kind: 'document', cached: false, available: false },
   };
   const answers: Record<string, Record<string, unknown>> = {
     doc: { info: { ...facts.doc, cached: true }, bytes: pdf },
     unnamed: { info: { ...facts.unnamed, cached: true }, bytes: pdf },
+    // Declared 10 bytes and 5 MiB+1 arrives: over the inline ceiling, so it lands in Downloads.
     lying: { info: { ...facts.lying, cached: true }, bytes: new Uint8Array(5 * 1024 * 1024 + 1) },
   };
   const discarded: string[] = [];
   const downloaded: string[] = [];
+  const downloads = mkdtempSync(join(tmpdir(), 'inbox-downloads-'));
+  const downloadsBefore = process.env.UNIFIED_INBOX_DOWNLOADS_DIR;
+  process.env.UNIFIED_INBOX_DOWNLOADS_DIR = downloads;
   const h = harness({
     whatsapp: {
       async mediaFacts(messageId) {
@@ -342,15 +350,21 @@ test('WhatsApp: an oversized document is refused before it is downloaded, and a 
       'a document with no name or type still saves, as an unnamed binary file',
     );
 
-    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to open here/);
-    assert.deepEqual(downloaded, ['doc', 'unnamed'], 'a document over the ceiling is never fetched: its declared size is enough');
+    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to save/);
+    assert.deepEqual(downloaded, ['doc', 'unnamed'], 'a document over the save ceiling is never fetched: its declared size is enough');
 
-    await assert.rejects(adapter.media({ kind: 'message', id: 'lying', index: 0 }), /too large to open here/);
+    const saved = await adapter.media({ kind: 'message', id: 'lying', index: 0 });
+    assert.equal(saved.savedPath?.startsWith(downloads), true, 'a document too large for a data URL is saved to the Downloads folder');
+    assert.equal(saved.filename, 'dump.zip');
+    assert.equal(existsSync(saved.savedPath ?? ''), true, 'and the file is really there');
     assert.deepEqual(downloaded, ['doc', 'unnamed', 'lying'], 'the declared length is a hint, so what lands is checked');
-    assert.deepEqual(discarded, ['lying'], 'the owner\'s disk keeps no file the panel will never show');
+    assert.deepEqual(discarded, [], 'a saved file is kept, not taken back off the disk');
 
     await assert.rejects(adapter.media({ kind: 'message', id: 'expired', index: 0 }), /no longer available/);
   } finally {
     h.close();
+    if (downloadsBefore === undefined) delete process.env.UNIFIED_INBOX_DOWNLOADS_DIR;
+    else process.env.UNIFIED_INBOX_DOWNLOADS_DIR = downloadsBefore;
+    rmSync(downloads, { recursive: true, force: true });
   }
 });

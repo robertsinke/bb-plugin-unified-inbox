@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { ATTACHMENT_LIMIT, IMAGE_LIMIT, VIDEO_LIMIT, attachmentPayload, mediaDataUrl } from '../src/adapters/media.ts';
+import { ATTACHMENT_LIMIT, IMAGE_LIMIT, SAVE_LIMIT, VIDEO_LIMIT, attachmentPayload, mediaDataUrl } from '../src/adapters/media.ts';
 
 test('media limits retain their separate ceilings', () => {
   assert.equal(ATTACHMENT_LIMIT, 5 * 1024 * 1024);
   assert.equal(IMAGE_LIMIT, 6 * 1024 * 1024);
   assert.equal(VIDEO_LIMIT, 30 * 1024 * 1024);
+  assert.equal(SAVE_LIMIT, 100 * 1024 * 1024);
 });
 
 test('data URLs accept bounded images and videos only', () => {

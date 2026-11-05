@@ -167,6 +167,7 @@ function useMediaSource(media: WhatsAppMedia) {
     setState('loading'); setError('');
     try {
       const result = await rpc.call('media', { account: 'whatsapp', kind: 'message', id: media.messageId });
+      if (!result.dataUrl) throw new Error('This file is in your Downloads folder.');
       if (media.kind !== 'video') mediaCache.set(media.messageId, result.dataUrl);
       setSrc(result.dataUrl);
       setState('idle');
@@ -191,13 +192,16 @@ function AttachmentChips({ account, gmailId, names }: { account: 'gmail-personal
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
   if (!names || names.length === 0) return null;
   async function download(name: string) {
     if (busy || !gmailId) return;
-    setBusy(name); setError('');
+    setBusy(name); setError(''); setSaved('');
     try {
       const result = await rpc.call('media', { account, kind: 'attachment', id: gmailId, filename: name });
-      saveDownload(result.dataUrl, result.filename ?? name);
+      // A file too large for a data URL is already on disk; saying so beats downloading it twice.
+      if (result.savedPath) { setSaved(`${result.filename ?? name} is in your Downloads folder`); return; }
+      saveDownload(result.dataUrl ?? '', result.filename ?? name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not open this attachment.');
     } finally { setBusy(''); }
@@ -206,6 +210,7 @@ function AttachmentChips({ account, gmailId, names }: { account: 'gmail-personal
     {names.map(name => <button type="button" className="ui-attachment" key={name} disabled={!!busy || !gmailId} aria-busy={busy === name} title={gmailId ? `Download ${name}` : 'Reopen this conversation to download'} onClick={() => void download(name)}>
       <Icon name="Paperclip" aria-hidden="true"/><span>{busy === name ? 'Opening…' : name}</span>
     </button>)}
+    {saved && <p className="ui-media-note" role="status">{saved}</p>}
     {error && <p className="ui-attachment-error" role="alert">{error}</p>}
   </div>;
 }
@@ -217,14 +222,17 @@ function WhatsAppDocument({ media }: { media: WhatsAppMedia }) {
   const rpc = useRpc<typeof rpcContract>();
   const [state, setState] = useState<'idle'|'loading'|'error'>('idle');
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
   const name = media.filename || 'Document';
   if (!media.available) return <p className="ui-media-note">{name} is no longer available from WhatsApp.</p>;
   async function save() {
     if (state === 'loading') return;
-    setState('loading'); setError('');
+    setState('loading'); setError(''); setSaved('');
     try {
       const result = await rpc.call('media', { account: 'whatsapp', kind: 'message', id: media.messageId });
-      saveDownload(result.dataUrl, result.filename ?? name);
+      // A file too large for a data URL is already on disk; saying so beats downloading it twice.
+      if (result.savedPath) setSaved(`${result.filename ?? name} is in your Downloads folder`);
+      else saveDownload(result.dataUrl ?? '', result.filename ?? name);
       setState('idle');
     } catch (cause) {
       setState('error');
@@ -235,6 +243,7 @@ function WhatsAppDocument({ media }: { media: WhatsAppMedia }) {
     <button type="button" className="ui-attachment" disabled={state === 'loading'} aria-busy={state === 'loading'} title={`Download ${name}`} onClick={() => void save()}>
       <Icon name="Paperclip" aria-hidden="true"/><span>{state === 'loading' ? 'Opening…' : name}</span>{media.size ? <span className="ui-attachment-size">{formatBytes(media.size)}</span> : null}
     </button>
+    {saved && <p className="ui-media-note" role="status">{saved}</p>}
     {error && <p className="ui-attachment-error" role="alert">{error}</p>}
   </div>;
 }
@@ -304,6 +313,9 @@ function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, source
     setError('');
     try {
       const result = await rpc.call('media', { account: fromThread.account, kind: 'attachment', id: fromThread.gmailId, filename: name });
+      // A file over the inline ceiling was written to Downloads: a draft cannot carry it, so say so rather
+      // than send an empty attachment.
+      if (!result.dataUrl) throw new Error('That file is in your Downloads folder; a draft cannot carry it.');
       const data = result.dataUrl.replace(/^data:[^,]*,/, '');
       const mimeType = result.dataUrl.slice(5, result.dataUrl.indexOf(';')) || 'application/octet-stream';
       const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
@@ -340,7 +352,7 @@ function MessagesAttachment({ chatId, messageId, attachment }: { chatId: string;
   const [state, setState] = useState<'idle'|'loading'|'error'>('idle');
   async function load() {
     setState('loading');
-    try { const result = await rpc.call('media', { account: 'imessage', kind: 'imsg', chatId, messageId, index: attachment.index }); setSrc(result.dataUrl); setState('idle'); }
+    try { const result = await rpc.call('media', { account: 'imessage', kind: 'imsg', chatId, messageId, index: attachment.index }); if (!result.dataUrl) throw new Error('no bytes'); setSrc(result.dataUrl); setState('idle'); }
     catch { setState('error'); }
   }
   if (src) return <div className="ui-bubble-media"><img className="ui-bubble-image" src={src} alt={attachment.name} /></div>;
