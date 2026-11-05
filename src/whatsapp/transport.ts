@@ -7,7 +7,8 @@
 //     and where reading stopped;
 //   - a sender's display name, because only the store can turn a jid into an address-book name, a
 //     push name or a phone number;
-//   - what a media request gets, because only the store knows whether the bytes are cached.
+//   - what a media request gets: the bytes when they are cached, one download through the socket when
+//     they are not, and a report — never a throw and never a wait — when neither is possible.
 //
 // The socket is asked only where a live WhatsApp is the point: a send, and a read receipt beside the
 // recorded cursor. A read that finds no socket is not a failure — that is the whole reason the store
@@ -21,6 +22,7 @@ import type {
   WhatsAppTransportStatus,
 } from '../adapters/types.ts';
 import type { WhatsAppConnection } from './connection.ts';
+import type { MediaDownloader } from './media.ts';
 import { createWhatsAppSendTransport } from './send.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
 import { whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
@@ -35,6 +37,8 @@ export type WhatsAppTransportOptions = {
   connection: () => WhatsAppConnection | undefined;
   /** Where cached media bytes live; defaults to the plugin data dir (`src/whatsapp/media.ts`). */
   dataDir?: string;
+  /** Injected for tests; defaults to Baileys' `downloadMediaMessage` (`src/whatsapp/media.ts`). */
+  download?: MediaDownloader;
 };
 
 /** Baileys' own shape for a message id: uppercase, no separators, unique per device. */
@@ -107,14 +111,44 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       const stored = store.getMessage(messageId);
       const info = stored ? whatsAppMedia(stored) : undefined;
       if (!stored || !info) return {};
-      if (!stored.media_ref) return { info };
       // Baileys is 7.9 MB of bundle and most starts never serve a picture, so the media module — the
-      // one that owns where bytes live — loads on the first cached read (the reason `server.ts`
+      // one that owns where bytes live — loads on the first media read (the reason `server.ts`
       // imports the connection lazily, and `store.ts` its codec).
       const media = await import('./media.ts');
-      const bytes = media.readCachedMedia(options.dataDir ?? media.whatsAppDataDir(), stored.media_ref);
-      if (!bytes) return { info };
-      return { info: { ...info, mime: media.mediaMime(stored.media_ref) }, bytes };
+      const dataDir = options.dataDir ?? media.whatsAppDataDir();
+
+      // Bytes already on disk answer with no socket at all, which is the point of caching them.
+      const cached = stored.media_ref ? media.readCachedMedia(dataDir, stored.media_ref) : undefined;
+      if (cached && stored.media_ref) {
+        return { info: { ...info, cached: true, mime: media.mediaMime(stored.media_ref) }, bytes: cached };
+      }
+
+      // A verdict the transport already recorded is not asked again on every open: WhatsApp-side
+      // expiry is permanent, and re-asking it is the bug docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md records.
+      if (!info.available) return { info };
+
+      // A download needs the socket, because a refusal is answered by asking the phone to re-upload.
+      // With no socket the answer is a report — never a wait, and never a thrown promise the panel
+      // has to draw as a broken picture.
+      const socket = connection()?.getMediaSocket();
+      if (!socket) return { info };
+
+      try {
+        const { mediaRef } = await media.downloadAndCacheMedia(store, messageId, {
+          dataDir,
+          ...(options.download ? { download: options.download } : {}),
+          reuploadRequest: message => socket.updateMediaMessage(message),
+        });
+        const bytes = media.readCachedMedia(dataDir, mediaRef);
+        const served = whatsAppMedia(store.getMessage(messageId) ?? stored) ?? info;
+        return bytes
+          ? { info: { ...served, mime: media.mediaMime(mediaRef) }, bytes }
+          : { info: served };
+      } catch {
+        // The downloader persisted why it failed, so the stored row is the report: `available`
+        // already says whether a later open may try again. Nothing is thrown from this seam.
+        return { info: whatsAppMedia(store.getMessage(messageId) ?? stored) ?? info };
+      }
     },
 
     async markRead({ id, messageId }) {

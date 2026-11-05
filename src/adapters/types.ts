@@ -162,7 +162,7 @@ export interface WhatsAppTransport {
   listChats(input: { cursor?: string; limit: number }): Promise<{ chats: WhatsAppChatRow[]; cursor?: string }>;
   /** The newest `limit` stored messages of one chat, oldest first. */
   openChat(input: { id: string; limit: number }): Promise<WhatsAppMessageRow[]>;
-  /** The stored media descriptor and, when cached, the bytes. Nothing is fetched from WhatsApp. */
+  /** The stored media descriptor, the cached bytes, or one download when the socket is open. */
   loadMedia(messageId: string): Promise<WhatsAppMediaAnswer>;
   /** Records where reading stopped; a live socket also tells WhatsApp. */
   markRead(input: { id: string; messageId?: string }): Promise<void>;
