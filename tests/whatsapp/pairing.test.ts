@@ -8,6 +8,7 @@
 // unpaired source never turns into an error.
 import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -26,8 +27,24 @@ const NOW = 1_000_000;
  * (a fake), the auth store (a shape, so no device identity is written) and the clock. `close` stops
  * the connection the way the host does, so unpairing exercises the stop-before-clear order.
  */
+/**
+ * The module asks `whatsAppAuthDir()` whether an account exists, and `unpair` clears whatever that
+ * answers. Both are pointed at a fresh temp directory: a real pairing on the machine must be neither
+ * seen as "already linked" nor deleted by a test run.
+ */
+function isolateAccountState(t: import('node:test').TestContext): string {
+  const dir = mkdtempSync(join(tmpdir(), 'wa-pairing-auth-'));
+  const previous = process.env.UNIFIED_INBOX_WHATSAPP_AUTH;
+  process.env.UNIFIED_INBOX_WHATSAPP_AUTH = dir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.UNIFIED_INBOX_WHATSAPP_AUTH;
+    else process.env.UNIFIED_INBOX_WHATSAPP_AUTH = previous;
+  });
+  return dir;
+}
+
 async function fixture(t: import('node:test').TestContext, options: { registered?: boolean } = {}) {
-  const dir = await mkdtemp(join(tmpdir(), 'wa-pairing-'));
+  const dir = isolateAccountState(t);
   let clock = NOW;
   const sockets = createSocketFactory();
   let connection: WhatsAppConnection | undefined;
@@ -171,7 +188,8 @@ test('unpair stops the socket and leaves the card unpaired', async (t) => {
   assert.equal((await f.pairing.handle({})).state, 'unpaired');
 });
 
-test('a socket that will not open is a sentence on the card, not a thrown call', async () => {
+test('a socket that will not open is a sentence on the card, not a thrown call', async (t) => {
+  isolateAccountState(t);
   const broken = createWhatsAppPairing({
     open: async () => { throw new Error('WhatsApp socket lock could not be taken'); },
     now: () => NOW,
