@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
+import { createGmailFaceStore, createGmailFaces, type GmailFaces } from './src/gmail-faces';
+import { createPeopleClient } from './src/google-people';
 import { createWhatsAppStore } from './src/whatsapp/store';
 import { createWhatsAppLifecycle } from './src/whatsapp/lifecycle';
 import { clearCachedMedia, whatsAppDataDir } from './src/whatsapp/media';
@@ -41,9 +43,12 @@ import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const whatsappStore = createWhatsAppStore(db);
+  // Where a Gmail row's contact photo is cached (INBOX-38): one table in the same database, so
+  // `clear_cache` takes it with everything else — a photo is the contacts' data, not the cache's.
+  const gmailFaceStore = createGmailFaceStore(db);
   // A clear covers what this plugin stored for WhatsApp: the rows and the media bytes they name.
   // The account state is not here and is not touched — forgetting it is a re-pair.
-  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir())] });
+  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir()), () => gmailFaceStore.clear()] });
   // The plugin's own WhatsApp socket, when one is open. Absent is the normal state for a stranger —
   // and reads still answer, because the store holds what already arrived. The lifecycle, not this
   // module, decides when that is and why a start failed; `src/whatsapp/lifecycle.ts` says how.
@@ -110,10 +115,22 @@ export default function plugin(bb: BbPluginApi) {
   // account is never handed to the other, and concurrent reads wait on one grant per account.
   const gmailCredentials = createGmailCredentials();
 
+  // One face source per account: the address book is the account's own, and so is its grant. The
+  // read happens behind the draw (`src/gmail-faces.ts`), and a refusal is one log line plus initials
+  // rather than an error row: until both accounts are re-consented, every People call answers 403.
+  const gmailFaces = Object.fromEntries(gmailAccounts.map(account => [account, createGmailFaces({
+    account,
+    store: gmailFaceStore,
+    people: createPeopleClient({ account, credentials: gmailCredentials }),
+    note: (line: string) => bb.log.warn(line),
+    now,
+  })])) as Record<GmailAccount, GmailFaces>;
+
   const registry = createRegistry({
     cache,
     // Gmail reads and sends go over HTTPS with the plugin's own credential — no CLI, no shell.
     gmail: account => createGmailClient({ account, credentials: gmailCredentials }),
+    gmailFaces: account => gmailFaces[account],
     whatsapp: whatsappTransport,
     imsg,
     linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mailSenderName, replyRecipients } from '../src/recipients.ts';
+import { mailSenderAddress, mailSenderName, replyRecipients } from '../src/recipients.ts';
 
 test('reply-all removes self and duplicates across headers', () => {
   assert.deepEqual(replyRecipients({from:'Alice <alice@example.com>',replyTo:'Reply <reply@example.com>',to:'Me <me@example.com>, Alice <alice@example.com>',cc:'REPLY@example.com, Bob <bob@example.com>',self:'me@example.com'}), {to:'reply@example.com',cc:'alice@example.com, bob@example.com'});
@@ -16,4 +16,12 @@ test('sender name prefers the display name over the address', () => {
 });
 test('empty or invalid sender does not invent a recipient', () => {
   assert.deepEqual(replyRecipients({from:'',replyTo:'',to:'',cc:'',self:'me@example.com'}),{to:'',cc:''});
+});
+test('the sender address is parsed from the header, lowercased, and never the display name', () => {
+  // INBOX-38: a contact photo is keyed by this address, so it must be an address in one case.
+  assert.equal(mailSenderAddress('Ada Lovelace <Ada@Example.com>'), 'ada@example.com');
+  assert.equal(mailSenderAddress('"Ada, Lovelace" <ada@example.com>'), 'ada@example.com');
+  assert.equal(mailSenderAddress('ada@example.com'), 'ada@example.com');
+  assert.equal(mailSenderAddress(''), '');
+  assert.equal(mailSenderAddress('Undisclosed recipients:;'), '');
 });

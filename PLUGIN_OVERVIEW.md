@@ -18,8 +18,10 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 
 - An **Inbox** page on the sidebar rail: the sources in one list, the open
   conversation on the right, and `#` in any composer to tag one into a thread.
-- Personal and business Gmail: read, archive, read/unread, and a reply /
-  reply-all / forward / new-mail composer that sends.
+- Personal and business Gmail: read, archive, read/unread, a reply /
+  reply-all / forward / new-mail composer that sends, and the sender's Google
+  contact photo in the list where the contacts grant allows it — initials
+  otherwise, and `README.md` says how to re-consent.
 - WhatsApp through the plugin's own socket: paired from the tab by scanning a
   QR, replies to a person or a group, photos, stickers, video, documents, and
   mark-read.
