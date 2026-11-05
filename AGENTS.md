@@ -55,6 +55,10 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 5. **LinkedIn and Gmail sends** pass one gate (`src/adapters/policy.ts`); a send without `allow: 'send'` is
    refused and recorded. LinkedIn writes are recorded, not approved (`decisions/0004`).
 6. **Process leaks belong upstream** (BB), not in a workaround here.
+7. **A finished child is archived, not left lying around.** Once its work is merged and its task is
+   `done`, or once it has reported and its branch is settled, `bb thread archive <id>`. A spawn that
+   died on a provider timeout is archived the moment its replacement exists. The live thread list is
+   how the next reader finds what is still in flight; idle threads from last week are noise in it.
 
 ## Adding a document
 
