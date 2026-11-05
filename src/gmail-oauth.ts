@@ -135,7 +135,10 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
 
   async function read(account: GmailAccount): Promise<GmailCredentialRecord> {
     const record = await readOrNull(account);
-    if (!record) throw new Error(`No Gmail credential for ${account}; expected ${gmailCredentialPath(account, dir)}`);
+    // Name the fix, not the file: a path here would be redacted to `expected [redacted]/<account>.json`
+    // by `redactProviderText`, which tells the reader nothing they can act on (INBOX-16). The
+    // command and the account id both survive scrubbing, so the panel line stays usable.
+    if (!record) throw new Error(`No Gmail credential for ${account}; run bb unified-inbox import-gws-account ${account}`);
     return record;
   }
 

@@ -146,8 +146,13 @@ test('a missing record is a clear error, not ENOENT text', async () => {
   const credentials = createGmailCredentials({ dir, fetch, now: () => NOW });
 
   await assert.rejects(credentials.read('gmail-business'), (error: Error) => {
+    // Pinned verbatim (INBOX-16): the fix is the command, and a path here would be redacted into
+    // `expected [redacted]/gmail-business.json` before the panel ever shows it.
+    assert.equal(
+      error.message,
+      'No Gmail credential for gmail-business; run bb unified-inbox import-gws-account gmail-business',
+    );
     assert.match(error.message, /no gmail credential for gmail-business/i);
-    assert.match(error.message, /gmail-business\.json/);
     assert.doesNotMatch(error.message, /ENOENT/);
     return true;
   });
