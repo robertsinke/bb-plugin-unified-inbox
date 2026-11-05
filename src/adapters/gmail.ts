@@ -1,7 +1,7 @@
 // Gmail adapter (Migration state 3): one instance per Gmail account. It owns the
 // Gmail shapes — thread summaries, HTML bodies, attachments, labels — and asks
-// the injected `gws` runner for every provider call. Failures are normalized
-// here, through the provider-error factory, so raw CLI output never travels
+// the injected transport for every provider call. Failures are normalized here,
+// through the provider-error factory, so raw provider output never travels
 // further.
 import { buildGmailMime } from '../gmail-mime.ts';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
@@ -68,10 +68,14 @@ function nextCursor(page: any): { cursor?: string } {
 export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): Adapter {
   const { cache } = deps;
 
-  /** Every runner failure becomes one scrubbed ProviderError message, at the source boundary. */
-  const gmail = async (args: string[]): Promise<any> => {
+  // Which implementation answers is the wiring's business, so nothing below knows whether a CLI
+  // or the plugin's own HTTPS client is behind this.
+  const mail = deps.gmail(account);
+
+  /** Every transport failure becomes one scrubbed ProviderError message, at the source boundary. */
+  const gmail = async <T>(call: () => Promise<T>): Promise<T> => {
     try {
-      return await deps.gmail.call(account, args);
+      return await call();
     } catch (cause) {
       throw new Error(deps.providerError(account, 'gmail', cause).message);
     }
@@ -83,10 +87,11 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     const bodies = pickGmailBodies(payload as Parameters<typeof pickGmailBodies>[0]);
     let html = bodies.html;
     const size = bodies.htmlAttachmentSize ?? 0;
-    if (!html && bodies.htmlAttachmentId && (size === 0 || size <= HTML_LIMIT)) {
+    const htmlAttachmentId = bodies.htmlAttachmentId;
+    if (!html && htmlAttachmentId && (size === 0 || size <= HTML_LIMIT)) {
       try {
-        const attachment = await gmail(['users', 'messages', 'attachments', 'get', '--params', JSON.stringify({ userId: 'me', messageId, id: bodies.htmlAttachmentId })]);
-        if (typeof attachment?.data === 'string') html = Buffer.from(attachment.data, 'base64url').toString('utf8');
+        const bytes = await gmail(() => mail.attachmentGet({ messageId, id: htmlAttachmentId }));
+        html = Buffer.from(bytes).toString('utf8');
       } catch { html = ''; }
     }
     if (!html || html.length > HTML_LIMIT) return undefined;
@@ -94,24 +99,22 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   }
 
   async function thread(id: string, format: 'full' | 'metadata' = 'full') {
-    return gmail(['users', 'threads', 'get', '--params', JSON.stringify({ userId: 'me', id, format })]);
+    return gmail(() => mail.threadGet({ id, format }));
   }
 
   async function attachment(gmailId: string, filename: string): Promise<MediaPayload> {
-    const message = await gmail(['users', 'messages', 'get', '--params', JSON.stringify({ userId: 'me', id: gmailId, format: 'full' })]);
+    const message = await gmail(() => mail.messageGet({ id: gmailId, format: 'full' }));
     const part = findGmailAttachment(message?.payload, filename);
     if (!part) throw new Error('This attachment is no longer in the message.');
     if (part.size !== undefined && part.size > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
-    let data = part.data;
-    if (!data && part.attachmentId) {
-      const fetched = await gmail(['users', 'messages', 'attachments', 'get', '--params', JSON.stringify({ userId: 'me', messageId: gmailId, id: part.attachmentId })]);
-      if (typeof fetched?.data === 'string') data = fetched.data;
-    }
-    if (!data) throw new Error('This attachment could not be read.');
-    const bytes = Buffer.from(data, 'base64url');
+    // The transport decodes once and hands back bytes; only an inline part still holds base64.
+    const attachmentId = part.attachmentId;
+    let bytes: Uint8Array | undefined = part.data ? Buffer.from(part.data, 'base64url') : undefined;
+    if (!bytes?.length && attachmentId) bytes = await gmail(() => mail.attachmentGet({ messageId: gmailId, id: attachmentId }));
+    if (!bytes?.length) throw new Error('This attachment could not be read.');
     if (bytes.length > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
     const mime = /^[\w.+-]+\/[\w.+-]+$/.test(part.mimeType) ? part.mimeType : 'application/octet-stream';
-    return { dataUrl: `data:${mime};base64,${bytes.toString('base64')}`, mime, filename: part.filename, size: bytes.length };
+    return { dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, mime, filename: part.filename, size: bytes.length };
   }
 
   function row(t: any, headersOnly = false): Conversation {
@@ -143,7 +146,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // refresh", so writing a second page into it would make the next refresh look like the
     // inbox lost rows — and each refresh replaces that account's entries wholesale anyway.
     if (cursor) {
-      const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit, pageToken: cursor })]);
+      const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit, pageToken: cursor }));
       // Gmail's listing gives an id and a snippet and nothing else: the subject, sender, date and
       // read state a row shows live in the thread. So an older page costs one read per row, and
       // the two cheapening moves are both here. `metadata` is exactly what a row needs — headers,
@@ -156,11 +159,11 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       }));
       return { items, ...nextCursor(page) };
     }
-    const profile = await gmail(['users', 'getProfile', '--params', JSON.stringify({ userId: 'me' })]);
+    const profile = await gmail(() => mail.profile());
     const historyId = String(profile.historyId ?? '');
     // The listing runs even when the cached rows are still current, because it is what says
     // whether a page exists beyond this one: "show older" is offered on evidence, not guessed.
-    const page = await gmail(['users', 'threads', 'list', '--params', JSON.stringify({ userId: 'me', labelIds: ['INBOX'], maxResults: limit })]);
+    const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit }));
     const next = nextCursor(page);
     const complete = storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined);
     if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete) return { items: storedItems.slice(0, limit), ...next };
@@ -232,7 +235,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     async action(kind: ActionKind, id: string, _opts?: ActionOptions): Promise<ActionResult> {
       if (canChange(CAPABILITIES, kind)) {
         const body = kind === 'archive' ? { removeLabelIds: ['INBOX'] } : kind === 'read' ? { removeLabelIds: ['UNREAD'] } : { addLabelIds: ['UNREAD'] };
-        await gmail(['users', 'threads', 'modify', '--params', JSON.stringify({ userId: 'me', id }), '--json', JSON.stringify(body)]);
+        await gmail(() => mail.threadsModify({ id, ...body }));
         return { status: kind === 'archive' ? 'Archived.' : 'Updated.' };
       }
       throw new Error('This action is not supported.');
@@ -242,7 +245,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       if (draft.kind !== 'gmail' || draft.account !== account) throw new Error('This draft belongs to another account.');
       try {
         const raw = await buildGmailMime({ from: SELF[account], to: draft.to, cc: draft.cc ?? '', bcc: draft.bcc ?? '', subject: draft.subject, text: draft.text, inReplyTo: draft.inReplyTo, references: draft.references, attachments: draft.attachments });
-        const response = await deps.gmail.send(account, { raw, threadId: draft.threadId });
+        const response = await mail.sendRaw({ raw, threadId: draft.threadId });
         if (typeof response?.id !== 'string' || !response.id) throw new Error('Send result missing message ID');
         return { status: 'Sent.' };
       } catch {

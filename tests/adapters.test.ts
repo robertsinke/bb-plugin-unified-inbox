@@ -12,6 +12,7 @@ import { createRegistry, registryCapabilities } from '../src/adapters/index.ts';
 import { toProviderError } from '../src/adapters/provider-error.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { RegistryDeps } from '../src/adapters/deps.ts';
+import type { GmailCall } from './adapters/harness.ts';
 
 
 const LINKEDIN_MAILBOX = 'urn:li:fsd_profile:ACoAAExample';
@@ -37,13 +38,12 @@ const GMAIL_THREAD = {
   }],
 };
 
-function gmail(args: string[]): unknown {
-  const call = args[1];
-  if (call === 'getProfile') return { historyId: '77' };
-  if (call === 'threads' && args[2] === 'list') return { threads: [{ id: 't1', historyId: '77', snippet: 'See you at six' }] };
-  if (call === 'threads' && args[2] === 'get') return GMAIL_THREAD;
-  if (call === 'threads' && args[2] === 'modify') return {};
-  throw new Error(`unexpected gws call: ${args.join(' ')}`);
+function gmail(call: GmailCall): any {
+  if (call.method === 'profile') return { historyId: '77' };
+  if (call.method === 'threadsList') return { threads: [{ id: 't1', historyId: '77', snippet: 'See you at six' }] };
+  if (call.method === 'threadGet') return GMAIL_THREAD;
+  if (call.method === 'threadsModify') return {};
+  throw new Error(`unexpected Gmail call: ${call.method}`);
 }
 
 function whatsapp(tool: string): unknown {
@@ -66,17 +66,31 @@ function imsg(method: string): unknown {
   throw new Error(`unexpected Messages call: ${method}`);
 }
 
-function fixture(sendReply: unknown = { id: 'm-sent' }) {
+function fixture(sendReply: any = { id: 'm-sent' }) {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   const calls: string[] = [];
   const sent: { raw: string | Uint8Array; threadId?: string }[] = [];
   const deps: RegistryDeps = {
     cache,
-    gmail: {
-      call: async (account, args) => { calls.push(`gmail:${account}:${args[1]}`); return gmail(args); },
-      send: async (_account, message) => { calls.push('gmail:send'); sent.push(message); return sendReply; },
-    },
+    gmail: account => ({
+      profile: async () => { calls.push(`gmail:${account}:getProfile`); return gmail({ method: 'profile' }); },
+      threadsList: async input => {
+        calls.push(`gmail:${account}:threads:list`);
+        return gmail({ method: 'threadsList', input });
+      },
+      threadGet: async input => {
+        calls.push(`gmail:${account}:threads:get`);
+        return gmail({ method: 'threadGet', input });
+      },
+      threadsModify: async input => {
+        calls.push(`gmail:${account}:threads:modify`);
+        return gmail({ method: 'threadsModify', input });
+      },
+      messageGet: async input => { calls.push(`gmail:${account}:messages:get`); return gmail({ method: 'messageGet', input }); },
+      attachmentGet: async input => { calls.push(`gmail:${account}:messages:attachments`); return gmail({ method: 'attachmentGet', input }); },
+      sendRaw: async message => { calls.push('gmail:send'); sent.push(message); return sendReply; },
+    }),
     whatsapp: {
       call: async tool => { calls.push(`whatsapp:${tool}`); return whatsapp(tool); },
       // The loopback API is down in every test: group previews fall back and media has no source.

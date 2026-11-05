@@ -8,7 +8,7 @@ import { createInboxCache } from '../../src/inbox-cache.ts';
 import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
-import type { Account, Adapter } from '../../src/adapters/types.ts';
+import type { Account, Adapter, GmailClient } from '../../src/adapters/types.ts';
 
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
@@ -51,15 +51,32 @@ const GMAIL_MESSAGE_WITH_ATTACHMENT = {
   },
 };
 
-function gmailResponse(args: string[]): unknown {
-  const resource = args[1];
-  const action = args[2];
-  if (resource === 'getProfile') return { historyId: '77' };
-  if (resource === 'threads' && action === 'list') return { threads: [{ id: 't1', historyId: '77', snippet: 'See you at six' }] };
-  if (resource === 'threads' && action === 'get') return GMAIL_THREAD;
-  if (resource === 'threads' && action === 'modify') return {};
-  if (resource === 'messages' && action === 'get') return GMAIL_MESSAGE_WITH_ATTACHMENT;
-  throw new Error(`unexpected gws call: ${args.join(' ')}`);
+/** A typed call crossing the transport seam: which endpoint, and the input it carried. */
+export interface GmailCall {
+  method: keyof GmailClient;
+  input?: any;
+}
+
+/** The label each typed call is recorded under: the endpoint the suite has always named. */
+const GMAIL_LABEL: Record<keyof GmailClient, string> = {
+  profile: 'getProfile',
+  threadsList: 'threads:list',
+  threadGet: 'threads:get',
+  threadsModify: 'threads:modify',
+  messageGet: 'messages:get',
+  attachmentGet: 'messages:attachments',
+  sendRaw: 'send',
+};
+
+function gmailResponse(call: GmailCall): unknown {
+  if (call.method === 'profile') return { historyId: '77' };
+  if (call.method === 'threadsList') return { threads: [{ id: 't1', historyId: '77', snippet: 'See you at six' }] };
+  if (call.method === 'threadGet') return GMAIL_THREAD;
+  if (call.method === 'threadsModify') return {};
+  if (call.method === 'messageGet') return GMAIL_MESSAGE_WITH_ATTACHMENT;
+  // The default message carries its bytes inline, so nothing reaches for this fetch by default.
+  if (call.method === 'attachmentGet') return Buffer.from('attachment bytes');
+  throw new Error(`unexpected Gmail call: ${call.method}`);
 }
 
 function whatsappResponse(tool: string): unknown {
@@ -96,7 +113,7 @@ export interface Harness {
 }
 
 export interface HarnessOptions {
-  gmailCall?: (account: Account, args: string[]) => unknown;
+  gmailCall?: (account: Account, call: GmailCall) => unknown;
   linkedInThread?: () => Promise<unknown>;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
@@ -110,17 +127,25 @@ export function harness(options: HarnessOptions = {}): Harness {
   const sent: Harness['sent'] = [];
   const deps: RegistryDeps = {
     cache,
-    gmail: {
-      call: async (account, args) => {
-        const action = args[2] && !args[2].startsWith('--') ? `:${args[2]}` : '';
-        calls.push(`gmail:${account}:${args[1]}${action}`);
-        return options.gmailCall ? options.gmailCall(account, args) : gmailResponse(args);
-      },
-      send: async (account, message) => {
-        calls.push(`gmail:${account}:send`);
-        sent.push({ account, ...message });
-        return { id: 'm-sent' };
-      },
+    // One typed client per account: no test in this directory spawns a CLI or opens a socket.
+    gmail: account => {
+      const answer = (call: GmailCall): any => {
+        calls.push(`gmail:${account}:${GMAIL_LABEL[call.method]}`);
+        return options.gmailCall ? options.gmailCall(account, call) : gmailResponse(call);
+      };
+      return {
+        profile: async () => answer({ method: 'profile' }),
+        threadsList: async (input = {}) => answer({ method: 'threadsList', input }),
+        threadGet: async input => answer({ method: 'threadGet', input }),
+        threadsModify: async input => answer({ method: 'threadsModify', input }),
+        messageGet: async input => answer({ method: 'messageGet', input }),
+        attachmentGet: async input => answer({ method: 'attachmentGet', input }),
+        sendRaw: async input => {
+          calls.push(`gmail:${account}:${GMAIL_LABEL.sendRaw}`);
+          sent.push({ account, ...input });
+          return { id: 'm-sent' };
+        },
+      };
     },
     whatsapp: {
       call: async tool => { calls.push(`whatsapp:${tool}`); return whatsappResponse(tool); },

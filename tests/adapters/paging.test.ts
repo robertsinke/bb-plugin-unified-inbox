@@ -33,19 +33,30 @@ function thread(id: string, subject: string, date: number) {
   };
 }
 
-type GmailCall = string[];
+type GmailCall = { method: string; input?: any };
 type WhatsCall = { tool: string; args: Record<string, unknown> };
 
-function fixture(gmail: (args: string[]) => unknown, whatsapp?: (call: WhatsCall) => unknown) {
+function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: (call: WhatsCall) => unknown) {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   const calls: { gmail: GmailCall[]; whatsapp: WhatsCall[] } = { gmail: [], whatsapp: [] };
+  /** Every typed endpoint answers through the one stub, and the call itself is the record. */
+  const client = (method: string) => async (input?: any) => {
+    const call = { method, input };
+    calls.gmail.push(call);
+    return gmail(call);
+  };
   const deps = {
     cache,
-    gmail: {
-      call: async (_account: string, args: string[]) => { calls.gmail.push(args); return gmail(args); },
-      send: async () => ({ id: 'sent' }),
-    },
+    gmail: () => ({
+      profile: client('profile'),
+      threadsList: client('threadsList'),
+      threadGet: client('threadGet'),
+      threadsModify: client('threadsModify'),
+      messageGet: client('messageGet'),
+      attachmentGet: client('attachmentGet'),
+      sendRaw: async (input: unknown) => { calls.gmail.push({ method: 'sendRaw', input }); return { id: 'sent' }; },
+    }),
     whatsapp: {
       call: async (tool: string, args: Record<string, unknown>) => {
         const call = { tool, args };
@@ -62,10 +73,9 @@ function fixture(gmail: (args: string[]) => unknown, whatsapp?: (call: WhatsCall
   return { cache, calls, deps, close: () => db.close() };
 }
 
-/** The `--params` payload of a `gws` call, which is where Gmail reads its arguments. */
-function params(args: string[]): any {
-  const at = args.indexOf('--params');
-  return at === -1 ? {} : JSON.parse(args[at + 1]);
+/** The input a typed Gmail read carried, which is where its arguments travel. */
+function input(call: GmailCall): any {
+  return call.input ?? {};
 }
 
 test('Gmail pages with its own token, and an older page leaves the cache on the newest rows', async () => {
@@ -73,11 +83,11 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     '': { threads: [{ id: 't1', historyId: '77', snippet: 'Newest' }], nextPageToken: 'page-2' },
     'page-2': { threads: [{ id: 't2', historyId: '70', snippet: 'Older' }] },
   };
-  const f = fixture(args => {
-    if (args[1] === 'getProfile') return { historyId: '77' };
-    if (args[1] === 'threads' && args[2] === 'list') return pages[params(args).pageToken ?? ''] ?? { threads: [] };
-    if (args[1] === 'threads' && args[2] === 'get') return thread(params(args).id, params(args).id === 't1' ? 'Newest' : 'Older', params(args).id === 't1' ? 2 : 1);
-    throw new Error(`unexpected gws call: ${args.join(' ')}`);
+  const f = fixture(call => {
+    if (call.method === 'profile') return { historyId: '77' };
+    if (call.method === 'threadsList') return pages[input(call).pageToken ?? ''] ?? { threads: [] };
+    if (call.method === 'threadGet') return thread(input(call).id, input(call).id === 't1' ? 'Newest' : 'Older', input(call).id === 't1' ? 2 : 1);
+    throw new Error(`unexpected Gmail call: ${call.method}`);
   });
   try {
     const adapter = createGmailAdapter(f.deps, 'gmail-personal');
@@ -93,11 +103,11 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     const older = await adapter.list('page-2');
     assert.deepEqual(older.items.map(item => item.id), ['t2'], 'the token answers with the page after the newest one');
     assert.equal(older.cursor, undefined, 'the last page says nothing older exists');
-    assert.equal(params(f.calls.gmail.filter(args => args[2] === 'list').at(-1)!).pageToken, 'page-2', 'the token travels to Gmail as pageToken');
+    assert.equal(input(f.calls.gmail.filter(call => call.method === 'threadsList').at(-1)!).pageToken, 'page-2', 'the token travels to Gmail as pageToken');
     // A row needs headers, dates and labels, not a body: `metadata` is the read that answers it,
     // and it measured 0.7s against 1.35s for a full thread — the whole difference between a page
     // that lands in seconds and one that takes forty.
-    const reads = f.calls.gmail.filter(args => args[2] === 'get').map(args => params(args));
+    const reads = f.calls.gmail.filter(call => call.method === 'threadGet').map(input);
     assert.deepEqual([...new Set(reads.map(read => read.format))], ['full', 'metadata'], 'the newest page keeps its full read; an older page reads metadata');
     assert.equal(reads.at(-1)!.format, 'metadata');
     assert.equal(older.items[0].attachments, undefined, 'a metadata read cannot name attachments, so an older row does not pretend it has none');
@@ -107,7 +117,7 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     // The gateway asks for a smaller older page than the twenty-row first load, because a Gmail
     // row is one CLI read and twenty of them per account did not fit the panel's ceiling.
     await adapter.list('page-2', { limit: 10 });
-    assert.equal(params(f.calls.gmail.filter(args => args[2] === 'list').at(-1)!).maxResults, 10, 'the page size the gateway names is the page size Gmail is asked for');
+    assert.equal(input(f.calls.gmail.filter(call => call.method === 'threadsList').at(-1)!).maxResults, 10, 'the page size the gateway names is the page size Gmail is asked for');
   } finally {
     f.close();
   }

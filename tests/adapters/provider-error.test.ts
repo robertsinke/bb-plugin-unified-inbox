@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { redactProviderText, toProviderError } from '../../src/adapters/provider-error.ts';
+import { GmailApiError } from '../../src/gmail-client.ts';
 import type { ProviderError } from '../../src/adapters/types.ts';
 
 const TOKEN = 'ya29.a0AfH6SMBx9TcdefGHijklmnopqrstuvwxyz1234567890';
@@ -61,4 +62,15 @@ test('toProviderError handles non-Error causes without throwing', () => {
   assert.ok(err.message.includes('imsg imessage request failed'));
   assert.ok(err.message.includes('timeout'));
   assert.ok((err as ProviderError).message.length <= 300);
+});
+
+// Two transports, one classifier. The HTTPS client reports the provider's HTTP status and reason;
+// the argv runner reports its exit code and stderr. Both must arrive at the same template with their
+// own code, so a 401 and a CLI exit stay distinguishable after the transport swap.
+test('both Gmail transports keep their own failure code through one classifier', () => {
+  const overHttps = toProviderError('gmail-personal', 'gmail', new GmailApiError(401, 'authError', 'Invalid Credentials', 'GET /users/me/profile'));
+  assert.match(overHttps.message, /^gmail gmail-personal request failed \(401; credentials, invalid\)/);
+
+  const overArgv = toProviderError('gmail-personal', 'gmail', Object.assign(new Error('Command failed: /usr/local/bin/gws gmail users threads list'), { code: 2, stderr: 'error[auth]: Token has been expired or revoked.' }));
+  assert.match(overArgv.message, /^gmail gmail-personal request failed \(2; expired, token\)/, 'the CLI exit code and its hints are unchanged');
 });

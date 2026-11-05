@@ -1,6 +1,7 @@
 // The plugin's own Gmail API client (INBOX-10, plan unit U2).
 //
-// One method per endpoint `src/adapters/gmail.ts` asks for, over HTTPS. Each builds its URL and
+// One method per endpoint `src/adapters/gmail.ts` asks for, over HTTPS: this is the `GmailClient`
+// contract from `src/adapters/types.ts`, implemented without a CLI. Each call builds its URL and
 // query from typed input, so `format`, `metadataHeaders`, `labelIds`, `maxResults` and
 // `pageToken` are arguments rather than a JSON blob handed to a CLI.
 //
@@ -11,7 +12,10 @@
 // Nothing here synthesizes provider failure text: a non-2xx answer throws `GmailApiError` carrying
 // the HTTP status, the provider's `reason` and the provider's `message`. `toProviderError` then
 // classifies it, so the `expired` / `invalid` / `token` hints survive the transport.
-import type { GmailAccount } from './adapters/types.ts';
+import type {
+  GmailAccount, GmailClient, GmailMessage, GmailProfile, GmailReadInput, GmailSentMessage,
+  GmailThread, GmailThreadPage,
+} from './adapters/types.ts';
 import type { GmailCredentials } from './gmail-oauth.ts';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1';
@@ -21,9 +25,6 @@ export type GmailFetch = (
   url: string,
   init: { method: string; headers: Record<string, string>; body?: string },
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
-
-/** How much of a thread or message Gmail returns: everything, headers only, or ids only. */
-export type GmailFormat = 'full' | 'metadata' | 'minimal';
 
 /**
  * What a `metadata` read must carry to fill a cached row: the fields `gmail.ts` reads off
@@ -51,65 +52,9 @@ export class GmailApiError extends Error {
   }
 }
 
-export interface GmailProfile {
-  emailAddress?: string;
-  messagesTotal?: number;
-  threadsTotal?: number;
-  historyId?: string;
-}
-
-/** A thread listing page. `nextPageToken` is absent on the last page. */
-export interface GmailThreadPage {
-  threads?: { id?: string; historyId?: string; snippet?: string }[];
-  nextPageToken?: string;
-  resultSizeEstimate?: number;
-}
-
-/** A thread as Gmail returns it; the adapter models `messages` and `payload`. */
-export interface GmailThread {
-  id?: string;
-  historyId?: string;
-  messages?: any[];
-}
-
-/** A message as Gmail returns it; the adapter models `payload` and `labelIds`. */
-export interface GmailMessage {
-  id?: string;
-  threadId?: string;
-  labelIds?: string[];
-  snippet?: string;
-  internalDate?: string;
-  payload?: any;
-}
-
-export interface GmailSentMessage {
-  id?: string;
-  threadId?: string;
-  labelIds?: string[];
-}
-
-export interface GmailReadInput {
-  id: string;
-  format?: GmailFormat;
-  /** Only sent for a `metadata` read; defaulted to the headers a cached row needs. */
-  metadataHeaders?: string[];
-}
-
-/** The seven calls behind the adapter's eight call sites (`attachmentGet` serves two). */
-export interface GmailClient {
-  profile(): Promise<GmailProfile>;
-  threadsList(input?: { labelIds?: string[]; maxResults?: number; pageToken?: string }): Promise<GmailThreadPage>;
-  threadGet(input: GmailReadInput): Promise<GmailThread>;
-  threadsModify(input: { id: string; addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<GmailThread>;
-  messageGet(input: GmailReadInput): Promise<GmailMessage>;
-  /** The attachment's bytes, base64url decoded. */
-  attachmentGet(input: { messageId: string; id: string }): Promise<Uint8Array>;
-  sendRaw(input: { raw: Uint8Array; threadId?: string }): Promise<GmailSentMessage>;
-}
-
+/** Where the token comes from: U1's store owns it, and only the token is this module's business. */
 export interface GmailClientOptions {
   account: GmailAccount;
-  /** U1's store; only the token is this module's business. */
   credentials: Pick<GmailCredentials, 'accessToken'>;
   fetch?: GmailFetch;
 }
