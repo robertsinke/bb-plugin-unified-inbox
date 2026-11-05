@@ -60,6 +60,12 @@ stage() {
 say()  { printf '  %s\n' "$1"; }
 # step "..." is a numbered-feeling action the human takes in the browser.
 step() { printf '  %s•%s %s\n' "$BLUE" "$RESET" "$1"; }
+# mtime FILE prints the file's modification time in seconds, or nothing if it is absent.
+mtime() {
+  [[ -e "$1" ]] || return 0
+  if stat -f %m "$1" >/dev/null 2>&1; then stat -f %m "$1"; else stat -c %Y "$1" 2>/dev/null; fi
+}
+
 note() { printf '  %s%s%s\n' "$DIM" "$1" "$RESET"; }
 warn() { printf '  %s⚠ %s%s\n' "$YELLOW" "$1" "$RESET"; }
 
@@ -310,24 +316,61 @@ else
 fi
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
-stage "Check what this account can read"
-state=$(grant_state "$CREDENTIAL")
-if [[ "$state" == '{"error":true}' || -z "$state" ]]; then
-  warn "$ACCOUNT: could not read its grant"
+stage "Check that a face actually arrives"
+note "Three facts, in the order that answers the question: what the plugin said, what a draw"
+note "made it ask for, and what it stored. The grant alone proves nothing — a project with no"
+note "API enabled answers 403 with a perfect grant, and that is where tonight went."
+if ! command -v bb >/dev/null 2>&1; then
+  warn "no bb on PATH, so the plugin cannot be asked; open the inbox and look at a Gmail row"
   SKIPPED+=("check $ACCOUNT")
 else
-  contacts=$(count_of "$state" contacts)
-  mail=$(count_of "$state" mail)
-  note "A record imported from gws carries no scope list, so the plugin's own line is the check:"
-  note "bb plugin logs unified-inbox | grep 'Gmail faces'"
-  if [[ "$mail" != "0" ]]; then
-    warn "$ACCOUNT lost a mail scope in the re-consent: mail reading and sending will stop"
-    SKIPPED+=("re-consent $ACCOUNT with the full scope set")
-  elif [[ "$contacts" == "0" ]]; then
-    printf '  %s✓%s %s can read contacts; faces appear on the next refresh\n' "$GREEN" "$RESET" "$ACCOUNT"
+  line=$(bb plugin logs unified-inbox 2>/dev/null | grep -i "gmail faces for $ACCOUNT" | tail -1)
+  # A line written before this account's grant was replaced says nothing about the grant now: the
+  # plugin wrote "not granted" for hours before the consent, and reading it as current would send
+  # the owner back to a consent screen that is already correct.
+  granted_at=$(mtime "$CREDENTIAL")
+  line_at=$(printf '%s' "$line" | sed -n 's/.*"ts":\([0-9]*\).*/\1/p')
+  if [[ -n "$line_at" && -n "$granted_at" ]] && (( line_at / 1000 < granted_at )); then
+    note "the last word about faces predates this grant, so it is not about it"
+    line=""
+  fi
+  case "$line" in
+    *'is not granted'*) warn "the plugin says this account is missing a contact scope:"
+                        note "$(printf '%s' "$line" | sed 's/.*"message":"//;s/".*//' | cut -c1-200)" ;;
+    '')                 note "the plugin has complained about nothing since the grant, which is the good case" ;;
+    *)                  note "the plugin's last line about faces:"
+                        note "$(printf '%s' "$line" | sed 's/.*"message":"//;s/".*//' | cut -c1-200)" ;;
+  esac
+  ask=$(mktemp); ok_sync=0
+  printf '{"account":"%s"}' "$ACCOUNT" > "$ask"
+  bb plugin rpc call unified-inbox sync --input-file "$ask" --json >/dev/null 2>&1 \
+    && ok_sync=1 || ok_sync=0
+  rm -f "$ask"
+  [[ "$ok_sync" == 0 ]] \
+    && warn "the sync did not answer; a face may still arrive on the next refresh in the panel"
+  # A draw answers from the address book and queues the addresses it does not know yet, so the
+  # table is read after the ask, not before it.
+  sleep 3
+  DB="$HOME/.bb/plugins/unified-inbox/data.db"
+  if [[ -f "$DB" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    ready=$(sqlite3 "$DB" "SELECT count(*) FROM gmail_faces WHERE account='$ACCOUNT' AND state='ready';" 2>/dev/null || printf 0)
+    failed=$(sqlite3 "$DB" "SELECT count(*) FROM gmail_faces WHERE account='$ACCOUNT' AND state='failed';" 2>/dev/null || printf 0)
+    if [[ "${ready:-0}" -gt 0 ]]; then
+      printf '  %s✓%s %s senders have a Google photo and %s have none; those rows draw a face from the next refresh\n' \
+        "$GREEN" "$RESET" "$ready" "$failed"
+      note "the senders with none are not a fault: most mail comes from machines and aliases"
+    elif [[ "${failed:-0}" -gt 0 ]]; then
+      warn "$ACCOUNT read an address book of $failed senders and matched no photo"
+      note "the grant works; if that looks wrong, the photo URL shape is the suspect"
+      note "bb plugin logs unified-inbox   (and: sqlite3 $DB \"SELECT * FROM gmail_faces LIMIT 5\")"
+    else
+      warn "no sender has been asked yet, so there is nothing to judge"
+      note "open the inbox, press Refresh, then run this stage again with --from 5"
+      SKIPPED+=("a face for $ACCOUNT")
+    fi
   else
-    warn "$ACCOUNT is still missing $contacts contact scope(s); faces stay off for it"
-    SKIPPED+=("re-consent $ACCOUNT")
+    warn "cannot read the plugin's table (no sqlite3, or no data.db yet)"
+    SKIPPED+=("check $ACCOUNT")
   fi
 fi
 say ""
