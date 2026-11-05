@@ -337,14 +337,18 @@ unchanged, `grep -rn "whatsagent" .` finds only history in `docs/`.
 - **Ban exposure.** Not removable in code. Mitigation: one socket, durable state, deliberate re-pair, no
   automatic sends, and the exposure note drawn before the QR.
 
+## Recorded decisions
+
+The state-and-socket decision this plan implements is now recorded, not deferred: [0009](../decisions/0009-the-plugin-owns-the-whatsapp-account.md)
+alongside [0008](../decisions/0008-the-plugin-owns-the-gmail-credential.md) for the credential it mirrors.
+
 ## Scope boundaries
 
 - **Non-goals:** audio and document playback, archived chats, contact avatars from the protocol, a send queue
   or outbox, multi-account WhatsApp, history older than what the store holds, and any change to the other four
   sources.
-- **Deferred to follow-up work:** WhatsAgent's `pacer.ts` (452 lines) if the owner later wants queued sends; an
-  ADR recording that the plugin owns the WhatsApp account state and the socket lives in-process, the way
-  `decisions/0008` records the Gmail credential; message receipts (delivered/read), which neither program
+- **Deferred to follow-up work:** WhatsAgent's `pacer.ts` (452 lines) if the owner later wants queued sends;
+  message receipts (delivered/read), which neither program
   subscribes to today; a migration path for anyone who wants their existing WhatsAgent session moved into the
   plugin rather than pairing again.
 - **Unchanged by this plan:** `src/adapters/policy.ts`, `src/mail-approval.ts`, `src/adapters/provider-error.ts`,
