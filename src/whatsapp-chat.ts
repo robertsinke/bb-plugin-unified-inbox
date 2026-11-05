@@ -33,10 +33,15 @@ export function whatsappSender(fromMe: boolean, senderName: string, group: boole
 /**
  * What a row shows when it has no text of its own: a picture speaks for itself, anything else names
  * its type — a call or a protocol stub is not an empty bubble.
+ *
+ * A document keeps its label even though it has media, because its chip carries the filename and the
+ * list preview has nothing better; the bubble hides the label it would repeat, so `[document]` is
+ * read in a chat list and nowhere else.
  */
-export function whatsappText(text: string, type: string, hasMedia: boolean): string {
+export function whatsappText(text: string, type: string, media?: { kind: string }): string {
   if (text.trim()) return text;
-  return hasMedia || !type || type === 'text' ? '' : `[${type}]`;
+  if (media && media.kind !== 'document') return '';
+  return !type || type === 'text' ? '' : `[${type}]`;
 }
 
 /** WhatsApp stub/protocol events have no readable text and only add noise. */

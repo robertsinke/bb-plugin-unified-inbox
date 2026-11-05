@@ -195,7 +195,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
     assert.deepEqual(await adapter.action('read', '15551234567@s.whatsapp.net'), { status: 'Marked read.' });
     assert.equal(canChange(caps, 'archive'), false);
     await assert.rejects(adapter.action('archive', '15551234567@s.whatsapp.net'), /not supported for WhatsApp/);
-    await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no image or video/);
+    await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no media/);
   } finally { f.done(); }
 });
 

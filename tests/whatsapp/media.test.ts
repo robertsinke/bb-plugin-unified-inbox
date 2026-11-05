@@ -10,7 +10,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WAMessage } from 'baileys';
 import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
-import { classifyMediaFailure, clearCachedMedia, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
+import { classifyMediaFailure, clearCachedMedia, documentFacts, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
 import { createWhatsAppStore } from '../../src/whatsapp/store.ts';
 
 const DAY = 86_400;
@@ -112,4 +112,53 @@ test('a cache clear takes the media bytes with the rows that named them', () => 
   // Nothing cached yet is not an error, and a second clear removes nothing.
   assert.equal(clearCachedMedia(dataDir), 0);
   assert.equal(clearCachedMedia(join(dataDir, 'absent')), 0);
+});
+
+test('a document answers its own name, size and type, and an unusable envelope answers nothing', () => {
+  const envelope = (message: unknown) => JSON.stringify({ key: { id: 'D1' }, message });
+  assert.deepEqual(
+    documentFacts(envelope({ documentWithCaptionMessage: { message: { documentMessage: { fileName: ' Contract v2.pdf ', mimetype: 'application/pdf', fileLength: 1024 } } } })),
+    { filename: 'Contract v2.pdf', size: 1024, mime: 'application/pdf' },
+    'the wrapper WhatsApp actually sends is unwrapped, and the name is trimmed',
+  );
+  assert.deepEqual(documentFacts(envelope({ imageMessage: { mimetype: 'image/jpeg' } })), undefined, 'a picture is not a document');
+  assert.deepEqual(documentFacts(envelope({ documentMessage: { fileName: 'no-mime.zip' } })), { filename: 'no-mime.zip' });
+  assert.deepEqual(documentFacts(null), undefined);
+  assert.deepEqual(documentFacts('{ not json'), undefined, 'a row whose envelope will not parse is a read without facts, not a crash');
+});
+
+test('a document is cached as the file it was sent as, and a strange name still stays inside media/', async () => {
+  const db = new Database(':memory:');
+  const store = createWhatsAppStore(db);
+  try {
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [
+        {
+          key: { id: 'DOC1', remoteJid: 'alice@s.whatsapp.net', fromMe: false },
+          messageTimestamp: 1_700_000_000,
+          message: { documentMessage: { fileName: 'Contract v2.pdf', mimetype: 'application/pdf' } },
+        } as unknown as WAMessage,
+        {
+          key: { id: 'DOC2', remoteJid: 'alice@s.whatsapp.net', fromMe: false },
+          messageTimestamp: 1_700_000_001,
+          // A sender chooses the name, so the extension is bounded and never a path.
+          message: { documentMessage: { fileName: '../../../etc/passwd', mimetype: 'text/plain' } },
+        } as unknown as WAMessage,
+      ],
+    });
+    const dataDir = mkdtempSync(join(tmpdir(), 'wa-media-doc-'));
+    const download = async () => Buffer.from('%PDF-1.4');
+
+    const first = await downloadAndCacheMedia(store, 'DOC1', { dataDir, download });
+    assert.match(first.mediaRef, /^media\/[0-9a-f]{64}\.pdf$/, `a document keeps its own extension, got ${first.mediaRef}`);
+    assert.equal(readFileSync(join(dataDir, first.mediaRef), 'utf8'), '%PDF-1.4');
+
+    const second = await downloadAndCacheMedia(store, 'DOC2', { dataDir, download });
+    assert.ok(second.mediaRef.startsWith(join('media', '')), 'the ref stays under media/');
+    assert.equal(second.mediaRef.includes('passwd'), false, 'a path in the name never becomes part of the path');
+    assert.equal(statSync(join(dataDir, second.mediaRef)).mode & 0o777, 0o600);
+  } finally {
+    db.close();
+  }
 });

@@ -420,12 +420,14 @@ test('a 5xx is temporary and a later open may try again', async () => {
   }
 });
 
-test('audio and documents are not media the panel draws: no descriptor, no download', async () => {
+test('audio is not media the panel draws, and a document is', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'wa-serve-'));
   const { db, store } = fixture();
   try {
     store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 2_000 });
     store.upsertMessage(message({ id: 'voice', chat_jid: DM, ts: 1_000, type: 'audio' }));
+    // A row with no envelope is still a document: the chip is named from what arrives, and an older
+    // row that kept no envelope must not make the file disappear from the thread.
     store.upsertMessage(message({ id: 'doc', chat_jid: DM, ts: 2_000, type: 'document' }));
     let downloads = 0;
     const transport = createWhatsAppTransport({
@@ -436,11 +438,56 @@ test('audio and documents are not media the panel draws: no descriptor, no downl
     });
 
     assert.deepEqual(await transport.loadMedia('voice'), {}, 'an audio message stays a text placeholder');
-    assert.deepEqual(await transport.loadMedia('doc'), {}, 'so does a document');
-    assert.equal(downloads, 0);
+    assert.deepEqual((await transport.loadMedia('doc')).info, { messageId: 'doc', kind: 'document', cached: false, available: true });
+    assert.equal(downloads, 0, 'nothing is fetched until the download asks');
 
     const rows = await transport.openChat({ id: DM, limit: 60 });
-    assert.deepEqual(rows.map(row => row.media), [undefined, undefined], 'the panel is not told these are pictures');
+    assert.deepEqual(rows.map(row => row.media?.kind), [undefined, 'document']);
+  } finally {
+    db.close();
+  }
+});
+
+test('a document is named and sized from its envelope, and its bytes are saved under its own name', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'wa-doc-'));
+  const { db, store } = fixture();
+  try {
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [{
+        key: { id: 'DOC1', remoteJid: DM, fromMe: false },
+        messageTimestamp: 2_000,
+        message: { documentWithCaptionMessage: { message: { documentMessage: { fileName: 'Contract v2.pdf', mimetype: 'application/pdf', fileLength: 1_024, caption: 'Sign this' } } } },
+      } as unknown as WAMessage],
+    });
+    const transport = createWhatsAppTransport({
+      store,
+      dataDir,
+      connection: withReupload(async msg => msg),
+      download: async () => Buffer.from('%PDF-1.4'),
+    });
+
+    const [row] = await transport.openChat({ id: DM, limit: 60 });
+    assert.deepEqual(row.media, {
+      messageId: 'DOC1',
+      kind: 'document',
+      cached: false,
+      available: true,
+      filename: 'Contract v2.pdf',
+      size: 1_024,
+      mime: 'application/pdf',
+    }, 'the name, size and type exist only in the envelope, and the caption stays the message text');
+
+    const served = await transport.loadMedia('DOC1');
+    assert.deepEqual([served.info?.filename, served.info?.mime, served.info?.cached], ['Contract v2.pdf', 'application/pdf', true]);
+    const ref = store.getMessage('DOC1')?.media_ref ?? '';
+    assert.ok(ref.endsWith('.pdf'), `the cached file keeps the extension it was sent under, got ${ref}`);
+    assert.deepEqual([...(served.bytes ?? [])], [...Buffer.from('%PDF-1.4')]);
+
+    // Serving it again is a read from disk, with the envelope's type still the answer.
+    const offline = createWhatsAppTransport({ store, dataDir, connection: down });
+    const second = await offline.loadMedia('DOC1');
+    assert.deepEqual([second.info?.mime, second.info?.filename], ['application/pdf', 'Contract v2.pdf']);
   } finally {
     db.close();
   }

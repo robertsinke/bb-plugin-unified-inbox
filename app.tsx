@@ -177,6 +177,16 @@ function useMediaSource(media: WhatsAppMedia) {
   }, [media.messageId, rpc, src, state]);
   return { src, state, error, load };
 }
+/** Hand a served file to the browser: the bytes stay out of the page, and the name is the sender's. */
+function saveDownload(dataUrl: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  link.rel = 'noopener';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
 function AttachmentChips({ account, gmailId, names }: { account: 'gmail-personal'|'gmail-business'; gmailId?: string; names?: string[] }) {
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState('');
@@ -187,13 +197,7 @@ function AttachmentChips({ account, gmailId, names }: { account: 'gmail-personal
     setBusy(name); setError('');
     try {
       const result = await rpc.call('media', { account, kind: 'attachment', id: gmailId, filename: name });
-      const link = document.createElement('a');
-      link.href = result.dataUrl;
-      link.download = result.filename ?? name;
-      link.rel = 'noopener';
-      document.body.append(link);
-      link.click();
-      link.remove();
+      saveDownload(result.dataUrl, result.filename ?? name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not open this attachment.');
     } finally { setBusy(''); }
@@ -202,6 +206,35 @@ function AttachmentChips({ account, gmailId, names }: { account: 'gmail-personal
     {names.map(name => <button type="button" className="ui-attachment" key={name} disabled={!!busy || !gmailId} aria-busy={busy === name} title={gmailId ? `Download ${name}` : 'Reopen this conversation to download'} onClick={() => void download(name)}>
       <Icon name="Paperclip" aria-hidden="true"/><span>{busy === name ? 'Opening…' : name}</span>
     </button>)}
+    {error && <p className="ui-attachment-error" role="alert">{error}</p>}
+  </div>;
+}
+/**
+ * A document in a thread: a chip named after the file, saved on one click under the same ceiling as
+ * a mail attachment. Expired media is a line, not a control — the bytes are gone and no retry helps.
+ */
+function WhatsAppDocument({ media }: { media: WhatsAppMedia }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [state, setState] = useState<'idle'|'loading'|'error'>('idle');
+  const [error, setError] = useState('');
+  const name = media.filename || 'Document';
+  if (!media.available) return <p className="ui-media-note">{name} is no longer available from WhatsApp.</p>;
+  async function save() {
+    if (state === 'loading') return;
+    setState('loading'); setError('');
+    try {
+      const result = await rpc.call('media', { account: 'whatsapp', kind: 'message', id: media.messageId });
+      saveDownload(result.dataUrl, result.filename ?? name);
+      setState('idle');
+    } catch (cause) {
+      setState('error');
+      setError(cause instanceof Error ? cause.message : 'Could not open this file.');
+    }
+  }
+  return <div className="ui-attachments" aria-label="Document">
+    <button type="button" className="ui-attachment" disabled={state === 'loading'} aria-busy={state === 'loading'} title={`Download ${name}`} onClick={() => void save()}>
+      <Icon name="Paperclip" aria-hidden="true"/><span>{state === 'loading' ? 'Opening…' : name}</span>{media.size ? <span className="ui-attachment-size">{formatBytes(media.size)}</span> : null}
+    </button>
     {error && <p className="ui-attachment-error" role="alert">{error}</p>}
   </div>;
 }
@@ -322,7 +355,7 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account }: { me
     <span className="ui-sr">{m.fromMe ? 'You' : m.sender || 'WhatsApp'}</span>
     {!inlineSender && !m.fromMe && m.sender && <div className="ui-bubble-sender">{m.sender}</div>}
     {m.replyContext && <p className="ui-media-note">Reply to an earlier message</p>}
-    {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
+    {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
     {m.edited && <span className="ui-media-note">Edited</span>}
