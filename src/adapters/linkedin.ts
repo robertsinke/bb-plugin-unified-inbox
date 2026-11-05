@@ -7,6 +7,7 @@ import { canChange } from './capability.ts';
 import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
+import { LINKEDIN_WALK_START } from '../linkedin-page.ts';
 import type { LinkedInProbePayload } from '../linkedin-page-session.ts';
 import { readLinkedInImage } from '../linkedin-media.ts';
 import {
@@ -33,10 +34,13 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false,
 const ACCOUNT = 'linkedin';
 
 /**
- * Background refresh uses the persistent browser profile, just like a manual sync.
- * There is no page size because the walk never advances past the newest conversations.
+ * Conversations per older page. Measured against the live page: the older-conversations query answers
+ * 20 rows in 0.6–1.3 s with their participants and newest message inlined, and refuses a `count` much
+ * above this one by answering an empty page.
  */
-const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 };
+const PAGE = 20;
+
+const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000, pageSize: PAGE };
 
 /** What an invitation answer needs, kept from the last read: the sharedSecret the page sends as its
  * validationToken, the inviter's profile id, and the person's first name for the toast. */
@@ -58,6 +62,11 @@ function isMessageId(id: string): boolean {
 export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
   /** The last read's invitation action params, keyed by the invitation urn a row carries. */
   const invitationActions = new Map<string, InvitationParams>();
+  /**
+   * Both reads answer where the walk starts: a source showing rows has an older page behind them, and
+   * the gateway seeds its one cursor from whichever of `list` or `sync` runs first.
+   */
+  const fromNewestPage = (rows: Conversation[]) => (rows.length ? { cursor: LINKEDIN_WALK_START } : {});
   const { cache } = deps;
 
   /**
@@ -86,9 +95,19 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
     source: SOURCE,
     capabilities: () => CAPABILITIES,
 
-    /** Cached rows only: the live read is `sync`, which the gateway calls on its own. */
-    async list(_cursor?: string, _opts?: OpenOptions): Promise<ListResult> {
-      return { items: cache.list().filter(item => item.account === ACCOUNT) as Conversation[], errors: [] };
+    /**
+     * The newest page is the cache, and the walk starts from it. No cursor is a request for that page,
+     * which answers `LINKEDIN_WALK_START` without touching the page: where the page behind it begins is
+     * not something this plugin can compute, so knowing it is the first press's own cost. A cursored
+     * call is one live page and nothing else — an older page is drawn, never cached, because
+     * `cache.save` replaces an account's rows wholesale and this page is older than the newest one.
+     */
+    async list(cursor?: string): Promise<ListResult> {
+      const rows = cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
+      if (cursor === undefined) return { items: rows, errors: [], ...fromNewestPage(rows) };
+      const page = await deps.linkedInPage.older(cursor, PAGE);
+      const items = linkedinItems({ conversations: page.conversations }).map((item): Conversation => ({ ...item, account: ACCOUNT }));
+      return { items, errors: [], ...(page.nextCursor ? { cursor: page.nextCursor } : {}) };
     },
 
     /**
@@ -224,7 +243,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         // The probe just proved the rows are current, so it may also hand over the mailbox it
         // learned: a refresh that skips must not leave the next one asking who it is again.
         if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));
-        return { items: cached(), updatedAt: Date.now(), reason: decision.action };
+        return { items: cached(), updatedAt: Date.now(), reason: decision.action, ...fromNewestPage(cached()) };
       }
 
       const listed = await deps.linkedInPage.list();
@@ -240,7 +259,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       cache.save(ACCOUNT, items);
       // Only a probe can describe the state this read produced, so the marker is stored from it.
       if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));
-      return { items, updatedAt: Date.now(), reason: decision.action };
+      return { items, updatedAt: Date.now(), reason: decision.action, ...fromNewestPage(items) };
     },
   };
 }

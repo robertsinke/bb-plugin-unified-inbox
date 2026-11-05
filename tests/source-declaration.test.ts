@@ -53,9 +53,10 @@ test('every source declares a name, an icon and a cadence, and a page size only 
   const h = harness();
   try {
     assert.deepEqual(Object.keys(registrySources(h.registry)).sort(), [...accounts].sort(), 'the registry hands over one declaration per source');
-    // The sources whose `list` takes a cursor back: Gmail's two mailboxes, WhatsApp's offsets, and
-    // Messages, whose page is a slice of the whole chat database it reads in one call.
-    const canPage: Account[] = ['gmail-personal', 'gmail-business', 'whatsapp', 'imessage'];
+    // The sources whose `list` takes a cursor back: Gmail's two mailboxes, WhatsApp's offsets,
+    // Messages, whose page is a slice of the whole chat database it reads in one call, and LinkedIn,
+    // whose page is the paged read its own web app scrolls.
+    const canPage: Account[] = ['gmail-personal', 'gmail-business', 'whatsapp', 'imessage', 'linkedin'];
     for (const account of accounts) {
       const declared = h.registry[account].source;
       assert.ok(declared.label.trim().length > 0, `${account} says what a person calls it`);

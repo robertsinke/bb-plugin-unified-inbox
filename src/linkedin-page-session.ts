@@ -50,6 +50,12 @@ export type LinkedInThreadPayload = { messages: unknown[] };
 export type LinkedInProbePayload = LinkedInListPayload;
 
 /**
+ * One older page: the conversation rows, and where the one after it begins. An empty `nextCursor`
+ * is the page saying the walk ends here — it is not a failure, and it is not a cursor.
+ */
+export type LinkedInOlderPayload = { conversations: unknown[]; nextCursor: string };
+
+/**
  * What a replayed write came back as: whether it landed, with the status the page reported. A
  * refusal is an outcome, not a throw — the caller phrases the reason in its own words.
  */
@@ -73,6 +79,8 @@ export type LinkedInRecorder = { writes: RecordedWrite[]; seen: LinkedInRecorder
 export interface LinkedInPageSession {
   list(): Promise<LinkedInListPayload>;
   thread(id: string): Promise<LinkedInThreadPayload>;
+  /** One page of conversations older than a cursor; the payload says where the next one begins. */
+  older(cursor: string, count: number): Promise<LinkedInOlderPayload>;
   probe(mailbox?: string): Promise<LinkedInProbePayload>;
   /** Replays one recorded write once; a refusal is an outcome, an unreadable answer an error. */
   replay(write: RecordedWrite): Promise<ReplayOutcome>;
@@ -114,6 +122,12 @@ function threadPayload(value: unknown): LinkedInThreadPayload {
   const payload = payloadOf(value);
   if (!Array.isArray(payload.messages)) throw new Error(`LinkedIn did not return a usable response. ${SIGN_IN_HINT}`);
   return { messages: payload.messages };
+}
+
+function olderPayload(value: unknown): LinkedInOlderPayload {
+  const payload = payloadOf(value);
+  if (!Array.isArray(payload.conversations) || typeof payload.nextCursor !== 'string') throw new Error(`LinkedIn did not return a usable response. ${SIGN_IN_HINT}`);
+  return { conversations: payload.conversations, nextCursor: payload.nextCursor };
 }
 
 /**
@@ -185,6 +199,10 @@ export function createLinkedInPageSession(
       // The boundary is the urn, not the caller: nothing that is not a conversation reaches the page.
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
       return threadPayload(await evaluate(linkedinPageExpression({ mode: 'thread', id })));
+    },
+    /** One page further back. The cursor is the adapter's, and the page read refuses one it cannot quote. */
+    async older(cursor: string, count: number) {
+      return olderPayload(await evaluateListRead(linkedinPageExpression({ mode: 'older', cursor, count })));
     },
     async probe(mailbox?: string) {
       return listPayload(await evaluateListRead(linkedinProbeExpression(mailbox)));

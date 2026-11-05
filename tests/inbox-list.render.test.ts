@@ -9,6 +9,7 @@ import { JSDOM } from 'jsdom';
 const require = createRequire(import.meta.url);
 
 import { loadComponent } from './jsdom-harness.ts';
+import { loadFootnote } from '../src/inbox-footnote.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true });
 install(dom);
@@ -18,7 +19,7 @@ const DECLARED = {
   'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
   whatsapp: { label: 'WhatsApp', icon: 'MessageCircle', pollIntervalMs: 8_000, pageSize: 50 },
   imessage: { label: 'Messages', icon: 'MessageCircle', pollIntervalMs: 8_000, pageSize: 20 },
-  linkedin: { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 },
+  linkedin: { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000, pageSize: 20 },
 };
 
 /** A hit for a conversation the list never loaded: it exists only in the store's own corpus. */
@@ -81,10 +82,9 @@ test('a hit the list never loaded is drawn with its own title, and the footnote 
     // Nothing loaded yet: the list is empty, and the footnote already says what each source loads.
     assert.deepEqual([...host.querySelectorAll('.ui-row-name')].map(row => row.textContent), []);
     const footnote = host.querySelector('.ui-footnote')?.textContent ?? '';
-    for (const [size, label] of [['10', 'Personal Gmail'], ['10', 'Inhouse Gmail'], ['50', 'WhatsApp'], ['20', 'Messages']]) {
+    for (const [size, label] of [['10', 'Personal Gmail'], ['10', 'Inhouse Gmail'], ['50', 'WhatsApp'], ['20', 'Messages'], ['20', 'LinkedIn']]) {
       assert.ok(footnote.includes(`${size} ${label}`), `the footnote says ${label} loads ${size}: ${footnote}`);
     }
-    assert.ok(!footnote.includes('LinkedIn'), 'a source that declares no page promises none');
 
     // Type a query; the panel searches once the typing pauses, on its own heartbeat.
     const search = host.querySelector('.ui-search');
@@ -102,6 +102,14 @@ test('a hit the list never loaded is drawn with its own title, and the footnote 
     flushSync(() => root.unmount());
     host.remove();
   }
+});
+
+test('a source that declares no page promises none', () => {
+  // Every shipped source pages today, so the rule is kept by its own case: the sentence names only
+  // the sources that declared a page, and a source that cannot page is not in it.
+  const footnote = loadFootnote({ linkedin: { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 } } as never);
+  assert.equal(footnote.includes('LinkedIn'), false);
+  assert.equal(footnote, '');
 });
 
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */

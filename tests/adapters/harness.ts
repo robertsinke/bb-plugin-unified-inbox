@@ -12,6 +12,8 @@ import type { Account, Adapter, GmailClient, GmailTransport, WhatsAppTransport }
 
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
+/** A conversation older than the newest page, as an older page reports it. */
+export const LINKEDIN_OLDER_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-older)';
 
 /** A pending invitation the read carries, with the params its answer needs. */
 export const LINKEDIN_INVITE = 'urn:li:fs_relInvitation:12345';
@@ -169,6 +171,8 @@ export interface HarnessOptions {
   /** Replace the whole Gmail transport factory, for a test that needs the real client. */
   gmail?: GmailTransport;
   linkedInThread?: () => Promise<unknown>;
+  /** Replace one older-page read, for the walk the adapter does past the newest page. */
+  linkedInOlder?: (cursor: string, count: number) => unknown;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
   /** Replace the Messages chat list, for the paging and search-corpus cases. */
@@ -229,6 +233,12 @@ export function harness(options: HarnessOptions = {}): Harness {
       thread: async () => {
         calls.push('linkedin:thread');
         return options.linkedInThread ? await options.linkedInThread() as { messages: unknown[] } : { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
+      },
+      older: async (cursor: string, count: number) => {
+        calls.push(`linkedin:older@${cursor}/${count}`);
+        return options.linkedInOlder
+          ? await options.linkedInOlder(cursor, count) as { conversations: unknown[]; nextCursor: string }
+          : { conversations: [{ id: LINKEDIN_OLDER_ID, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false }], nextCursor: '' };
       },
       probe: async mailbox => {
         calls.push(mailbox ? `linkedin:probe@${mailbox}` : 'linkedin:probe');
