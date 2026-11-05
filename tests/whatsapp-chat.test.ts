@@ -1,6 +1,19 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappTitle } from '../src/whatsapp-chat.ts';
+import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappText, whatsappTitle } from '../src/whatsapp-chat.ts';
+
+test('a message with media of its own names itself only where a control cannot', () => {
+  const photo = { kind: 'image' };
+  const note = { kind: 'audio' };
+  assert.equal(whatsappText('', 'image', photo), '', 'a picture speaks for itself in the bubble');
+  assert.equal(whatsappText('', 'sticker', { kind: 'sticker' }), '');
+  assert.equal(whatsappText('', 'video', { kind: 'video' }), '');
+  assert.equal(whatsappText('', 'audio', note), '[audio]', 'a chat list has no player, so the row names its type');
+  assert.equal(whatsappText('', 'document', { kind: 'document' }), '[document]');
+  assert.equal(whatsappText('Hear this', 'audio', note), 'Hear this', 'a caption is the message text');
+  assert.equal(whatsappText('', 'call'), '[call]', 'a call is not an empty bubble');
+  assert.equal(whatsappText('', 'text'), '');
+});
 
 test('group previews name the sender, matching WhatsApp', () => {
   assert.equal(groupPreview('Ja', false, 'Marnin'), 'Marnin: Ja');

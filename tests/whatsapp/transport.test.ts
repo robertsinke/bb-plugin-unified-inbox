@@ -478,7 +478,7 @@ test('a 5xx is temporary and a later open may try again', async () => {
   }
 });
 
-test('audio is not media the panel draws, and a document is', async () => {
+test('audio is media the panel draws, and a document is', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'wa-serve-'));
   const { db, store } = fixture();
   try {
@@ -495,12 +495,59 @@ test('audio is not media the panel draws, and a document is', async () => {
       download: async () => { downloads += 1; return Buffer.from('never'); },
     });
 
-    assert.deepEqual(await transport.loadMedia('voice'), {}, 'an audio message stays a text placeholder');
+    assert.deepEqual((await transport.loadMedia('voice')).info, { messageId: 'voice', kind: 'audio', cached: false, available: true }, 'an audio message has bytes a player asks for');
     assert.deepEqual((await transport.loadMedia('doc')).info, { messageId: 'doc', kind: 'document', cached: false, available: true });
     assert.equal(downloads, 0, 'nothing is fetched until the download asks');
 
     const rows = await transport.openChat({ id: DM, limit: 60 });
-    assert.deepEqual(rows.map(row => row.media?.kind), [undefined, 'document']);
+    assert.deepEqual(rows.map(row => row.media?.kind), ['audio', 'document']);
+  } finally {
+    db.close();
+  }
+});
+
+test('a voice note is labelled from its envelope, and its declared type is the one served', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'wa-audio-'));
+  const { db, store } = fixture();
+  try {
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 2_000 });
+    // The shape a live row holds: `fileLength` is a decimal string after BufferJSON, and the type
+    // carries its codecs, which a data URL must not.
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [{
+        key: { id: 'AUD1', remoteJid: DM, fromMe: false },
+        messageTimestamp: 2_000,
+        message: { audioMessage: { mimetype: 'audio/ogg; codecs=opus', fileLength: '175401', seconds: 69, ptt: true } },
+      } as unknown as WAMessage],
+    });
+    const transport = createWhatsAppTransport({
+      store,
+      dataDir,
+      ...withReupload(async msg => msg),
+      download: async () => Buffer.from('opus bytes'),
+    });
+
+    const [row] = await transport.openChat({ id: DM, limit: 60 });
+    assert.deepEqual(row.media, {
+      messageId: 'AUD1',
+      kind: 'audio',
+      cached: false,
+      available: true,
+      seconds: 69,
+      voice: true,
+      size: 175_401,
+      mime: 'audio/ogg; codecs=opus',
+    }, 'the length, the voice flag, the size and the type exist only in the envelope');
+
+    const served = await transport.loadMedia('AUD1');
+    assert.deepEqual([served.info?.mime, served.info?.cached], ['audio/ogg; codecs=opus', true], 'the envelope names the type, not the .ogg the bytes were cached under');
+    assert.deepEqual([...(served.bytes ?? [])], [...Buffer.from('opus bytes')]);
+
+    // Serving it again is a read from disk, and the envelope is still the answer.
+    const offline = createWhatsAppTransport({ store, dataDir, ...down });
+    const second = await offline.mediaFacts('AUD1');
+    assert.deepEqual([second?.mime, second?.seconds, second?.voice], ['audio/ogg; codecs=opus', 69, true]);
   } finally {
     db.close();
   }

@@ -34,13 +34,14 @@ export function whatsappSender(fromMe: boolean, senderName: string, group: boole
  * What a row shows when it has no text of its own: a picture speaks for itself, anything else names
  * its type — a call or a protocol stub is not an empty bubble.
  *
- * A document keeps its label even though it has media, because its chip carries the filename and the
- * list preview has nothing better; the bubble hides the label it would repeat, so `[document]` is
- * read in a chat list and nowhere else.
+ * A document or a voice note keeps its label even though it has media, because its control does not
+ * speak for it in a chat list — a document chip carries a filename, an audio player is not drawn there
+ * at all. The bubble hides the label it would repeat, so `[document]` and `[audio]` are read in a chat
+ * list and nowhere else.
  */
 export function whatsappText(text: string, type: string, media?: { kind: string }): string {
   if (text.trim()) return text;
-  if (media && media.kind !== 'document') return '';
+  if (media && media.kind !== 'document' && media.kind !== 'audio') return '';
   return !type || type === 'text' ? '' : `[${type}]`;
 }
 

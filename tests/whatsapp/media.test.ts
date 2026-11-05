@@ -10,7 +10,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WAMessage } from 'baileys';
 import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
-import { classifyMediaFailure, clearCachedMedia, discardCachedMedia, documentFacts, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
+import { classifyMediaFailure, clearCachedMedia, discardCachedMedia, audioFacts, documentFacts, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
 import { createWhatsAppStore } from '../../src/whatsapp/store.ts';
 
 const DAY = 86_400;
@@ -136,6 +136,26 @@ test('a document size survives the round trip through the store as a decimal str
   // A long that arrives as {low, high}, and one that is nonsense: a count or nothing, never a throw.
   assert.equal(documentFacts(JSON.stringify({ message: { documentMessage: { fileName: 'a.bin', fileLength: { low: 1024, high: 0 } } } }))?.size, 1024);
   assert.equal(documentFacts(JSON.stringify({ message: { documentMessage: { fileName: 'b.bin', fileLength: 'not a count' } } }))?.size, undefined);
+});
+
+// The voice notes in a live account, reduced to the four fields their envelopes hold.
+test('a voice note answers its length, its voice flag, its type and its declared size', () => {
+  const envelope = (message: unknown) => JSON.stringify({ key: { id: 'A1' }, message });
+  assert.deepEqual(
+    audioFacts(envelope({ audioMessage: { mimetype: 'audio/ogg; codecs=opus', fileLength: '175401', seconds: 69, ptt: true } })),
+    { seconds: 69, voice: true, size: 175_401, mime: 'audio/ogg; codecs=opus' },
+    'the largest size the account declares, as the store writes it: a decimal string',
+  );
+  assert.deepEqual(
+    audioFacts(envelope({ audioMessage: { mimetype: 'audio/mp4', seconds: 12, ptt: false } })),
+    { seconds: 12, mime: 'audio/mp4' },
+    'a forwarded audio file is the same type without the flag, so it is drawn as an audio file',
+  );
+  assert.deepEqual(audioFacts(envelope({ audioMessage: { fileLength: 5_184 } })), { size: 5_184 }, 'a partial envelope answers what it has');
+  assert.deepEqual(audioFacts(envelope({ audioMessage: { seconds: 0 } })), {}, 'a zero length is not a length');
+  assert.deepEqual(audioFacts(envelope({ imageMessage: { mimetype: 'image/jpeg' } })), undefined, 'a picture is not a voice note');
+  assert.deepEqual(audioFacts(null), undefined);
+  assert.deepEqual(audioFacts('{ not json'), undefined, 'an envelope that will not parse is a read without facts, not a crash');
 });
 
 test('a document is cached as the file it was sent as, and a strange name still stays inside media/', async () => {

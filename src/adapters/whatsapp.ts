@@ -12,7 +12,7 @@ import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
-import { IMAGE_LIMIT, mediaDataUrl, SAVE_LIMIT, VIDEO_LIMIT } from './media.ts';
+import { AUDIO_LIMIT, IMAGE_LIMIT, mediaDataUrl, SAVE_LIMIT, VIDEO_LIMIT } from './media.ts';
 import { savedPayload } from '../media-save.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
@@ -157,18 +157,20 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
   /** The ceiling a request is held to: what the panel will draw, or what may be saved to the disk. */
   function ceilingFor(kind: NonNullable<Message['media']>['kind']): number {
     if (kind === 'document') return SAVE_LIMIT;
-    return kind === 'video' ? VIDEO_LIMIT : IMAGE_LIMIT;
+    return kind === 'video' ? VIDEO_LIMIT : kind === 'audio' ? AUDIO_LIMIT : IMAGE_LIMIT;
   }
 
   function tooLarge(kind: NonNullable<Message['media']>['kind']): Error {
     if (kind === 'document') return new Error('This attachment is too large to save.');
+    if (kind === 'audio') return new Error('This audio is too large to play here.');
     return new Error(kind === 'video' ? 'This video is too large to play here.' : 'This image is too large to show here.');
   }
 
   /**
-   * The bytes behind one message: a picture or a video is bounded by what the frame will draw, a
-   * document by what may be saved to the disk, and a document is named by its own filename so the saved
-   * file opens as the file it was sent as.
+   * The bytes behind one message: a picture, a video or a voice note is bounded by what the panel will
+   * draw, a document by what may be saved to the disk, and a document is named by its own filename so the
+   * saved file opens as the file it was sent as. A voice note is played whole — no range request, no
+   * stream — because every one measured is a few hundred kilobytes or less (see `AUDIO_LIMIT`).
    *
    * A declared size over the ceiling is refused before the download, because a file nobody will keep
    * must not be fetched at all — a sender chooses its size, and `{dataDir}/media` is only ever emptied by
