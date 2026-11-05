@@ -109,6 +109,10 @@ export function fakeWhatsAppTransport(
       calls.push('whatsapp:mediaFacts');
       return undefined;
     },
+    // Nothing is stored for a picture by default: a row draws initials until a test hands one over.
+    avatarUrl() {
+      return undefined;
+    },
     async loadMedia() {
       calls.push('whatsapp:loadMedia');
       return {};

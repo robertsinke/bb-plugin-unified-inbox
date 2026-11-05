@@ -92,6 +92,7 @@ test('an open socket reports connected, and a received message is reported witho
   fake.emit('connection.update', { connection: 'open' });
   assert.equal(connection.status(), 'connected');
   assert.equal(connection.getSendSocket(), undefined, 'a fake with no send methods is not a send socket');
+  assert.equal(connection.getAvatarSocket(), undefined, 'a fake with no picture method is not a picture socket');
 
   fake.emit('messages.upsert', {
     type: 'notify',

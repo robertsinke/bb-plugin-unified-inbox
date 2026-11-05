@@ -22,6 +22,7 @@ import type {
   WhatsAppTransportStatus,
 } from '../adapters/types.ts';
 import type { WhatsAppConnection, WhatsAppMediaSocket } from './connection.ts';
+import { createWhatsAppAvatars } from './avatars.ts';
 import type { MediaDownloader } from './media.ts';
 import { createWhatsAppSendTransport } from './send.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
@@ -62,6 +63,9 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
   /** The connection the plugin has: the one this module can see, or one a call that needed it opened. */
   const held = () => connection() ?? ensured;
   const send = createWhatsAppSendTransport(() => held()?.getSendSocket());
+  // Pictures answer from the store on the draw and are asked for afterwards, so this seam stays a
+  // read: a list never waits on WhatsApp for a face (INBOX-29, `src/whatsapp/avatars.ts`).
+  const avatars = createWhatsAppAvatars({ store, socket: () => held()?.getAvatarSocket() });
 
   /** Opens one for a call that needs a socket; the refusal is the lifecycle's to keep and to word. */
   async function ensureConnection(): Promise<WhatsAppConnection | undefined> {
@@ -151,6 +155,11 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     async mediaFacts(messageId) {
       const stored = store.getMessage(messageId);
       return stored ? await factsOf(stored) : undefined;
+    },
+
+    /** A store read by design: a row draws what is known now, and a missing picture is asked for later. */
+    avatarUrl(jid) {
+      return avatars.url(jid);
     },
 
     async discardMedia(messageId) {

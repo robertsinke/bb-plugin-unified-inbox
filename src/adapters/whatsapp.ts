@@ -9,6 +9,7 @@
 // service for its preview sender, an open 1:1 asked again for its title, and media asked for a
 // loopback URL. All three are stored rows here — the sender, the name and the cached bytes.
 import { whatsappListUnchanged } from '../sync-plan.ts';
+import { sourceAvatarUrl } from '../avatar-url.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
@@ -293,8 +294,21 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
       throw new Error('This action is not supported for WhatsApp.');
     },
 
+    /**
+     * The row as the panel draws it: its group mosaic names, and its picture. The picture is a store
+     * read (`transport.avatarUrl`), so a row whose face WhatsApp has not answered yet draws initials
+     * now; the ask runs behind the draw and the next page has the URL. `src/avatar-url.ts` is the one
+     * gate a URL passes before the panel may load it — applied here, not in the transport, so what is
+     * stored stays what WhatsApp said.
+     */
     decorate(item: Conversation): Conversation {
-      return item.id.endsWith('@g.us') ? { ...item, participants: participants(item.id) } : item;
+      const avatarUrl = sourceAvatarUrl(transport.avatarUrl(item.id), 'whatsapp');
+      const group = item.id.endsWith('@g.us');
+      return {
+        ...item,
+        ...(group ? { participants: participants(item.id) } : {}),
+        ...(avatarUrl ? { avatarUrl } : {}),
+      };
     },
 
     async repairThread(id: string, messages: Message[]): Promise<Message[]> {
