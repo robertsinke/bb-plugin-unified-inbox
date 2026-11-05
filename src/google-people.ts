@@ -45,7 +45,7 @@ export class PeopleApiError extends Error {
 /** A person as both listings return it: only the two masks this module asks for. */
 interface Person {
   emailAddresses?: { value?: string }[];
-  photos?: { url?: string }[];
+  photos?: { url?: string; default?: boolean }[];
 }
 
 export interface PeopleClientOptions {
@@ -63,11 +63,18 @@ function describeFailure(body: unknown, text: string): { reason?: string; messag
   return { reason, message };
 }
 
-/** One person's photo, keyed by every address it answers for: a face belongs to the person. */
+/**
+ * One person's photo, keyed by every address it answers for: a face belongs to the person.
+ *
+ * `default: true` is Google's own placeholder — a green tile with one letter — and it is what the
+ * People API answers for a contact with no picture. 482 of the owner's 490 saved contacts carry one,
+ * so drawing them replaced a good-looking initial with the same initial in Google's colours. A
+ * placeholder is not a face: it is recorded as no photo and the row keeps what it had.
+ */
 function photosOf(people: Person[] | undefined): GooglePhoto[] {
   const photos: GooglePhoto[] = [];
   for (const person of people ?? []) {
-    const url = person.photos?.find(photo => typeof photo?.url === 'string' && photo.url)?.url;
+    const url = person.photos?.find(photo => typeof photo?.url === 'string' && photo.url && photo.default !== true)?.url;
     if (!url) continue;
     for (const email of person.emailAddresses ?? []) {
       const address = typeof email?.value === 'string' ? email.value.trim().toLowerCase() : '';
