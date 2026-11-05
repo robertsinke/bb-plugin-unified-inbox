@@ -74,7 +74,7 @@ from `inbox_cache`, and 6,186 stored WhatsApp messages are outside the index.
 - **Cursor:** **there is none.** `chats.list` takes `limit` only — no offset, no "after" id (verified against
   `imsg 0.20.0`'s own help and the captured protocol doc at `docs/research/imessage/sources/imsg-rpc.md`).
   `messages.history` takes `start`, `end` and `limit` but no offset; `messages.after` does carry a real,
-  resumable ROWID cursor with `has_more` and a next cursor — but it walks oldest-first, so it is a catch-up
+  resumable ROWID cursor with a flag that says there is more and a next cursor — but it walks oldest-first, so it is a catch-up
   cursor, not a "show me older conversations" one.
 - **What that means today:** the whole `chat.db` holds **105 chats**, and one `chats.list` at `limit: 200`
   returns all of them. Measured: `--limit 20` = 7,220 bytes in **4.6 s**; `--limit 200` = 37,239 bytes in
