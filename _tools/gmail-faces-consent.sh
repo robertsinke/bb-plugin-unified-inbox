@@ -196,10 +196,22 @@ finish() {
 # The two accounts are independent, so each walks the same four steps.
 # ──────────────────────────────────────────────────────────────────────────
 
-PERSONAL_PROJECT="gen-lang-client-0395249768"
-BUSINESS_PROJECT="bb-inbox-513016"
 PERSONAL_DIR="$HOME/.config/gws"
 BUSINESS_DIR="$HOME/.config/gws-inhouse"
+# project_of DIR prints the project id the client in DIR belongs to, so neither
+# project is hard-coded here: `_tools/gmail-project-move.sh` can replace one and this
+# script follows it without an edit.
+project_of() {
+  node -e '
+    const fs = require("node:fs");
+    try {
+      const raw = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const client = raw.installed || raw.web || {};
+      process.stdout.write(String(client.project_id || ""));
+    } catch { process.stdout.write(""); }
+  ' "$1/client_secret.json" 2>/dev/null
+}
+
 CREDENTIALS="$HOME/.bb/plugins/unified-inbox/gmail-credentials"
 SCOPES="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/contacts.readonly,https://www.googleapis.com/auth/contacts.other.readonly"
 
@@ -266,6 +278,15 @@ for file in "$CREDENTIALS/gmail-personal.json" "$CREDENTIALS/gmail-business.json
 done
 say ""
 (( missing )) && { warn "Fix the lines above first; the rest of this would fail."; return; }
+PERSONAL_PROJECT=$(project_of "$PERSONAL_DIR")
+BUSINESS_PROJECT=$(project_of "$BUSINESS_DIR")
+for pair in "personal:$PERSONAL_PROJECT:$PERSONAL_DIR" "business:$BUSINESS_PROJECT:$BUSINESS_DIR"; do
+  who="${pair%%:*}"; rest="${pair#*:}"; id="${rest%%:*}"; dir="${rest#*:}"
+  if [[ -n "$id" ]]; then printf '  %s✓%s %s project: %s\n' "$GREEN" "$RESET" "$who" "$id"
+  else printf '  %s✗%s %s has no project id in %s/client_secret.json\n' "$YELLOW" "$RESET" "$who" "$dir"; missing=1; fi
+done
+say ""
+(( missing )) && { warn "Fix the lines above first; the rest of this would fail."; return; }
 note "Two accounts, four steps each: enable the API, allow the scopes on the"
 note "consent screen, authorise, import. About 3 minutes per account."
 
@@ -281,10 +302,14 @@ note "Route if the link has moved: APIs & Services → Library → search People
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
 stage "Personal · allow the two contact scopes"
-note "The console calls this project 'executor-mcp-gateway'. That is only its display"
-note "name, from work this project was made for; the id in the URL is the project that"
-note "issued this account's Gmail client, so it is the right screen."
-say ""
+if [[ "$PERSONAL_PROJECT" == "gen-lang-client-0395249768" ]]; then
+  # The shared project this account used to live in. Named here so the screen does not
+  # read as the wrong place; a client this wizard's sibling created gets no such note.
+  note "The console calls this project 'executor-mcp-gateway'. That is only its display"
+  note "name, from work this project was made for; the id in the URL is the project that"
+  note "issued this account's Gmail client, so it is the right screen."
+  say ""
+fi
 open_url "https://console.cloud.google.com/auth/scopes?project=$PERSONAL_PROJECT"
 step "Press Add or remove scopes."
 step "Paste and add both, then Save:"
