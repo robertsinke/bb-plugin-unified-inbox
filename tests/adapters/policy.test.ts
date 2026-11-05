@@ -214,7 +214,7 @@ test('a refusal stops before every adapter, and an approved WhatsApp send reache
     const approval = { id: 'wa-1', conversationId: WHATSAPP_ID, issuedAt: T0 };
     assert.deepEqual(
       await send({ account: 'whatsapp', conversationId: WHATSAPP_ID, text: 'On my way' }, approval, () => h.registry.whatsapp.action('reply', WHATSAPP_ID, { text: 'On my way' })),
-      { status: 'Sending.' },
+      { status: 'Sent.' },
     );
     assert.deepEqual(h.calls, ['whatsapp:sendText'], 'the approved text reaches the transport once, and nothing else runs');
     assert.deepEqual(fetched, [], 'a WhatsApp send is the plugin socket, not an HTTP call');
@@ -252,7 +252,7 @@ test('a reply without allow: send is refused and audited, and with it delivers o
     assert.equal(rows.at(-1)!.decision, 'refused');
     assert.match(String(rows.at(-1)!.reason), /approv/i);
 
-    assert.deepEqual(await reply('send'), { status: 'Sending.' });
+    assert.deepEqual(await reply('send'), { status: 'Sent.' });
     assert.deepEqual(h.calls, ['whatsapp:sendText'], 'the owner statement reaches the transport once');
     assert.deepEqual(fetched, [], 'a WhatsApp send is the plugin socket, not an HTTP call');
     assert.equal(rows.at(-1)!.decision, 'allowed');

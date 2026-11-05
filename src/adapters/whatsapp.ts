@@ -11,6 +11,7 @@
 import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
+import { classifySendFailure } from '../whatsapp/failure.ts';
 import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT } from './media.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
@@ -26,6 +27,14 @@ const ACCOUNT = 'whatsapp';
 
 /** The messages one open asks for: enough to fill the panel, cheap because it is a local read. */
 const OPEN_LIMIT = 60;
+
+/**
+ * WhatsApp's own composer refuses a body past 65,536 characters, counted in JavaScript string
+ * units, which is how its web client counts them. The check sits here, before a dispatch, because a
+ * ceiling the panel can name beats a rejection it has to explain afterwards: `decisions/0002` puts
+ * a source's ceiling beside that source's adapter and measures what the service measures.
+ */
+const TEXT_LIMIT = 65_536;
 
 /**
  * What a person knows WhatsApp by, and how the panel paces it. WhatsApp pages by row offset and a
@@ -161,6 +170,24 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     };
   }
 
+  /**
+   * What the panel says about a reply that did not resolve (plan U5, R4). The three classes are
+   * `src/whatsapp/failure.ts`'s, because only that module decides what a thrown send means; the
+   * words are here because this is the layer the owner reads. The middle sentence is Gmail's,
+   * worded for the phone the owner has to check instead of a Sent folder.
+   */
+  function sendFailure(error: unknown): Error {
+    switch (classifySendFailure(error)) {
+      case 'offline':
+        return new Error('Nothing was sent: WhatsApp is not connected. Reconnect it and try again.');
+      case 'terminal':
+        // The class, never the provider's own text: a raw rejection can carry a payload back.
+        return new Error('WhatsApp refused this message, and a repeat cannot change that. Nothing was sent; change it and try again.');
+      case 'transient':
+        return new Error('Send failed or its outcome is unknown. Check WhatsApp on your phone before trying again.');
+    }
+  }
+
   /** The live WhatsApp list: the read, the cache migration it triggers, and the rows worth saving. */
   async function liveList(): Promise<{ items: Conversation[]; cursor?: string }> {
     const page = await listChats();
@@ -201,8 +228,20 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
       if (CAPABILITIES.send && kind === 'reply') {
         const draft = opts?.text?.trim();
         if (!draft) throw new Error('Sending needs the text to send.');
-        await transport.sendText({ id, text: draft });
-        return { status: 'Sending.' };
+        // Refused before the socket, with the number in it: an over-long body would otherwise come
+        // back as a rejection the panel could say nothing useful about.
+        if (draft.length > TEXT_LIMIT) {
+          throw new Error(`Nothing was sent: WhatsApp accepts a message up to ${TEXT_LIMIT} characters, and this one is ${draft.length}.`);
+        }
+        try {
+          // One attempt per click, never a retry: a second attempt is a second message, and the
+          // class the failure carries is how the panel tells "nothing left" from "may have".
+          await transport.sendText({ id, text: draft });
+        } catch (error) {
+          throw sendFailure(error);
+        }
+        // The transport resolves only once WhatsApp accepted it, so this is not a guess.
+        return { status: 'Sent.' };
       }
       if (canChange(CAPABILITIES, kind)) {
         if (kind === 'read') {
