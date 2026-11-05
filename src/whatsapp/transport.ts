@@ -21,7 +21,7 @@ import type {
   WhatsAppTransport,
   WhatsAppTransportStatus,
 } from '../adapters/types.ts';
-import type { WhatsAppConnection } from './connection.ts';
+import type { WhatsAppConnection, WhatsAppMediaSocket } from './connection.ts';
 import type { MediaDownloader } from './media.ts';
 import { createWhatsAppSendTransport } from './send.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
@@ -35,6 +35,11 @@ export type WhatsAppTransportOptions = {
    * answers reads, and only a send or a receipt has nowhere to go.
    */
   connection: () => WhatsAppConnection | undefined;
+  /**
+   * How a call that needs a socket asks for one: the lifecycle opens a linked account on demand and
+   * answers `undefined` when the open was refused. A read never pays for this; a download and a send do.
+   */
+  ensure: () => Promise<WhatsAppConnection | undefined>;
   /** Where cached media bytes live; defaults to the plugin data dir (`src/whatsapp/media.ts`). */
   dataDir?: string;
   /** Injected for tests; defaults to Baileys' `downloadMediaMessage` (`src/whatsapp/media.ts`). */
@@ -48,7 +53,21 @@ function newMessageId(): string {
 
 export function createWhatsAppTransport(options: WhatsAppTransportOptions): WhatsAppTransport {
   const { store, connection } = options;
-  const send = createWhatsAppSendTransport(() => connection()?.getSendSocket());
+  /**
+   * The connection a call opened for itself. The lifecycle's `current()` knows about it in the same
+   * instant, but the answer of an open is what this call is holding, so it keeps it rather than
+   * asking a getter that may not have caught up.
+   */
+  let ensured: WhatsAppConnection | undefined;
+  /** The connection the plugin has: the one this module can see, or one a call that needed it opened. */
+  const held = () => connection() ?? ensured;
+  const send = createWhatsAppSendTransport(() => held()?.getSendSocket());
+
+  /** Opens one for a call that needs a socket; the refusal is the lifecycle's to keep and to word. */
+  async function ensureConnection(): Promise<WhatsAppConnection | undefined> {
+    ensured = await options.ensure();
+    return ensured;
+  }
 
   /** The name to show for a jid: the address book first, then the name they chose for themselves. */
   function contactName(jid: string): string {
@@ -81,6 +100,14 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     if (!facts || row.type !== 'document') return facts;
     const { documentFacts } = await import('./media.ts');
     return whatsAppMedia(row, documentFacts(row.raw));
+  }
+
+  /** The re-upload call a download needs: the open socket, or one opened now for a linked account. */
+  async function mediaSocket(): Promise<WhatsAppMediaSocket | undefined> {
+    const ready = held()?.getMediaSocket();
+    if (ready) return ready;
+    // The lifecycle is single-flight, so a burst of media asks joins one open rather than racing it.
+    return (await ensureConnection())?.getMediaSocket();
   }
 
   return {
@@ -156,16 +183,19 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       if (!info.available) return { info };
 
       // A download needs the socket, because a refusal is answered by asking the phone to re-upload.
-      // With no socket the answer is a report — never a wait, and never a thrown promise the panel
-      // has to draw as a broken picture.
-      const socket = connection()?.getMediaSocket();
-      if (!socket) return { info };
+      // A stopped socket is reopened here rather than turned into a dead source; when even that is
+      // refused, the answer is a report — never a wait, and never a thrown promise the panel has to
+      // draw as a broken picture.
+      const reupload = await mediaSocket();
+      // No socket is not a verdict on the message: WhatsApp would still serve these bytes, and the
+      // answer says which of the two it is rather than leaving the panel to say "gone".
+      if (!reupload) return { info, notConnected: true };
 
       try {
         const { mediaRef } = await media.downloadAndCacheMedia(store, messageId, {
           dataDir,
           ...(options.download ? { download: options.download } : {}),
-          reuploadRequest: message => socket.updateMediaMessage(message),
+          reuploadRequest: message => reupload.updateMediaMessage(message),
         });
         const bytes = media.readCachedMedia(dataDir, mediaRef);
         const served = await factsOf(store.getMessage(messageId) ?? stored) ?? info;
@@ -187,7 +217,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       // A receipt only exists to clear the badge on the owner's phone; it is a nicety beside the
       // recorded cursor, so a socket that is down or refuses must not turn a recorded read into a
       // failed one.
-      if (!connection()?.getSendSocket()) return;
+      if (!held()?.getSendSocket()) return;
       try {
         await send.markRead(id, target);
       } catch {
@@ -198,6 +228,9 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     async sendText({ id, text }) {
       const draft = text.trim();
       if (!draft) throw new Error('Expected text to send');
+      // A send needs a live socket, so a linked account is reopened rather than reported dead. A
+      // refusal still reaches the caller as the send failure it is, worded by `failure.ts`.
+      if (!held()?.getSendSocket()) await ensureConnection();
       await send.sendText(id, draft, newMessageId());
     },
 

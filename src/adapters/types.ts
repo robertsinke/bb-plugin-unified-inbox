@@ -133,10 +133,15 @@ export interface WhatsAppMessageRow {
   media?: WhatsAppMedia;
 }
 
-/** One media answer: the stored descriptor, and the cached bytes when there are any. */
+/** One media answer: the stored descriptor, the cached bytes when there are any, and why there are none. */
 export interface WhatsAppMediaAnswer {
   info?: WhatsAppMedia;
   bytes?: Uint8Array;
+  /**
+   * The bytes are askable but no socket could be opened to fetch them: a state the owner can act on,
+   * not a verdict on the message. Absent means the answer is about the message itself.
+   */
+  notConnected?: boolean;
 }
 
 /** What the account is doing, in the words a caller can act on. */

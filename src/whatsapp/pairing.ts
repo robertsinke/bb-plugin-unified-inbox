@@ -29,12 +29,17 @@ export interface WhatsAppPairingDeps {
   /** The socket the host already has, if any: one started at boot is adopted on the first read. */
   current?: () => WhatsAppConnection | undefined;
   /** Stops the socket and releases its lock: the act before a deliberate re-pair. */
-  close?: () => Promise<void>;
+  close?: (reason?: string) => Promise<void>;
   /**
    * What a start that failed said, until one succeeds (`src/whatsapp/lifecycle.ts` keeps it). The
    * only way the card can tell "linked" from "linked and connected".
    */
   failure?: () => string | undefined;
+  /**
+   * Whether an open is in flight — the boot service's, or a `reconnect` this card asked for. Without
+   * it a linked account with no socket yet could only be drawn as a lie.
+   */
+  opening?: () => boolean;
   now?: () => number;
   /** Baileys' own rotation: the first payload lives a minute, its replacements twenty seconds. */
   firstQrMs?: number;
@@ -56,6 +61,8 @@ const NEXT_QR_MS = 20_000;
 /** A refusal, not a failure: the source is working, and the act was not the one that changes it. */
 const ALREADY_LINKED = 'This source is already paired. Unpair it first to link a different phone.';
 const NEEDS_PHONE = 'A full international phone number is required, for example 31612345678.';
+/** Linked, with no socket open and none opening: the act that changes it is the card's reconnect. */
+const NOT_CONNECTED = 'WhatsApp is not connected. Reconnect to open a socket for this account.';
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -163,17 +170,18 @@ export function createWhatsAppPairing(deps: WhatsAppPairingDeps): WhatsAppPairin
       };
     }
     if (tracked) return { state: 'connecting', ...(note ? { message: note } : {}) };
-    // An account state the plugin could not open a socket for is neither connected nor pairing: it is
-    // a failed start, in the socket's own words, with the one action that can change it.
+    // An open in flight is the honest answer for a linked account whose socket is not up yet. If
+    // nothing is opening, only the socket's own words can explain it — and the credential files
+    // never can: they say an account exists, never that WhatsApp is reachable.
     const failure = deps.failure?.();
+    if (deps.opening?.()) return { state: 'connecting' };
     if (failure) return { state: 'failed', message: failure };
-    // No socket and nothing said: a linked account waits for the next read, an unpaired one is the
-    // card. Both are states; neither is a failure.
-    return linked(undefined) ? { state: 'connected' } : { state: 'unpaired' };
+    if (linked(undefined)) return { state: 'failed', message: NOT_CONNECTED };
+    return { state: 'unpaired' };
   }
 
   async function unpair(): Promise<WhatsAppPairingSnapshot> {
-    await deps.close?.();
+    await deps.close?.('the owner unpaired this account');
     detach?.();
     detach = undefined;
     tracked = undefined;

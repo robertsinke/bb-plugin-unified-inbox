@@ -25,7 +25,7 @@ const NOW = 1_000_000;
  * One lifecycle over a scratch account directory. The lock and the directory are real, because the
  * invariant is about a second process and a second socket; only the socket is a fake.
  */
-function harness(t: import('node:test').TestContext, options: { registered?: boolean; idleMs?: number } = {}) {
+function harness(t: import('node:test').TestContext, options: { registered?: boolean; idleMs?: number; note?: (level: 'info' | 'warn', line: string) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'wa-lifecycle-'));
   const sockets = createSocketFactory();
   const built: WhatsAppConnection[] = [];
@@ -41,6 +41,7 @@ function harness(t: import('node:test').TestContext, options: { registered?: boo
       return connection;
     },
     ...(options.idleMs !== undefined ? { idleMs: options.idleMs } : {}),
+    ...(options.note ? { note: options.note } : {}),
   });
   t.after(async () => { await lifecycle.close(); });
   return { dir, sockets, built, lifecycle };
@@ -116,6 +117,37 @@ test('a linked socket is never stopped for being idle: it is how messages arrive
   assert.equal(opened.status(), 'connecting', 'and it is still the socket that will report');
 });
 
+test('a linked account with no socket is never drawn as connected', async (t) => {
+  const h = harness(t);
+  // A restart after a successful pairing: the credential files are there, so the source looks linked.
+  await createFileAuthStore(h.dir).saveCreds();
+
+  const card = (opening?: () => boolean) => createWhatsAppPairing({
+    open: () => h.lifecycle.open(),
+    current: () => h.lifecycle.current(),
+    close: reason => h.lifecycle.close(reason),
+    failure: () => h.lifecycle.failure(),
+    ...(opening ? { opening } : {}),
+    now: () => NOW,
+  });
+
+  // The lie that started this: an account on disk is not a socket, and the card answered `connected`
+  // while every media read and every send found nothing to talk to.
+  const idle = card().state();
+  assert.equal(idle.state, 'failed', 'no socket and nothing opening is not connected');
+  assert.match(idle.message ?? '', /not connected.*Reconnect/i, 'the card names the act that changes it');
+  assert.equal(rpcContract.whatsapp_pairing.output.safeParse(idle).success, true);
+
+  const starting = card(() => true).state();
+  assert.equal(starting.state, 'connecting', 'an open that is in flight is a state, not a failure');
+
+  // And the act the card offers does open it.
+  const reopened = await card().handle({ op: 'reconnect' });
+  assert.notEqual(reopened.state, 'connected', 'a socket that is still connecting is not claimed as connected');
+  assert.equal(reopened.state, 'connecting');
+  assert.equal(h.lifecycle.failure(), undefined);
+});
+
 test('a boot socket that will not open reaches the card as a failure, not as connected', async (t) => {
   const h = harness(t);
   // What a restart after a successful pairing looks like: the credential files are there, so the
@@ -156,4 +188,99 @@ test('unpairing forgets the account state and a failure that was about it', asyn
 
   await h.lifecycle.close();
   assert.equal(h.lifecycle.failure(), undefined);
+});
+
+test('a call that needs a socket reopens one the lifecycle no longer holds', async (t) => {
+  const h = harness(t);
+  const first = await h.lifecycle.open();
+
+  // A read asks `current()` and lives with the answer; a download or a send needs a socket, and a
+  // stopped one is opened again rather than reported as a source that is gone.
+  assert.equal(await h.lifecycle.ensure(), first, 'the socket that is already open is the answer');
+  await h.lifecycle.close('the host stopped the whatsapp-connection service');
+  assert.equal(h.lifecycle.current(), undefined);
+
+  const reopened = await h.lifecycle.ensure();
+  assert.notEqual(reopened, first, 'a socket the lifecycle stopped is not handed back');
+  assert.equal(h.lifecycle.current(), reopened);
+  assert.equal(h.built.length, 2, 'a second socket was opened, not a dead one revived');
+  assert.equal(h.sockets.configs.length, 2, 'and it reached the client');
+});
+
+test('an ask that is refused answers undefined, and the refusal stays where the card reads it', async (t) => {
+  const h = harness(t);
+  const held = acquireWhatsAppLock(h.dir);
+  try {
+    assert.equal(await h.lifecycle.ensure(), undefined, 'a caller that cannot throw is not thrown at');
+    assert.match(h.lifecycle.failure() ?? '', /already open in process \d+/, 'and the card still gets the words');
+  } finally {
+    held.release();
+  }
+
+  assert.ok(await h.lifecycle.ensure(), 'the next ask tries again');
+  assert.equal(h.lifecycle.failure(), undefined);
+});
+
+test('an open in flight is visible, so nothing has to guess whether a socket is coming', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'wa-lifecycle-'));
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const sockets = createSocketFactory();
+  const lifecycle = createWhatsAppLifecycle({
+    create: async () => {
+      await gate;
+      return new WhatsAppConnection({ authDir: dir, socketFactory: sockets.factory, createAuthStore: () => fakeAuthStore(), waVersion: VERSION });
+    },
+  });
+  t.after(async () => { await lifecycle.close(); });
+
+  assert.equal(lifecycle.opening(), false);
+  const pending = lifecycle.open();
+  assert.equal(lifecycle.opening(), true, 'the boot service and the card both asked; one open is in flight');
+  release();
+  await pending;
+  assert.equal(lifecycle.opening(), false);
+});
+
+test('the socket\'s life is one recorded line per open, close and refusal', async (t) => {
+  const lines: Array<[string, string]> = [];
+  const h = harness(t, { registered: true, note: (level, line) => { lines.push([level, line]); } });
+
+  const opened = await h.lifecycle.open();
+
+  // What WhatsApp said about the socket it closed, in its own words: the fact no reload recovers.
+  h.sockets.sockets.at(-1)!.emit('connection.update', {
+    connection: 'close',
+    lastDisconnect: { error: Object.assign(new Error('Connection Failure'), { statusCode: 428 }) },
+  });
+  await h.sockets.sockets.at(-1)!.flush();
+
+  await h.lifecycle.close('the host stopped the whatsapp-connection service');
+  assert.equal(opened.status(), 'disconnected');
+
+  // A close nobody asked for and that no ladder can fix: the device was unlinked on the phone.
+  const again = await h.lifecycle.open();
+  h.sockets.sockets.at(-1)!.emit('connection.update', { connection: 'close', lastDisconnect: { error: { statusCode: 401 } } });
+  await h.sockets.sockets.at(-1)!.flush();
+  await h.lifecycle.close('the plugin was disposed');
+  assert.equal(again.status(), 'disconnected');
+
+  const said = lines.map(([level, line]) => `${level} ${line}`);
+  assert.ok(said.some(line => line === 'info WhatsApp socket opened for a linked device'), `opening is recorded: ${said.join(' | ')}`);
+  assert.ok(said.some(line => line === 'info WhatsApp socket closed: the host stopped the whatsapp-connection service'), 'the caller\'s reason is recorded');
+  assert.ok(said.some(line => line.startsWith('warn WhatsApp closed the socket: Connection Failure (status 428)')), 'WhatsApp\'s own reason is recorded');
+  assert.ok(said.some(line => line === 'warn WhatsApp reported this device logged out; pairing is needed again'), 'a terminal close is recorded too');
+});
+
+test('a start that is refused is written down, so a deaf source is not the only trace', async (t) => {
+  const lines: string[] = [];
+  const h = harness(t, { note: (_level, line) => { lines.push(line); } });
+  const held = acquireWhatsAppLock(h.dir);
+  try {
+    await assert.rejects(h.lifecycle.open());
+  } finally {
+    held.release();
+  }
+
+  assert.ok(lines.some(line => /^WhatsApp socket did not open: .*already open in process \d+/.test(line)), lines.join(' | '));
 });

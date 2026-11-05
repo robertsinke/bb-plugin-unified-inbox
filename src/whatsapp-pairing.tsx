@@ -97,7 +97,9 @@ export function WhatsAppPairingCard({ pairing, busy, onPair, onCode, onRePair, o
       ) : null}
 
       {state === 'connecting' ? (
-        <p className="ui-pairing-state" role="status">Asking WhatsApp for a code…</p>
+        // `connecting` is a linked account whose socket is opening as well as a stranger's first QR,
+        // so the words say what is happening rather than promising a code that may not be asked for.
+        <p className="ui-pairing-state" role="status">Opening the WhatsApp connection…</p>
       ) : null}
 
       {state === 'failed' ? (
