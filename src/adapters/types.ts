@@ -11,7 +11,7 @@ import type { WhatsAppMedia } from '../whatsapp-media.ts';
 // so the transport rewires routing without any payload conversion.
 
 import type { CapabilityKey } from './capability.ts';
-import type { MediaRequest } from './media.ts';
+import type { MediaRequest, MediaKind } from './media.ts';
 
 /**
  * Registry keys: one adapter per account, and the `account` value on every RPC
@@ -194,7 +194,7 @@ export interface Conversation {
 /** Attachment media descriptor on a message (rpcContract `media` output input). */
 export interface MessageMedia {
   messageId: string;
-  kind: 'image' | 'sticker' | 'video';
+  kind: MediaKind;
   cached: boolean;
   available: boolean;
   mime?: string;

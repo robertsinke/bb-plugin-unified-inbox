@@ -6,7 +6,7 @@
 // expired WhatsApp-side object is terminal and must not be retried on every open, while a network or
 // decryption failure is retriable — see
 // docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md.
-import { BufferJSON, downloadMediaMessage, type WAMessage } from 'baileys';
+import { BufferJSON, downloadMediaMessage, extractMessageContent, type WAMessage } from 'baileys';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -33,6 +33,40 @@ export type DownloadMediaOptions = {
 };
 
 export type DownloadMediaResult = { mediaRef: string; bytes: number };
+
+/** Long-like protobuf counts (`fileLength`) and plain numbers, as one number. */
+function toNumber(value: number | { toNumber(): number } | null | undefined): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  const n = value.toNumber();
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * A document's name, size and type, read from the stored envelope — `documentMessage` is the only
+ * place they exist, because no column holds them. The wrapper is not always the outermost key
+ * (`documentWithCaptionMessage` is the common case), so the content is unwrapped the way ingest
+ * unwraps it. An envelope that will not parse answers no facts rather than throwing at a read.
+ */
+export function documentFacts(raw: string | null | undefined): { filename?: string; size?: number; mime?: string } | undefined {
+  if (!raw) return undefined;
+  let envelope: WAMessage;
+  try {
+    envelope = JSON.parse(raw, BufferJSON.reviver) as WAMessage;
+  } catch {
+    return undefined;
+  }
+  const document = extractMessageContent(envelope?.message)?.documentMessage;
+  if (!document) return undefined;
+  const filename = document.fileName?.trim();
+  const mime = document.mimetype?.trim();
+  const size = toNumber(document.fileLength);
+  return {
+    ...(filename ? { filename } : {}),
+    ...(size === undefined ? {} : { size }),
+    ...(mime ? { mime } : {}),
+  };
+}
 
 const noopLogger = { info: () => undefined, error: () => undefined };
 
@@ -185,7 +219,7 @@ export async function downloadAndCacheMedia(
 
   const mediaDir = join(options.dataDir, 'media');
   const cacheId = createHash('sha256').update(messageId).digest('hex');
-  const relativeRef = join('media', `${cacheId}${extensionForType(stored.type)}`);
+  const relativeRef = join('media', `${cacheId}${extensionForType(stored.type, documentFacts(stored.raw)?.filename)}`);
   const absolutePath = resolve(options.dataDir, relativeRef);
   // The id is the only input, but a traversal must not be reachable from a future ref-shape change.
   const relativeToMedia = relative(resolve(mediaDir), absolutePath);
@@ -207,7 +241,7 @@ export async function downloadAndCacheMedia(
   return { mediaRef: relativeRef, bytes: buffer.byteLength };
 }
 
-function extensionForType(type: string): string {
+function extensionForType(type: string, filename?: string): string {
   switch (type) {
     case 'image':
       return '.jpg';
@@ -218,7 +252,17 @@ function extensionForType(type: string): string {
       return '.ogg';
     case 'sticker':
       return '.webp';
+    case 'document':
+      // A document is saved as the file it was sent as, so its own extension is the honest one; an
+      // extension the serving table does not know still opens, because the envelope carries the type.
+      return documentExtension(filename);
     default:
       return '.bin';
   }
+}
+
+/** A bounded suffix taken from the sender's filename: never a path, never a long one. */
+function documentExtension(filename?: string): string {
+  const extension = filename ? extname(filename).toLowerCase() : '';
+  return /^\.[a-z0-9]{1,8}$/.test(extension) ? extension : '.bin';
 }

@@ -64,7 +64,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
 
   function previewOf(message: Message): NonNullable<WhatsAppChatRow['preview']> {
     return {
-      text: whatsappText(message.text ?? '', message.type, Boolean(whatsAppMedia(message))),
+      text: whatsappText(message.text ?? '', message.type, whatsAppMedia(message)),
       fromMe: message.from_me,
       sender: senderName(message.sender),
     };
@@ -91,8 +91,14 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     },
 
     async openChat({ id, limit }) {
-      return store.listRecentMessages(id, limit).map((message): WhatsAppMessageRow => {
-        const media = whatsAppMedia(message);
+      const rows = store.listRecentMessages(id, limit);
+      // A document's name, size and type exist only inside its envelope, so the module that already
+      // unwraps one to download it is asked once per open — and only when a document is on screen.
+      const documents = rows.some(row => row.type === 'document' && row.raw)
+        ? (await import('./media.ts')).documentFacts
+        : undefined;
+      return rows.map((message): WhatsAppMessageRow => {
+        const media = whatsAppMedia(message, documents?.(message.raw));
         return {
           id: message.id,
           chatJid: message.chat_jid,
@@ -109,18 +115,24 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
 
     async loadMedia(messageId): Promise<WhatsAppMediaAnswer> {
       const stored = store.getMessage(messageId);
-      const info = stored ? whatsAppMedia(stored) : undefined;
-      if (!stored || !info) return {};
+      if (!stored) return {};
+      const facts = whatsAppMedia(stored);
+      if (!facts) return {};
       // Baileys is 7.9 MB of bundle and most starts never serve a picture, so the media module — the
       // one that owns where bytes live — loads on the first media read (the reason `server.ts`
       // imports the connection lazily, and `store.ts` its codec).
       const media = await import('./media.ts');
+      const documents = stored.type === 'document' ? media.documentFacts(stored.raw) : undefined;
+      const info = whatsAppMedia(stored, documents) ?? facts;
       const dataDir = options.dataDir ?? media.whatsAppDataDir();
 
       // Bytes already on disk answer with no socket at all, which is the point of caching them.
       const cached = stored.media_ref ? media.readCachedMedia(dataDir, stored.media_ref) : undefined;
       if (cached && stored.media_ref) {
-        return { info: { ...info, cached: true, mime: media.mediaMime(stored.media_ref) }, bytes: cached };
+        // The extension names the type for the kinds this module writes; a document keeps the type
+        // its envelope declared, which is the only honest answer for a file it did not recognise.
+        const served = media.mediaMime(stored.media_ref);
+        return { info: { ...info, cached: true, ...(served ? { mime: served } : {}) }, bytes: cached };
       }
 
       // A verdict the transport already recorded is not asked again on every open: WhatsApp-side
@@ -140,14 +152,15 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           reuploadRequest: message => socket.updateMediaMessage(message),
         });
         const bytes = media.readCachedMedia(dataDir, mediaRef);
-        const served = whatsAppMedia(store.getMessage(messageId) ?? stored) ?? info;
+        const served = whatsAppMedia(store.getMessage(messageId) ?? stored, documents) ?? info;
+        const extensionMime = media.mediaMime(mediaRef);
         return bytes
-          ? { info: { ...served, mime: media.mediaMime(mediaRef) }, bytes }
+          ? { info: { ...served, ...(extensionMime ? { mime: extensionMime } : {}) }, bytes }
           : { info: served };
       } catch {
         // The downloader persisted why it failed, so the stored row is the report: `available`
         // already says whether a later open may try again. Nothing is thrown from this seam.
-        return { info: whatsAppMedia(store.getMessage(messageId) ?? stored) ?? info };
+        return { info: whatsAppMedia(store.getMessage(messageId) ?? stored, documents) ?? info };
       }
     },
 

@@ -12,7 +12,7 @@ import { whatsappListUnchanged } from '../sync-plan.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
-import { IMAGE_LIMIT, mediaDataUrl, VIDEO_LIMIT } from './media.ts';
+import { IMAGE_LIMIT, attachmentPayload, mediaDataUrl, VIDEO_LIMIT } from './media.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -144,7 +144,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
       .map(row => ({
         sender: whatsappSender(row.fromMe, row.sender, group, ''),
         fromMe: row.fromMe,
-        text: whatsappText(row.text, row.type, Boolean(row.media)),
+        text: whatsappText(row.text, row.type, row.media),
         date: whatsappTimestamp(row.ts),
         ...(row.edited ? { edited: true } : {}),
         ...(row.media ? { media: row.media } : {}),
@@ -153,11 +153,19 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     return { messages };
   }
 
-  async function image(messageId: string): Promise<MediaPayload> {
+  /**
+   * The bytes behind one message: a picture or a video is bounded by what the frame will draw, a
+   * document by what a download may carry, and a document is named by its own filename so the saved
+   * file opens as the file it was sent as.
+   */
+  async function mediaPayload(messageId: string): Promise<MediaPayload> {
     const { info, bytes } = await transport.loadMedia(messageId);
-    if (!info) throw new Error('This message has no image or video.');
+    if (!info) throw new Error('This message has no media.');
     if (!info.available) throw new Error('This media is no longer available.');
     if (!info.cached || !bytes) throw new Error('This media could not be loaded.');
+    if (info.kind === 'document') {
+      return attachmentPayload(bytes, { mime: info.mime, filename: info.filename || 'WhatsApp document' });
+    }
     const limit = info.kind === 'video' ? VIDEO_LIMIT : IMAGE_LIMIT;
     if (bytes.byteLength > limit) {
       throw new Error(info.kind === 'video' ? 'This video is too large to play here.' : 'This image is too large to show here.');
@@ -221,7 +229,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
 
     async media(request) {
       if (request.kind !== 'message') throw new Error('This account has no attachments.');
-      return image(request.id);
+      return mediaPayload(request.id);
     },
 
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {

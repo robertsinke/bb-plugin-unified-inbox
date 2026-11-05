@@ -19,7 +19,7 @@ import type {
 import type { MediaRequest } from './media.ts';
 
 /** Largest attachment a media request will hand a frame. */
-import { ATTACHMENT_LIMIT } from './media.ts';
+import { ATTACHMENT_LIMIT, attachmentPayload } from './media.ts';
 
 /** Largest HTML body kept on a message; larger bodies are dropped, not truncated. */
 const HTML_LIMIT = 800_000;
@@ -111,9 +111,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     let bytes: Uint8Array | undefined = part.data ? Buffer.from(part.data, 'base64url') : undefined;
     if (!bytes?.length && attachmentId) bytes = await gmail(() => mail.attachmentGet({ messageId: gmailId, id: attachmentId }));
     if (!bytes?.length) throw new Error('This attachment could not be read.');
-    if (bytes.length > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
-    const mime = /^[\w.+-]+\/[\w.+-]+$/.test(part.mimeType) ? part.mimeType : 'application/octet-stream';
-    return { dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, mime, filename: part.filename, size: bytes.length };
+    return attachmentPayload(bytes, { mime: part.mimeType, filename: part.filename });
   }
 
   function row(t: any, headersOnly = false): Conversation {

@@ -9,6 +9,14 @@ export const ATTACHMENT_LIMIT = 5 * 1024 * 1024;
 export const IMAGE_LIMIT = 6 * 1024 * 1024;
 export const VIDEO_LIMIT = 30 * 1024 * 1024;
 
+/**
+ * The kinds a message may carry as media. One list: the message shape, the RPC schema and the panel
+ * each used to spell it out, and a kind added to one of them was a hole in the other two.
+ */
+export const MEDIA_KINDS = ['image', 'sticker', 'video', 'document'] as const;
+
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+
 /** A bounded, renderable data URL; the frame must never render arbitrary bytes. */
 export function mediaDataUrl(bytes: Uint8Array, mime: string): string {
   const type = mime.split(';')[0].trim().toLowerCase();
@@ -17,6 +25,28 @@ export function mediaDataUrl(bytes: Uint8Array, mime: string): string {
   const limit = type.startsWith('video/') ? VIDEO_LIMIT : IMAGE_LIMIT;
   if (bytes.byteLength > limit) throw new Error('This media is too large to show here.');
   return `data:${type};base64,${Buffer.from(bytes).toString('base64')}`;
+}
+
+/** A declared type is passed on only when it is a type; anything else is an unknown file. */
+const MIME_PATTERN = /^[\w.+-]+\/[\w.+-]+$/;
+
+/**
+ * A file the panel saves rather than draws: the bytes behind a data URL, the type to save them as,
+ * and the name to save them under. One ceiling and one type rule for both sources that serve files —
+ * Gmail attachments and WhatsApp documents — so a file cannot arrive through the looser of two paths.
+ */
+export function attachmentPayload(
+  bytes: Uint8Array,
+  options: { mime?: string; filename: string },
+): { dataUrl: string; mime: string; filename: string; size: number } {
+  if (bytes.byteLength > ATTACHMENT_LIMIT) throw new Error('This attachment is too large to open here.');
+  const mime = options.mime && MIME_PATTERN.test(options.mime.trim()) ? options.mime.trim() : 'application/octet-stream';
+  return {
+    dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`,
+    mime,
+    filename: options.filename,
+    size: bytes.byteLength,
+  };
 }
 
 

@@ -40,7 +40,7 @@ test('WhatsApp: declared capabilities match what action and media accept', async
 
     // media: true — but nothing is fetched from WhatsApp, so an uncached row says so.
     h.calls.length = 0;
-    await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no image or video/);
+    await assert.rejects(adapter.media({ kind: 'message', id: 'm1', index: 0 }), /no media/);
     assert.deepEqual(h.calls, ['whatsapp:loadMedia']);
 
     // attachments: false — an attachment-shaped request is refused without a transport call.
@@ -265,6 +265,44 @@ test('WhatsApp: no message the owner reads names the program this source used to
     }
     assert.ok(messages.length >= 3, 'the refusals are what carry text a person reads');
     for (const message of messages) assert.doesNotMatch(message, /whatsagent|mcp|127\.0\.0\.1|loopback/i);
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a document leaves as a named file under the attachment ceiling, never as a drawn frame', async () => {
+  const pdf = Buffer.from('%PDF-1.4');
+  const answers: Record<string, unknown> = {
+    doc: { info: { messageId: 'd1', kind: 'document', cached: true, available: true, mime: 'application/pdf', filename: 'Contract v2.pdf' }, bytes: pdf },
+    unnamed: { info: { messageId: 'd2', kind: 'document', cached: true, available: true }, bytes: pdf },
+    huge: { info: { messageId: 'd3', kind: 'document', cached: true, available: true, mime: 'application/zip', filename: 'dump.zip' }, bytes: new Uint8Array(5 * 1024 * 1024 + 1) },
+    expired: { info: { messageId: 'd4', kind: 'document', cached: false, available: false } },
+  };
+  const h = harness({
+    whatsapp: {
+      async loadMedia(messageId) {
+        return answers[messageId] as never;
+      },
+    },
+  });
+  try {
+    const adapter = h.registry.whatsapp;
+
+    assert.deepEqual(await adapter.media({ kind: 'message', id: 'doc', index: 0 }), {
+      dataUrl: `data:application/pdf;base64,${pdf.toString('base64')}`,
+      mime: 'application/pdf',
+      filename: 'Contract v2.pdf',
+      size: pdf.byteLength,
+    }, 'the chip saves the file it was sent as, under the sender\'s name');
+
+    assert.deepEqual(
+      await adapter.media({ kind: 'message', id: 'unnamed', index: 0 }),
+      { dataUrl: `data:application/octet-stream;base64,${pdf.toString('base64')}`, mime: 'application/octet-stream', filename: 'WhatsApp document', size: pdf.byteLength },
+      'a document with no name or type still saves, as an unnamed binary file',
+    );
+
+    await assert.rejects(adapter.media({ kind: 'message', id: 'huge', index: 0 }), /too large to open here/);
+    await assert.rejects(adapter.media({ kind: 'message', id: 'expired', index: 0 }), /no longer available/);
   } finally {
     h.close();
   }

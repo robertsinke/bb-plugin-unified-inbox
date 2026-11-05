@@ -21,7 +21,8 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 - Personal and business Gmail: read, archive, read/unread, and a reply /
   reply-all / forward / new-mail composer that sends.
 - WhatsApp through the plugin's own socket: paired from the tab by scanning a
-  QR, replies to a person or a group, photos, stickers, video, and mark-read.
+  QR, replies to a person or a group, photos, stickers, video, documents, and
+  mark-read.
 - Local Messages through `imsg`: the latest conversations, their messages and
   attachments, and a reply into an open conversation.
 - LinkedIn: DMs, InMail and pending invitations, with reply, read mark, and
@@ -110,7 +111,8 @@ The inbox cache, freshness, unread marks, and send audit live in this plugin's
 unencrypted SQLite storage on the BB server, and so do the `wa_*` tables: the
 WhatsApp messages with their raw envelopes, chats with the read cursor, contacts
 and reactions, written by the plugin's own socket. `clear_cache` empties those
-copies along with the cached pictures and leaves the linked account alone.
+copies along with the cached media — pictures, video and documents — and leaves
+the linked account alone.
 
 ## For agents
 

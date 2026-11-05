@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { whatsAppMedia } from '../src/whatsapp-media.ts';
 
-test('renders pictures, stickers and videos and nothing else', () => {
+test('renders pictures, stickers, videos and documents, and nothing else', () => {
   assert.deepEqual(whatsAppMedia({ id: 'm1', type: 'image', media_ref: 'media/a.jpg', media_state: 'ready' }), {
     messageId: 'm1',
     kind: 'image',
@@ -18,8 +18,25 @@ test('renders pictures, stickers and videos and nothing else', () => {
     cached: false,
     available: true,
   });
-  assert.equal(whatsAppMedia({ id: 'm4', type: 'audio', media_ref: 'media/a.ogg', media_state: 'ready' }), undefined);
+  assert.equal(whatsAppMedia({ id: 'm4', type: 'audio', media_ref: 'media/a.ogg', media_state: 'ready' }), undefined, 'audio has no player yet');
   assert.equal(whatsAppMedia({ id: '', type: 'image' }), undefined);
+});
+
+test('a document carries the name, size and type its envelope declared', () => {
+  assert.deepEqual(whatsAppMedia({ id: 'd1', type: 'document', media_state: 'ready' }, { filename: 'Contract v2.pdf', size: 1024, mime: 'application/pdf' }), {
+    messageId: 'd1',
+    kind: 'document',
+    cached: false,
+    available: true,
+    filename: 'Contract v2.pdf',
+    size: 1024,
+    mime: 'application/pdf',
+  });
+  assert.deepEqual(
+    whatsAppMedia({ id: 'd2', type: 'document', media_ref: 'media/a.bin', media_state: 'ready' }),
+    { messageId: 'd2', kind: 'document', cached: true, available: true },
+    'a row with no envelope facts is still a document, chip unnamed rather than unrendered',
+  );
 });
 
 test('a cached picture is ready only when a ref was written', () => {
