@@ -38,6 +38,8 @@
 .ui-mail-body:focus-visible{outline:2px solid #007aff;outline-offset:1px}
 .ui-mail-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .ui-mail-composer .ui-notice{margin:0;font-size:11px;opacity:.7;text-align:left}
+/* What the box is for, not what happened to a send: no card, just a line under the controls. */
+.ui-mail-composer .ui-composer-hint{margin:0;font-size:11px;opacity:.6;text-align:left}
 .ui-mail-composer .ui-prompt-send{opacity:.5}
 /* A file dragged over the draft is claimed here, not by the browser: the border says so, no motion. */
 .ui-mail-composer.is-dropping{border-color:#ad9afb;background:#8063df26}

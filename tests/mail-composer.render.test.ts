@@ -236,3 +236,27 @@ test('a drag over the form claims it, and the tint says so until the pointer lea
     done();
   }
 });
+
+/** The sentence a send whose outcome nobody knows comes back with: the form repeats it, it does not rewrite it. */
+const UNKNOWN = 'Send failed or its outcome is unknown. Check Gmail Sent before trying again.';
+
+test('the draft hints at files in a line, and only a send result takes the notice card', () => {
+  const drafting = mount({});
+  try {
+    assert.equal(drafting.document.querySelector('.ui-notice'), null, 'nothing has been sent, so nothing is reported');
+    assert.match(drafting.document.querySelector('.ui-composer-hint')?.textContent ?? '', /Drop files here/, 'what the box is for is a line under the controls, not a card');
+  } finally {
+    drafting.done();
+  }
+
+  const failed = mount({ to: 'a@example.com', text: 'Half written' }, { status: UNKNOWN });
+  try {
+    const notice = failed.document.querySelector('.ui-notice');
+    assert.equal(notice?.textContent, UNKNOWN, 'a send that did not confirm keeps its sentence, word for word');
+    assert.equal(notice?.getAttribute('role'), 'status', 'and it is announced, because it is the one thing worth reading');
+    assert.equal(failed.document.querySelector('.ui-composer-hint'), null, 'the hint steps aside for it');
+    assert.equal((failed.document.querySelector('.ui-mail-body') as any)?.value, 'Half written', 'the draft it could not send is still there');
+  } finally {
+    failed.done();
+  }
+});

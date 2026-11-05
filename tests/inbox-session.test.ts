@@ -307,6 +307,61 @@ test('submit clears the draft, shows the bubble, then reconciles; a source that 
   assert.equal(quiet.snapshot().text, 'a draft only', 'the text stays a draft');
 });
 
+// A send that worked says nothing. The bubble is in the thread and the draft has left the composer;
+// a 'Sent.' badge under either one is the panel reading back what the owner can already see.
+// The notice is kept for the only send that has something to add: the one that failed, or whose
+// outcome nobody knows.
+test('a reply that worked leaves the notice empty, and a send_gmail receipt is not kept either', async () => {
+  const target = row({ unread: false });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: () => ({ status: 'Sent.' }),
+    send_gmail: () => ({ status: 'Sent.' }),
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+
+  session.setDraft('On my way');
+  await session.submit();
+  assert.equal(session.snapshot().status, '', 'a reply that worked says nothing');
+
+  session.startMail('new', 'gmail-personal');
+  session.setMail({ to: 'a@example.com', text: 'On it.' });
+  await session.sendMail();
+  assert.equal(session.snapshot().mail, null, 'the draft leaving the composer is the receipt');
+  assert.equal(session.snapshot().mailStatus, '', 'so the mail composer has nothing to report');
+  assert.equal(session.snapshot().status, '', 'and the chat notice says nothing either: one rule, both surfaces');
+});
+
+test('a reply whose outcome is unknown keeps the sentence word for word, and the words in the box', async () => {
+  const target = row({ unread: false });
+  const unknown = 'Send failed or its outcome is unknown. Check Gmail Sent before trying again.';
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: (input: any) => {
+      if (input.action !== 'reply') return { status: 'Done' };
+      throw new Error(unknown);
+    },
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+
+  session.setDraft('On my way');
+  await session.submit();
+  assert.equal(session.snapshot().status, unknown, 'the panel repeats what it was told, and does not soften it');
+  assert.equal(session.snapshot().text, 'On my way', 'and the words stay in the box, because nothing is known to have left');
+});
+
 test('the snapshot keeps its identity until something changes', () => {
   // The panel reads this through useSyncExternalStore, which compares identity between
   // renders: a fresh object per call would loop forever.
