@@ -8,7 +8,7 @@
 // docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md.
 import { BufferJSON, downloadMediaMessage, type WAMessage } from 'baileys';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { MediaFailureReason, WhatsAppStore } from './store.ts';
@@ -59,6 +59,35 @@ export function readCachedMedia(dataDir: string, mediaRef: string): Uint8Array |
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Empty `{dataDir}/media`. Called by `clear_cache` beside the store's own clear: the rows name the
+ * bytes, so dropping the rows and keeping the files would leave pictures of conversations on disk
+ * that nothing can reach, which is not what clearing this plugin's cache promises.
+ *
+ * A file that cannot be removed is skipped rather than raised: a clear that half-succeeds has still
+ * removed nothing the panel can show, and failing here would leave the caller with rows gone and an
+ * error instead of the result it asked for.
+ */
+export function clearCachedMedia(dataDir: string): number {
+  const mediaDir = join(dataDir, 'media');
+  let names: string[];
+  try {
+    names = readdirSync(mediaDir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    try {
+      rmSync(join(mediaDir, name), { force: true });
+      removed += 1;
+    } catch {
+      // Keep going: one unremovable file must not leave the rest behind.
+    }
+  }
+  return removed;
 }
 
 /** The type to serve a cached file as, from the extension `extensionForType` gave it. */

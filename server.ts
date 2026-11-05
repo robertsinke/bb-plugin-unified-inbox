@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
 import { createWhatsAppStore } from './src/whatsapp/store';
 import { createWhatsAppLifecycle } from './src/whatsapp/lifecycle';
+import { clearCachedMedia, whatsAppDataDir } from './src/whatsapp/media';
 import { createWhatsAppTransport } from './src/whatsapp/transport';
 import { attachIngest } from './src/whatsapp/ingest';
 import { createSearchIndex, createSearchStore } from './src/search-index';
@@ -40,7 +41,9 @@ import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const whatsappStore = createWhatsAppStore(db);
-  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear()] });
+  // A clear covers what this plugin stored for WhatsApp: the rows and the media bytes they name.
+  // The account state is not here and is not touched — forgetting it is a re-pair.
+  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir())] });
   // The plugin's own WhatsApp socket, when one is open. Absent is the normal state for a stranger —
   // and reads still answer, because the store holds what already arrived. The lifecycle, not this
   // module, decides when that is and why a start failed; `src/whatsapp/lifecycle.ts` says how.
