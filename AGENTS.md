@@ -6,11 +6,16 @@ A BB plugin: five message sources (Gmail ×2, WhatsApp, Messages, LinkedIn) behi
 ## Run and prove
 
 ```sh
-npm test          # the suite: node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts
+npm test          # the suite: node --experimental-strip-types --test tests/*.test.ts tests/adapters/*.test.ts tests/whatsapp/*.test.ts
 npm run typecheck # tsc --noEmit
-npm run check     # both, in the order a commit needs them
+npm run check     # typecheck + the Baileys patch + the suite + send audit: the order a commit needs
+npm run build     # NOT a bare `bb plugin build`: the pinned WhatsApp client is patched first
 npm ci            # in a fresh worktree: node_modules is not shared, jsdom needs it
 ```
+
+The WhatsApp client is a pinned, patched copy on disk (`_tools/patch-baileys.mjs`, plan D7). A fresh `npm ci`
+leaves it unpatched, and an unpatched client pairs and then shows nothing — so build through `npm run build`,
+and `npm run check` fails on an unpatched tree rather than letting the bundle ship wrong.
 
 `git config core.hooksPath .githooks` (once per clone, already set here) makes the pre-commit hook refuse a
 commit whose `docs/_index.md` is stale, and typecheck when a `.ts`/`.tsx` file is staged.
