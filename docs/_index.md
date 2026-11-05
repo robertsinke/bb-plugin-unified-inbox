@@ -36,6 +36,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/plans/2026-11-04-001-refactor-own-source-transports-plan.md`](plans/2026-11-04-001-refactor-own-source-transports-plan.md) | active | 2026-11-04 |  |
 | [`docs/plans/2026-11-03-001-fix-mail-approval-rollout-plan.md`](plans/2026-11-03-001-fix-mail-approval-rollout-plan.md) | active | 2026-11-03 |  |
 | [`docs/plans/2026-11-02-next-slices.md`](plans/2026-11-02-next-slices.md) | current | 2026-11-02 |  |
 | [`docs/plans/2026-11-02-slice-b-work-units.md`](plans/2026-11-02-slice-b-work-units.md) | historical | 2026-11-02 |  |
