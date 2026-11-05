@@ -97,7 +97,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   const decorated = (rows: Conversation[]) => rows.map(row => registry[row.account].decorate?.(row) ?? row);
 
   /**
-   * Where each source's next older page begins: Gmail's own page token, WhatsAgent's row offset,
+   * Where each source's next older page begins: Gmail's own page token, the WhatsApp store's row offset,
    * and `null` once a source says nothing older exists (a source that cannot page is `null` too).
    * The newest-page read seeds it and only `older` advances it, so the 45-second refresh cannot
    * restart a walk the owner started. It lives in memory, not in the cache: a restart shows the

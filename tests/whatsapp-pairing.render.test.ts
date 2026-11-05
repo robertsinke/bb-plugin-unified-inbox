@@ -22,7 +22,7 @@ const QR = '2@abcdefghijklmnop,0123456789abcdef+QR+payload==';
 
 type Answer = { state: string; qr?: string; expiresAt?: number; code?: string; message?: string };
 
-function render(pairing: Answer, actions: { onPair?: () => void; onCode?: (phone: string) => void; onRePair?: () => void } = {}) {
+function render(pairing: Answer, actions: { onPair?: () => void; onCode?: (phone: string) => void; onRePair?: () => void; onReconnect?: () => void } = {}) {
   const React = require('react');
   const { createRoot } = require('react-dom/client');
   const host = dom.window.document.createElement('div');
@@ -34,6 +34,7 @@ function render(pairing: Answer, actions: { onPair?: () => void; onCode?: (phone
     onPair: actions.onPair ?? (() => {}),
     onCode: actions.onCode ?? (() => {}),
     onRePair: actions.onRePair ?? (() => {}),
+    onReconnect: actions.onReconnect ?? (() => {}),
   })));
   return {
     host,
@@ -106,6 +107,21 @@ test('a logged-out device offers a re-pair, and nothing that reads as a retry', 
     assert.deepEqual(card.buttons(), ['Pair again'], 'one deliberate act, not a retry loop');
     card.node('.ui-pairing button')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     assert.deepEqual(asked, ['re-pair']);
+  } finally {
+    card.unmount();
+  }
+});
+
+test('a socket that would not open is a failure with a retry, never a silent connected card', () => {
+  const asked: string[] = [];
+  const card = render({ state: 'failed', message: 'already open in process 42' }, { onReconnect: () => asked.push('reconnect') });
+  try {
+    assert.match(card.text('.ui-pairing-state') ?? '', /could not open its WhatsApp connection/);
+    assert.equal(card.text('.ui-pairing-message'), 'already open in process 42', 'and the reason is whatever the socket said');
+    assert.equal(card.node('svg.ui-qr'), null, 'there is nothing to scan: this account is already linked');
+    assert.deepEqual(card.buttons(), ['Try again']);
+    card.node('.ui-pairing button')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.deepEqual(asked, ['reconnect'], 'the act is reopening the socket, not re-pairing the device');
   } finally {
     card.unmount();
   }

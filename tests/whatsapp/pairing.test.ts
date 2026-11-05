@@ -83,6 +83,8 @@ async function fixture(t: import('node:test').TestContext, options: { registered
     /** The socket the latest attempt built: the one the server would be talking to. */
     socket: () => sockets.sockets.at(-1)!,
     tick: (ms: number) => { clock += ms; },
+    /** A socket stopped by someone else — the lifecycle's idle stop, or a host that closed it. */
+    forget: () => { connection = undefined; },
   };
 }
 
@@ -207,4 +209,25 @@ test('a socket the host opened on its own is adopted on the first read', async (
   assert.equal(f.pairing.state().state, 'connecting', 'the host socket is the one being reported');
   f.socket().emit('connection.update', { qr: QR_ONE });
   assert.equal(f.pairing.state().qr, QR_ONE, 'and its next payload is on the card');
+});
+
+test('a socket stopped elsewhere is a card with no code, not a spinner that never ends', async (t) => {
+  const f = await fixture(t);
+  await f.pairing.handle({ op: 'pair' });
+  f.socket().emit('connection.update', { qr: QR_ONE });
+  assert.equal(f.pairing.state().state, 'qr');
+
+  // The lifecycle's idle stop closes the socket without telling this module; the payload belonged to
+  // that socket, so an expired-socket QR must not outlive it on screen.
+  f.forget();
+  assert.deepEqual(f.pairing.state(), { state: 'unpaired' });
+});
+
+test('reconnect opens a socket for a linked account and replaces nothing', async (t) => {
+  const f = await fixture(t, { registered: true });
+  const answer = await f.pairing.handle({ op: 'reconnect' });
+
+  assert.equal(answer.state, 'connecting', 'the socket the boot path could not open is open now');
+  assert.equal(f.sockets.configs.length, 1, 'one socket, asked for once');
+  assert.notEqual(answer.message, 'This source is already paired. Unpair it first to link a different phone.', 'a retry is not a re-pair');
 });

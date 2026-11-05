@@ -118,13 +118,15 @@ test('the audit and approval-status reads survive a caller with nothing to ask',
   assert.equal(rpcContract.send_audit.input.safeParse({ limit: 0 }).success, false, 'and a page size is still a page size');
 });
 
-test('the pairing call reads with nothing and acts with one of three words', () => {
+test('the pairing call reads with nothing and acts with one of four words', () => {
   assert.equal(rpcContract.whatsapp_pairing.input.safeParse(null).success, true, 'the card polls with no input at all');
   assert.equal(rpcContract.whatsapp_pairing.input.safeParse({ op: 'pair' }).success, true);
   assert.equal(rpcContract.whatsapp_pairing.input.safeParse({ op: 'request-code', phone: '31612345678' }).success, true);
+  assert.equal(rpcContract.whatsapp_pairing.input.safeParse({ op: 'reconnect' }).success, true, 'a socket that will not open is reopened, not re-paired');
   assert.equal(rpcContract.whatsapp_pairing.input.safeParse({ op: 'retry' }).success, false, 'there is no retry: a lost device is re-paired');
   assert.equal(rpcContract.whatsapp_pairing.input.safeParse({ op: 'pair', phone: '31612345678', replace: true }).success, false, 'and replacing a linked device is not a flag on pairing');
   assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'qr', qr: 'x', expiresAt: 1 }).success, true);
   assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'unpaired', message: 'nothing yet' }).success, true);
-  assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'paired' }).success, false, 'the six states are the whole vocabulary');
+  assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'failed', message: 'already open in process 42' }).success, true, 'an account whose socket would not open says so');
+  assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'paired' }).success, false, 'the seven states are the whole vocabulary');
 });

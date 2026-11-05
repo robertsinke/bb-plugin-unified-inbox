@@ -18,7 +18,7 @@ import type { Account, Conversation, GmailAccount, Message, SourceMap } from './
 // again at every fake that claims to be a gateway. Type-only, so a unit test never
 // loads the panel runtime.
 import type { PluginRpcClient } from '@get-bb/plugin-sdk';
-import type { rpcContract, WhatsAppPairingSnapshot } from './rpc-contract.ts';
+import type { rpcContract, WhatsAppPairingRequest, WhatsAppPairingSnapshot } from './rpc-contract.ts';
 
 /** One row of the list, as `cached` and `sync` return it. */
 export type InboxItem = Conversation;
@@ -161,6 +161,8 @@ export interface InboxSession {
   codeWhatsApp(phone: string): Promise<void>;
   /** Replace a linked device. Deliberate, because re-pairing is the ban lever. */
   rePairWhatsApp(): Promise<void>;
+  /** Reopen the socket for an account that is already linked: the retry after a start that failed. */
+  reconnectWhatsApp(): Promise<void>;
   /** Put a line in the notice area the panel shows under the thread. */
   notify(text: string): void;
 }
@@ -174,8 +176,8 @@ const SEARCH_DEBOUNCE_MS = 150;
 const DRAFT_DEBOUNCE_MS = 250;
 
 /**
- * How long one round of "show older" may run. A Gmail source reads one thread per row and
- * WhatsAgent about a second per page, so a whole page lands in a few seconds; 15s leaves room for
+ * How long one round of "show older" may run. A Gmail source reads one thread per row and a
+ * WhatsApp page comes from the stored rows in well under a second, so a whole page lands quickly; 15s leaves room for
  * a slow mailbox and still never leaves the control loading with no end. A round that misses it
  * degrades into a line in `errors`.
  */
@@ -443,7 +445,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   }
 
   /** One pairing act: the card names it, the gateway answers the state it left behind. */
-  async function actWhatsApp(request: { op: 'pair' | 'unpair' | 'request-code'; phone?: string }): Promise<void> {
+  async function actWhatsApp(request: WhatsAppPairingRequest): Promise<void> {
     try {
       const answer = await deps.rpc.call('whatsapp_pairing', request);
       if (!answer) return;
@@ -956,6 +958,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       await actWhatsApp({ op: 'unpair' });
       await actWhatsApp({ op: 'pair' });
     },
+    reconnectWhatsApp: () => actWhatsApp({ op: 'reconnect' }),
     notify(text) {
       state.status = text;
       notify();

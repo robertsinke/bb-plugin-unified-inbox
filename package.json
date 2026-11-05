@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Unified Inbox",
-    "description": "A local unified Gmail and WhatsAgent inbox (early development).",
+    "description": "A local unified inbox for Gmail, WhatsApp, Messages and LinkedIn (early development).",
     "branding": {
       "icon": "./assets/inbox.svg",
       "experimental_icons": {
