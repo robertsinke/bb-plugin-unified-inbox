@@ -94,6 +94,11 @@ test('an account with no stored credential fails as one scrubbed ProviderError, 
     await assert.rejects(h.registry['gmail-personal'].list(), (error: Error) => {
       assert.match(error.message, /^gmail gmail-personal request failed \(unknown/, 'the ProviderError template still classifies it');
       assert.match(error.message, /No Gmail credential for gmail-personal/i, 'the account that needs one is named');
+      assert.match(
+        error.message,
+        /bb unified-inbox import-gws-account gmail-personal$/,
+        'the fix survives redaction: a path here would be scrubbed to [redacted]',
+      );
       assert.doesNotMatch(error.message, /ENOENT/, 'a missing file is reported as a missing credential, not as a filesystem error');
       return true;
     });
