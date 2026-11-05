@@ -79,6 +79,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | document | status | date | says |
 | --- | --- | --- | --- |
 | [`docs/bugs/2026-11-05-a-dead-socket-was-never-reopened.md`](bugs/2026-11-05-a-dead-socket-was-never-reopened.md) | settled | 2026-11-05 |  |
+| [`docs/bugs/2026-11-05-the-browser-outlives-the-plugin.md`](bugs/2026-11-05-the-browser-outlives-the-plugin.md) | fixed | 2026-11-05 |  |
 | [`docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md`](bugs/2026-11-04-media-download-failure-is-not-temporary.md) | settled | 2026-11-04 |  |
 | [`docs/bugs/2026-11-04-the-failure-line-hides-the-failure.md`](bugs/2026-11-04-the-failure-line-hides-the-failure.md) | fixed | 2026-11-04 |  |
 | [`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`](bugs/2026-11-03-handler-error-counter-conflates-timeouts.md) | open | 2026-11-03 |  |
