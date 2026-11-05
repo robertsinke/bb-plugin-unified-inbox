@@ -243,6 +243,28 @@ function mapMessage(row: MessageRow): Message {
 export type ChatPageRow = { chat: Chat; last: Message | null; unread: number };
 
 /**
+ * One stored message as the search corpus reads it: the text and who wrote it, without the envelope,
+ * the media descriptor or the quote — a corpus is read for its words, and the 6,186 envelopes in this
+ * store are what makes reading them all expensive.
+ */
+export type CorpusMessage = {
+  id: string;
+  chatJid: string;
+  fromMe: boolean;
+  /** The sending jid, exactly as stored; the transport turns it into a name. */
+  sender: string | null;
+  ts: number;
+  type: string;
+  text: string;
+  edited: boolean;
+};
+
+/** One chat with every message it stores — one row of the corpus search reads. */
+export type CorpusChatRow = { chat: Chat; unread: number; messages: CorpusMessage[] };
+
+type CorpusRow = { id: string; chat_jid: string; from_me: number; sender: string | null; ts: number; type: string; text: string | null; edited_at: number | null };
+
+/**
  * A column added after the tables first shipped. `CREATE TABLE IF NOT EXISTS` leaves an existing
  * table alone, so this is the one place that notices — the plugin has no migration runner.
  */
@@ -323,6 +345,15 @@ export function createWhatsAppStore(db: Database.Database) {
        last_msg_at = excluded.last_msg_at`,
   );
   const readChat = db.prepare('SELECT * FROM wa_chats WHERE jid = ?');
+  const readAllChats = db.prepare(
+    'SELECT * FROM wa_chats ORDER BY last_msg_at IS NULL, last_msg_at DESC, jid ASC',
+  );
+  // Every message in the store, grouped by chat in the order a thread reads: the corpus is read
+  // once, so this is one statement rather than 699.
+  const readCorpusMessages = db.prepare(
+    `SELECT id, chat_jid, from_me, sender, ts, type, text, edited_at
+       FROM wa_messages ORDER BY chat_jid, ts ASC, id ASC`,
+  );
   const readChatPage = db.prepare(
     `SELECT * FROM wa_chats
       ORDER BY last_msg_at IS NULL, last_msg_at DESC, jid ASC
@@ -482,6 +513,35 @@ export function createWhatsAppStore(db: Database.Database) {
           : 0;
         return { chat, last: last ? mapMessage(last) : null, unread };
       });
+    },
+    /**
+     * Every chat with every message it stores: the corpus a search reads, in two statements and no
+     * socket. The unread count is the same rule `listChats` applies, so a hit can be drawn as the
+     * row the list would have drawn.
+     */
+    listCorpus(): CorpusChatRow[] {
+      const byChat = new Map<string, CorpusMessage[]>();
+      for (const row of readCorpusMessages.all() as CorpusRow[]) {
+        const messages = byChat.get(row.chat_jid) ?? [];
+        messages.push({
+          id: row.id,
+          chatJid: row.chat_jid,
+          fromMe: row.from_me !== 0,
+          sender: row.sender,
+          ts: row.ts,
+          type: row.type,
+          text: row.text ?? '',
+          edited: row.edited_at != null,
+        });
+        byChat.set(row.chat_jid, messages);
+      }
+      return (readAllChats.all() as ChatRow[]).map(chat => ({
+        chat,
+        unread: chat.last_read_msg_id
+          ? (countUnread.get(chat.jid, chat.last_read_msg_id) as { c: number }).c
+          : 0,
+        messages: byChat.get(chat.jid) ?? [],
+      }));
     },
     /** The newest `limit` messages of one chat, oldest first — the order a thread reads in. */
     listRecentMessages(chatJid: string, limit: number): Message[] {

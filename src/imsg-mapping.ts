@@ -2,6 +2,13 @@ import { z } from 'zod';
 import { basename } from 'node:path';
 import { IMSG_IMAGE_LIMIT, isImsgImage } from './imsg-media.ts';
 
+/**
+ * How many chats one `chats.list` may answer with. The call takes `limit` and no offset, so the whole
+ * chat database is one read; 500 is a ceiling above the largest chat.db measured (105 chats) and
+ * below what one JSON-RPC frame may carry.
+ */
+export const IMSG_CHAT_LIMIT = 500;
+
 const chat = z.object({
   id: z.number().int().positive().safe(), name: z.string().nullish(), display_name: z.string().nullish(),
   identifier: z.string().nullish(), service: z.string().nullish(), last_message_at: z.string().nullish(),
@@ -20,7 +27,7 @@ function timestamp(value: string | null | undefined) {
   return Number.isFinite(result) ? result : 0;
 }
 export function mapImsgChats(value: unknown) {
-  const result = z.object({ chats: z.array(chat).max(100) }).parse(value);
+  const result = z.object({ chats: z.array(chat).max(IMSG_CHAT_LIMIT) }).parse(value);
   return result.chats.map(c => ({
     account: 'imessage' as const, id: String(c.id),
     title: c.display_name || c.name || c.identifier || 'Messages conversation',

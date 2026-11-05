@@ -11,6 +11,9 @@ import test from 'node:test';
 import { AUDIO_LIMIT, SAVE_LIMIT } from '../../src/adapters/media.ts';
 import { approvalFor, createSendGate, type AuditRow } from '../../src/adapters/policy.ts';
 import { WhatsAppDisconnectedError } from '../../src/whatsapp/send.ts';
+import { createSearchIndex } from '../../src/search-index.ts';
+import type { Account, SearchRow, WhatsAppCorpusChat } from '../../src/adapters/types.ts';
+import { accounts } from '../../src/adapters/types.ts';
 import { harness, refused, LINKEDIN_ID, WHATSAPP_GROUP_ID, WHATSAPP_ID } from './harness.ts';
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -92,6 +95,79 @@ test('WhatsApp: list is newest-first from the store, with a group preview that n
     assert.equal(older.items[0].preview, 'Grace: Ship it', 'a group preview names who wrote it, with no second request');
     assert.equal(older.cursor, undefined, 'the last page offers nothing older');
     assert.deepEqual(h.cache.list().map(item => item.id), [WHATSAPP_ID, WHATSAPP_GROUP_ID], 'an older page never rewrites the cache');
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: search indexes the words of a chat, never its protocol rows', async () => {
+  const jid = '15559999999@s.whatsapp.net';
+  const corpus: WhatsAppCorpusChat[] = [{
+    jid,
+    name: 'Grace',
+    kind: '1:1',
+    lastMsgAt: 1_700_000_000_000,
+    unread: 0,
+    messages: [
+      { id: 'old-1', chatJid: jid, fromMe: false, ts: 1_700_000_000_000, type: 'text', text: 'the lighthouse keeper wrote back', sender: 'Grace', edited: false },
+      // A protocol row and a system stub are a chat's plumbing, not something a search may match.
+      { id: 'old-2', chatJid: jid, fromMe: false, ts: 1_700_000_000_001, type: 'protocol', text: 'protocol:history-sync', sender: 'Grace', edited: false },
+      { id: 'old-3', chatJid: jid, fromMe: false, ts: 1_700_000_000_002, type: 'system', text: 'Messages and calls are end-to-end encrypted', sender: 'Grace', edited: false },
+    ],
+  }, {
+    jid: WHATSAPP_GROUP_ID,
+    name: 'Builders',
+    kind: 'group',
+    lastMsgAt: 1_600_000_000_000,
+    unread: 0,
+    messages: [],
+  }];
+  const asked: string[] = [];
+  const h = harness({ whatsapp: { listCorpus: async () => { asked.push('listCorpus'); return corpus; } } });
+  try {
+    h.calls.length = 0;
+    const rows = await h.registry.whatsapp.searchCorpus!();
+    assert.deepEqual(asked, ['listCorpus']);
+    assert.deepEqual(h.calls, [], 'one store read, and nothing else crossed the transport — no socket, no lifecycle');
+
+    assert.deepEqual(rows.map(row => [row.item.id, row.item.title]), [[jid, 'Grace'], [WHATSAPP_GROUP_ID, 'Builders']]);
+    assert.deepEqual(rows[0].messages!.map(message => message.text), ['the lighthouse keeper wrote back'], 'a protocol row and a system stub are not indexed');
+    assert.equal(rows[1].messages!.length, 0);
+
+    // The conversation's own name is part of what a query can match, group or not.
+    const index = createSearchIndex({ corpus: async () => rows, readThread: () => null, onChange: () => {} });
+    assert.deepEqual((await index.search('builders')).map(row => row.id), [`whatsapp\u0000${WHATSAPP_GROUP_ID}`], "a group's own name is searchable with no message in it");
+    assert.deepEqual((await index.search('protocol')).map(row => row.id), [], 'a protocol row is not');
+    assert.deepEqual((await index.search('encrypted')).map(row => row.id), [], 'and neither is a system stub');
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a chat older than the newest page is found by a word inside it', async () => {
+  // 60 chats, newest first, and only the last one ever said "lighthouse".
+  const corpus: WhatsAppCorpusChat[] = Array.from({ length: 60 }, (_, index) => {
+    const jid = `1555000${String(index).padStart(4, '0')}@s.whatsapp.net`;
+    return {
+      jid,
+      name: `Person ${index}`,
+      kind: '1:1' as const,
+      lastMsgAt: 1_700_000_000_000 - index * 1_000,
+      unread: 0,
+      messages: [{ id: `m-${index}`, chatJid: jid, fromMe: false, ts: 1_700_000_000_000 - index * 1_000, type: 'text', text: index === 59 ? 'the lighthouse keeper' : `hello ${index}`, sender: `Person ${index}`, edited: false }],
+    };
+  });
+  const h = harness({ whatsapp: { listCorpus: async () => corpus } });
+  try {
+    // One account's corpus, exactly as the wiring asks for it: the adapter's own answer.
+    const index = createSearchIndex({
+      corpus: async (account: Account): Promise<SearchRow[]> => account === 'whatsapp' ? h.registry.whatsapp.searchCorpus!() : [],
+      readThread: () => null,
+      onChange: () => {},
+    });
+    const found = await index.search('lighthouse');
+    assert.deepEqual(found.map(row => row.id), [`whatsapp\u0000${corpus[59].jid}`], 'a chat far past the newest page is a hit');
+    assert.equal(index.row('whatsapp', corpus[59].jid)?.title, 'Person 59', 'and the hit carries the row to draw it with');
   } finally {
     h.close();
   }

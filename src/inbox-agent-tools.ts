@@ -109,7 +109,8 @@ export function registerInboxAgentTools(bb: BbPluginApi, gateway: Gateway) {
       const terms = [...new Set(tokenize(query))];
       const hits = found.ids.filter(hit => !selected || hit.account === selected);
       const page = hits.slice(offset, offset + limit);
-      const listed = new Map(cached.items.map(row => [`${row.account}\u0000${row.id}`, row]));
+      // A hit can name a conversation the cache never held; the search answered with its row too.
+      const listed = new Map([...cached.items, ...found.items].map(row => [`${row.account}\u0000${row.id}`, row]));
       const matches = [];
       for (const hit of page) {
         signal.throwIfAborted();

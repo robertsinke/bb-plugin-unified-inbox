@@ -1,7 +1,7 @@
 ---
 title: "feat: lazy loading in every source, and a search that reaches past the newest page"
 description: "Seven units: search membership stops being the cache's listing, WhatsApp and Messages index what they already store, the panel stops dropping a hit it never listed, Gmail answers one capped query, WhatsApp pages without drifting, LinkedIn pages or says it cannot. Status proposed."
-status: proposed
+status: accepted
 date: 2026-11-05
 ---
 
@@ -180,3 +180,57 @@ change to poll cadences; any live-plugin reload (the parent verifies live, per t
 - **Should `session.more()` press once per source or once for all?** Today one press advances every source that
   promised more; with Messages holding 105 chats a single press could add a whole second page of chat rows while
   Gmail is still reading its ten threads.
+
+## What shipped (INBOX-33: U1–U4)
+
+Landed as one change; U5, U6 and U7 are the later child and are untouched here.
+
+- **U1** — `src/search-index.ts` takes one corpus per account (`Adapter.searchCorpus`), not `cache.list()` as
+  its universe: a row whose source still answers for it survives a `save()`, a row the source dropped is
+  removed, and `warm()` is isolated per account so a source that cannot answer keeps its documents. The index
+  also keeps the row behind each document, which is what lets a hit be drawn. `src/gateway.ts` still answers
+  ranked ids and now answers their rows with them; the cache's row wins where it exists, so a listed row keeps
+  its decorations and its unread mark.
+- **U2** — `WhatsAppTransport.listCorpus()` reads every chat with every stored message straight from `wa_*`
+  (2 statements, no envelope), the adapter filters the same noise rule the list uses, and `searchCorpus` is
+  that read. Measured against the live plugin's database, copied read-only: 699 chats / 6,191 messages become
+  **699 documents and 318 KB of persisted terms in 0.46 s**, built with no socket — a test proves `connection`
+  and `ensure` are never called. The whole index after this unit is 845 documents (WhatsApp 699, Messages 105,
+  Gmail 20, LinkedIn 21) where it was 111.
+- **U3** — Messages declares `pageSize: 20`; `sync` asks `chats.list` for one row past its page so a cursor is
+  offered only when a row really exists, and an older page is a slice of one full `chats.list` (memoized per
+  adapter, shared with the corpus). The same rows are the search corpus, so a chat past the newest 20 is a hit.
+- **U4** — `search` answers `items`; `InboxSnapshot.hits` is rows, and `app.tsx` draws `(hits ?? items)` through
+  the owner's filter instead of looking each hit up in the loaded list. The footnote is derived from the
+  declarations (`src/inbox-footnote.ts`), so Gmail's ten and Messages' twenty are no longer described as twenty.
+
+Measured again for U3, because the plan's 0.12 s is the `--no-contacts` CLI read and the RPC has no such flag:
+`chats.list` answers all 105 chats in **10.0 s** over JSON-RPC on this machine (Contacts unavailable, ~95 ms per
+chat; 2.1 s for the 21-row newest page). Under the panel's 15 s older-page deadline but not comfortably: the
+first press or the first query after a start pays that one read, and every later page of the session is a slice
+of the memo.
+
+### Execution log
+
+- **2026-11-05, batch 1 (U1 + U4 wiring)** — `src/adapters/types.ts` (`SearchRow`, `searchCorpus?`),
+  `src/search-index.ts`, `src/gateway.ts`, `src/rpc-contract.ts`, `server.ts`, `src/inbox-session.ts`,
+  `app.tsx`, `src/inbox-footnote.ts`, `src/inbox-agent-tools.ts`. Tests: `tests/search-index.test.ts` (9),
+  `tests/inbox-session.test.ts` (a hit absent from `items`), `tests/inbox-list.render.test.ts` (the panel
+  draws the hit's own title, and the footnote's numbers come from the declarations).
+- **2026-11-05, batch 2 (U2 + U3)** — `src/whatsapp/store.ts` (`listCorpus`), `src/whatsapp/transport.ts`,
+  `src/adapters/whatsapp.ts`, `src/adapters/imessage.ts`, `src/imsg-mapping.ts` (`IMSG_CHAT_LIMIT`). Tests:
+  `tests/whatsapp/transport.test.ts` (the corpus, with no socket asked), `tests/adapters/whatsapp.test.ts`
+  (a chat past the newest page found by a word inside it; protocol and system rows not indexed; a group's own
+  name indexed), `tests/adapters/imessage.test.ts` (page 1 of N, page 2 holds what page 1 did not, the end
+  says so, a second press adds nothing, a chat past the newest page is a hit).
+- **2026-11-05, batch 3 (docs)** — `src/CONTEXT.md` (search membership; the paging-cursor row moved out of
+  "unsettled"), this note, `docs/_index.md` regenerated.
+
+### What this does not settle
+
+- **One BM25 corpus over 700 WhatsApp chats and ~100 mixed rows** ranks differently than before: WhatsApp now
+  outweighs every other source. Named as an open question above; a per-source cap is the likely answer.
+- **The first Messages read of a session is 10 s here** (see above), and the corpus warm is on the panel's
+  first sync, so a search typed in the first seconds after a start waits for it.
+- **An older Messages page is a snapshot.** `chats.list` has no offset, so the memo is the ordering; a chat
+  arriving later is in the newest page from `sync` and not in the slice. Same class as U6's drift, unfixed here.

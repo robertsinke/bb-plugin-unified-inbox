@@ -1,11 +1,18 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { migrateGmailAccountIds, type CachedItem, type CacheChange } from './inbox-cache.ts';
+import { migrateGmailAccountIds, type CacheChange } from './inbox-cache.ts';
+import { accounts, type Account, type Conversation, type SearchRow } from './adapters/types.ts';
 import { bm25RankPrepared, conversationText, prepareDocument, type PreparedDocument } from './bm25.ts';
 
+/**
+ * What the index holds for one account. `corpus` is the source of truth for membership: a source
+ * whose data is already on this disk answers all of it (WhatsApp's store, Messages' chat database),
+ * and one that does not answers the cache's newest page. `readThread` is the single-thread path a
+ * `saveThread` refreshes, so a chat opening does not re-read a 699-chat corpus.
+ */
 export type SearchSource = {
-  list(): CachedItem[];
-  readThread(account: CachedItem['account'], id: string): unknown[] | null;
+  corpus(account: Account): SearchRow[] | Promise<SearchRow[]>;
+  readThread(account: Account, id: string): unknown[] | null;
   onChange(listener: (change: CacheChange) => void): void;
 };
 
@@ -52,11 +59,14 @@ export function createSearchStore(db: Database.Database) {
 export function createSearchIndex(source: SearchSource, store: ReturnType<typeof createSearchStore> | null = null) {
   const documents = new Map<string, PreparedDocument>();
   const signatures = new Map<string, string>();
+  /** The row behind each document: a hit is answered with it, whether or not the list ever loaded it. */
+  const rows = new Map<string, SearchRow>();
   const dirty = new Set<string>();
   const removed = new Set<string>();
   let ready = false;
+  let warming: Promise<void> | null = null;
   let updatedAt: number | null = null;
-  const key = (account: CachedItem['account'], id: string) => `${account}\u0000${id}`;
+  const key = (account: Account, id: string) => `${account}\u0000${id}`;
 
   const persisted = store?.load();
   if (persisted) {
@@ -67,20 +77,22 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     }
   }
 
-  function searchText(item: CachedItem) {
+  function searchText(row: SearchRow) {
+    const { item } = row;
     return conversationText({
       title: [item.sender, item.title].filter(Boolean).join('\n'),
       recipients: item.recipients,
       attachments: item.attachments,
       preview: item.preview,
-      messages: source.readThread(item.account, item.id) ?? [],
+      messages: row.messages ?? source.readThread(item.account, item.id) ?? [],
     });
   }
 
-  function put(item: CachedItem) {
-    const id = key(item.account, item.id);
-    const text = searchText(item);
+  function put(row: SearchRow) {
+    const id = key(row.item.account, row.item.id);
+    const text = searchText(row);
     const signature = createHash('sha1').update(text).digest('hex');
+    rows.set(id, row);
     if (signatures.get(id) === signature && documents.has(id)) return;
     documents.set(id, prepareDocument(id, text));
     signatures.set(id, signature);
@@ -92,6 +104,7 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     const present = documents.has(id) || signatures.has(id);
     documents.delete(id);
     signatures.delete(id);
+    rows.delete(id);
     dirty.delete(id);
     if (present) removed.add(id);
   }
@@ -111,29 +124,41 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     removed.clear();
   }
 
-  function warm() {
-    if (ready) return;
-    const items = source.list();
-    const keep = new Set(items.map(item => key(item.account, item.id)));
-    for (const id of [...documents.keys()]) if (!keep.has(id)) drop(id);
-    for (const item of items) put(item);
-    ready = true;
-    flush();
-  }
-
-  function replaceAccount(account: CachedItem['account']) {
-    if (!ready) return;
-    const items = source.list().filter(item => item.account === account);
-    const keep = new Set(items.map(item => key(item.account, item.id)));
+  /**
+   * One account's membership, as its source answers it: rows the source still lists are kept even
+   * when the cache has never held them, and a row the source dropped leaves the index. A source
+   * that cannot answer keeps the documents it had — a failed read must not empty a corpus.
+   */
+  async function replaceAccount(account: Account) {
+    const corpus = await source.corpus(account);
+    const keep = new Set(corpus.map(row => key(row.item.account, row.item.id)));
     for (const id of [...documents.keys()]) if (id.startsWith(`${account}\u0000`) && !keep.has(id)) drop(id);
-    for (const item of items) put(item);
+    for (const row of corpus) put(row);
     flush();
   }
 
-  function replaceThread(account: CachedItem['account'], id: string) {
+  function warm(): Promise<void> {
+    if (ready) return Promise.resolve();
+    warming ??= (async () => {
+      try {
+        for (const account of accounts) {
+          try { await replaceAccount(account); } catch { /* one source's failure is not the index's */ }
+        }
+        ready = true;
+      } finally { warming = null; }
+    })();
+    return warming;
+  }
+
+  /**
+   * A saved thread refreshes its document from what the source considers the text. A corpus row that
+   * carries its own messages keeps them: a cached thread is the newest 60 of a chat, so rebuilding a
+   * store's document from it would shrink the corpus a search reaches.
+   */
+  function replaceThread(account: Account, id: string) {
     if (!ready) return;
-    const item = source.list().find(item => item.account === account && item.id === id);
-    if (item) put(item);
+    const held = rows.get(key(account, id));
+    if (held) put(held);
     flush();
   }
 
@@ -141,13 +166,15 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     if (change.kind === 'clear') {
       documents.clear();
       signatures.clear();
+      rows.clear();
       dirty.clear();
       removed.clear();
       ready = true;
       updatedAt = Date.now();
       store?.clear(updatedAt);
     } else if (change.kind === 'items') {
-      replaceAccount(change.account);
+      // A cache save is not a search request: the owner's typing waits for no rebuild.
+      if (ready) void replaceAccount(change.account).catch(() => {});
     } else {
       replaceThread(change.account, change.id);
     }
@@ -155,9 +182,13 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
 
   return {
     warm,
-    search(query: string) {
-      warm();
+    async search(query: string) {
+      await warm();
       return bm25RankPrepared(query, [...documents.values()]);
+    },
+    /** The row a ranked hit names, so a caller can draw a conversation the list never loaded. */
+    row(account: Account, id: string): Conversation | undefined {
+      return rows.get(key(account, id))?.item;
     },
     status() {
       return { size: documents.size, updatedAt, ready };
