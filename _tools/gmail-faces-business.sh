@@ -193,14 +193,14 @@ finish() {
 
 # ──────────────────────────────────────────────────────────────────────────
 # STAGES. One stage per thing the human does, in dependency order.
-# The two accounts are independent, so each walks the same four steps.
 # ──────────────────────────────────────────────────────────────────────────
 
-PERSONAL_DIR="$HOME/.config/gws"
-BUSINESS_DIR="$HOME/.config/gws-inhouse"
-# project_of DIR prints the project id the client in DIR belongs to, so neither
-# project is hard-coded here: `_tools/gmail-project-move.sh` can replace one and this
-# script follows it without an edit.
+CONFIG_DIR="$HOME/.config/gws-inhouse"
+CREDENTIAL="$HOME/.bb/plugins/unified-inbox/gmail-credentials/gmail-business.json"
+ACCOUNT="gmail-business"
+
+# project_of prints the project id the client in CONFIG_DIR belongs to, so this
+# wizard follows a moved client without an edit.
 project_of() {
   node -e '
     const fs = require("node:fs");
@@ -209,15 +209,12 @@ project_of() {
       const client = raw.installed || raw.web || {};
       process.stdout.write(String(client.project_id || ""));
     } catch { process.stdout.write(""); }
-  ' "$1/client_secret.json" 2>/dev/null
+  ' "$CONFIG_DIR/client_secret.json" 2>/dev/null
 }
 
-CREDENTIALS="$HOME/.bb/plugins/unified-inbox/gmail-credentials"
-SCOPES="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/contacts.readonly,https://www.googleapis.com/auth/contacts.other.readonly"
-
-# faces_state FILE prints which scopes FILE is missing, as JSON. Never prints a
-# token, a secret or a scope the file does have: only what is absent.
-faces_state() {
+# grant_state prints which scopes the stored credential is missing, as JSON, and
+# never prints a scope it holds, a token, or a secret.
+grant_state() {
   node -e '
     const fs = require("node:fs");
     let d = {};
@@ -225,39 +222,26 @@ faces_state() {
     const have = new Set(Array.isArray(d.scopes) ? d.scopes : []);
     const contacts = ["https://www.googleapis.com/auth/contacts.readonly", "https://www.googleapis.com/auth/contacts.other.readonly"].filter(s => !have.has(s));
     const mail = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"].filter(s => !have.has(s));
-    process.stdout.write(JSON.stringify({ contacts, mail }));
+    process.stdout.write(JSON.stringify({ contacts, mail, present: Array.isArray(d.scopes) ? d.scopes.length : 0 }));
   ' "$1" 2>/dev/null || printf '{"error":true}'
 }
 
-# reconsent ACCOUNT CONFIG_DIR opens the login for that account and imports it.
-reconsent() {
-  local account="$1" dir="$2"
-  say "Running the login now. A browser opens on Google's consent screen:"
-  note "it must name that account's contacts as well as Gmail."
-  if GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$dir" gws auth login --scopes "$SCOPES"; then
-    say "Granted. Copying the new grant into the plugin."
-    if bb unified-inbox import-gws-account "$account" --force; then
-      printf '  %s✓ imported%s %s\n' "$GREEN" "$RESET" "$account"
-    else
-      SKIPPED+=("import for $account")
-      warn "the import failed; the old grant is still in place"
-    fi
-  else
-    SKIPPED+=("the login for $account")
-    warn "the login did not finish, so nothing was imported for $account"
-  fi
+count_of() {
+  printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).'"$2"'||[]).length))}catch{process.stdout.write("0")}})'
 }
+
+SCOPES="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/contacts.readonly,https://www.googleapis.com/auth/contacts.other.readonly"
 
 run_wizard() {
 
-TOTAL_STAGES=8
+TOTAL_STAGES=5
 
-banner "Gmail faces: consent for Google contacts"
+banner "Business Gmail faces: consent for Google contacts"
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage "Before we start"
 say "Gmail draws a sender's Google contact photo. Reading it needs the contacts"
-say "scope, which neither account has granted yet. This walks both accounts."
+say "scope, which this account has not granted."
 say ""
 note "Google has no photo-only scope: these grants read every field of every"
 note "contact — names, addresses, phones, birthdays, notes. You accepted that."
@@ -268,49 +252,30 @@ for check in "gws" "bb" "node"; do
   if command -v "$check" >/dev/null 2>&1; then printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$check"
   else printf '  %s✗%s %s is not on PATH\n' "$YELLOW" "$RESET" "$check"; missing=1; fi
 done
-for dir in "$PERSONAL_DIR" "$BUSINESS_DIR"; do
-  if [[ -f "$dir/client_secret.json" ]]; then printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$dir/client_secret.json"
-  else printf '  %s✗%s %s/client_secret.json is missing\n' "$YELLOW" "$RESET" "$dir"; missing=1; fi
-done
-for file in "$CREDENTIALS/gmail-personal.json" "$CREDENTIALS/gmail-business.json"; do
-  if [[ -f "$file" ]]; then printf '  %s✓%s %s\n' "$GREEN" "$RESET" "${file##*/}"
-  else printf '  %s✗%s %s is missing\n' "$YELLOW" "$RESET" "${file##*/}"; missing=1; fi
-done
+if [[ -f "$CONFIG_DIR/client_secret.json" ]]; then printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$CONFIG_DIR/client_secret.json"
+else printf '  %s✗%s %s/client_secret.json is missing\n' "$YELLOW" "$RESET" "$CONFIG_DIR"; missing=1; fi
+if [[ -f "$CREDENTIAL" ]]; then printf '  %s✓%s %s\n' "$GREEN" "$RESET" "${CREDENTIAL##*/}"
+else printf '  %s·%s %s is not there yet; the import creates it\n' "$DIM" "$RESET" "${CREDENTIAL##*/}"; fi
+PROJECT=$(project_of)
+if [[ -n "$PROJECT" ]]; then printf '  %s✓%s project %s\n' "$GREEN" "$RESET" "$PROJECT"
+else printf '  %s✗%s no project id in %s/client_secret.json\n' "$YELLOW" "$RESET" "$CONFIG_DIR"; missing=1; fi
 say ""
 (( missing )) && { warn "Fix the lines above first; the rest of this would fail."; return; }
-PERSONAL_PROJECT=$(project_of "$PERSONAL_DIR")
-BUSINESS_PROJECT=$(project_of "$BUSINESS_DIR")
-for pair in "personal:$PERSONAL_PROJECT:$PERSONAL_DIR" "business:$BUSINESS_PROJECT:$BUSINESS_DIR"; do
-  who="${pair%%:*}"; rest="${pair#*:}"; id="${rest%%:*}"; dir="${rest#*:}"
-  if [[ -n "$id" ]]; then printf '  %s✓%s %s project: %s\n' "$GREEN" "$RESET" "$who" "$id"
-  else printf '  %s✗%s %s has no project id in %s/client_secret.json\n' "$YELLOW" "$RESET" "$who" "$dir"; missing=1; fi
-done
-say ""
-(( missing )) && { warn "Fix the lines above first; the rest of this would fail."; return; }
-note "Two accounts, four steps each: enable the API, allow the scopes on the"
-note "consent screen, authorise, import. About 3 minutes per account."
+say "Four steps: enable the API, allow the scopes, authorise, import. About 3 minutes."
 
 # ── 2 ─────────────────────────────────────────────────────────────────────
-stage "Personal · enable the People API"
+stage "Business · enable the People API"
 say "The Google Cloud project that issued this account's grant:"
-note "$PERSONAL_PROJECT"
-open_url "https://console.cloud.google.com/apis/library/people.googleapis.com?project=$PERSONAL_PROJECT"
+note "$PROJECT"
+open_url "https://console.cloud.google.com/apis/library/people.googleapis.com?project=$PROJECT"
 step "If the project picker is not already on it, choose that project."
 step "Press Enable, and wait for it to say the API is enabled."
 say ""
 note "Route if the link has moved: APIs & Services → Library → search People API."
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
-stage "Personal · allow the two contact scopes"
-if [[ "$PERSONAL_PROJECT" == "gen-lang-client-0395249768" ]]; then
-  # The shared project this account used to live in. Named here so the screen does not
-  # read as the wrong place; a client this wizard's sibling created gets no such note.
-  note "The console calls this project 'executor-mcp-gateway'. That is only its display"
-  note "name, from work this project was made for; the id in the URL is the project that"
-  note "issued this account's Gmail client, so it is the right screen."
-  say ""
-fi
-open_url "https://console.cloud.google.com/auth/scopes?project=$PERSONAL_PROJECT"
+stage "Business · allow the two contact scopes"
+open_url "https://console.cloud.google.com/auth/scopes?project=$PROJECT"
 step "Press Add or remove scopes."
 step "Paste and add both, then Save:"
 say ""
@@ -318,63 +283,50 @@ note "https://www.googleapis.com/auth/contacts.readonly"
 note "https://www.googleapis.com/auth/contacts.other.readonly"
 say ""
 note "Route if the link has moved: APIs & Services → OAuth consent screen → Data access."
-note "This project is in Testing mode: it must still list you as a test user."
+note "A Workspace org can refuse a sensitive scope until an admin allows it."
+note "If the login refuses, that is the reason, and it is theirs to lift."
+
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
-stage "Personal · authorise and import"
-say "This runs the login in the personal config directory and copies the grant."
-reconsent gmail-personal "$PERSONAL_DIR"
+stage "Business · authorise and import"
+say "This runs the login in $CONFIG_DIR and copies the grant into the plugin."
+say "A browser opens on Google's consent screen: it must name this account's"
+say "contacts as well as Gmail."
+say ""
+if GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$CONFIG_DIR" gws auth login --scopes "$SCOPES"; then
+  if bb unified-inbox import-gws-account "$ACCOUNT" --force; then
+    printf '  %s✓ imported%s %s\n' "$GREEN" "$RESET" "$ACCOUNT"
+  else
+    SKIPPED+=("the import for $ACCOUNT")
+    warn "the import failed; the old grant is still in place"
+  fi
+else
+  SKIPPED+=("the login for $ACCOUNT")
+  warn "the login did not finish, so nothing was imported"
+fi
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
-stage "Business · enable the People API"
-say "The project behind the business grant:"
-note "$BUSINESS_PROJECT"
-open_url "https://console.cloud.google.com/apis/library/people.googleapis.com?project=$BUSINESS_PROJECT"
-step "Press Enable, and wait for it to say the API is enabled."
-say ""
-note "A Workspace org can refuse a sensitive scope until an admin allows it."
-note "If step 7 refuses, that is the reason, and it is theirs to lift."
-
-# ── 6 ─────────────────────────────────────────────────────────────────────
-stage "Business · allow the two contact scopes"
-note "This project should read 'bb-inbox-513016'. If the console shows another"
-note "name, you are on the wrong project: check the id in the address bar."
-say ""
-open_url "https://console.cloud.google.com/auth/scopes?project=$BUSINESS_PROJECT"
-step "Press Add or remove scopes."
-step "Paste and add both, then Save:"
-say ""
-note "https://www.googleapis.com/auth/contacts.readonly"
-note "https://www.googleapis.com/auth/contacts.other.readonly"
-
-# ── 7 ─────────────────────────────────────────────────────────────────────
-stage "Business · authorise and import"
-say "The same login, in the business config directory."
-reconsent gmail-business "$BUSINESS_DIR"
-
-# ── 8 ─────────────────────────────────────────────────────────────────────
-stage "Check what each account can read"
-for pair in "gmail-personal:$CREDENTIALS/gmail-personal.json" "gmail-business:$CREDENTIALS/gmail-business.json"; do
-  account="${pair%%:*}"; file="${pair#*:}"
-  state=$(faces_state "$file")
-  if [[ "$state" == '{"error":true}' || -z "$state" ]]; then
-    warn "$account: could not read its grant"; SKIPPED+=("check for $account"); continue
-  fi
-  contacts=$(printf '%s' "$state" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write(String((j.contacts||[]).length))})')
-  mail=$(printf '%s' "$state" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write(String((j.mail||[]).length))})')
+stage "Check what this account can read"
+state=$(grant_state "$CREDENTIAL")
+if [[ "$state" == '{"error":true}' || -z "$state" ]]; then
+  warn "$ACCOUNT: could not read its grant"
+  SKIPPED+=("check $ACCOUNT")
+else
+  contacts=$(count_of "$state" contacts)
+  mail=$(count_of "$state" mail)
   if [[ "$mail" != "0" ]]; then
-    warn "$account lost a mail scope in the re-consent: mail reading and sending will stop"
-    SKIPPED+=("re-consent $account again with the full scope set")
+    warn "$ACCOUNT lost a mail scope in the re-consent: mail reading and sending will stop"
+    SKIPPED+=("re-consent $ACCOUNT with the full scope set")
   elif [[ "$contacts" == "0" ]]; then
-    printf '  %s✓%s %s can read contacts; faces appear on the next refresh\n' "$GREEN" "$RESET" "$account"
+    printf '  %s✓%s %s can read contacts; faces appear on the next refresh\n' "$GREEN" "$RESET" "$ACCOUNT"
   else
-    warn "$account is still missing $contacts contact scope(s); faces stay off for it"
-    SKIPPED+=("re-consent $account")
+    warn "$ACCOUNT is still missing $contacts contact scope(s); faces stay off for it"
+    SKIPPED+=("re-consent $ACCOUNT")
   fi
-done
+fi
 say ""
-say "Then look at the inbox: Gmail rows draw initials first and their picture on"
-say "a later draw. A sender with no Google photo keeps initials for good."
+say "Look at the inbox: a Gmail row draws initials first and its picture on a"
+say "later draw. A sender with no Google photo keeps initials for good."
 say ""
 note "If a face never appears while the grant is there, the photo URL shape is the"
 note "suspect; the log names it: bb plugin logs unified-inbox"
