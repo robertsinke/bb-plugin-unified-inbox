@@ -55,20 +55,14 @@
 /* The bar lives inside the list it heads, so it shares that list's insets, its width and its
    scrollbar. Laid out as a row: the filter takes the avatar's column, the search takes the copy's,
    and the menu takes the reserved space the rows keep for theirs. */
-/* Full bleed, no rule under it: the bar is a surface, not a boxed strip. Its columns still sit
-   where the rows put theirs, so the search and the menu line up with the labels and dots below. */
+/* Full bleed, no rule under it: the bar is a surface, not a boxed strip. The search now owns the
+   room the filter control used to hold, and the menu lines up with the dots below. */
 .ui-mail-bar{display:flex;align-items:center;gap:9px;box-sizing:border-box;position:sticky;top:0;z-index:5;height:45px;margin:0;padding:0 48px 0 8px;background:var(--background,#fff);flex:none;min-width:0}
-.ui-mail-bar>button{flex:none;height:32px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px}
-.ui-mail-bar>button[aria-pressed=true]{background:color-mix(in srgb, currentColor 12%, transparent)}
 .ui-mail-bar .ui-icon-button{width:32px;padding:0}
 .ui-mail-bar .ui-source-icon{width:16px;height:16px}
-/* Where a row's text begins: the avatar plus the gap after it. The search bar aligns its own text
-   to this same column, minus the control and gap it sits behind, so the two are one number apart
-   and cannot drift. */
 /* Only the bar's trailing menu leaves the flow, to sit where a row keeps its own. */
 .ui-mail-bar>.ui-menu:last-child{position:absolute;right:8px;top:50%;transform:translateY(-50%)}
-/* The search begins where a row's copy begins: its own padding is only the room the clear
-   button needs, because the column is already set by the bar's filter control and gap. */
+/* The search owns the bar's free space; its own padding is only the room the clear button needs. */
 .ui-search{flex:1;min-width:0;height:28px;margin:0;padding:0 24px 0 0;border:0;background:transparent;color:inherit;font:inherit;font-size:13px}
 .ui-search:focus{outline:none}
 /* No top padding: the bar sticks at the scrollport edge, and any gap above it would let a row
@@ -122,8 +116,10 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-menu-item .ui-source-icon{width:13px;height:13px;font-size:10px;flex:none}
 .ui-menu-item svg{width:13px;height:13px;flex:none}
 .ui-menu-item{display:flex;align-items:center;gap:8px;text-align:left}
-/* A menu on the left of a bar opens rightwards, so it never hangs off the window. */
-.ui-menu-start .ui-menu-list{left:0;right:auto}
+/* A menu can hold one group of choices that is not an action: stacked like the actions, then set
+   off from them by a rule. */
+.ui-menu-group{display:flex;flex-direction:column}
+.ui-menu-sep{height:1px;margin:4px 6px;background:#8883}
 /* A refresh says it is in flight by fading, not by turning. */
 /* A control that stands for the whole inbox carries its standing problem as a dot. */
 .ui-menu-marker{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:#e05a47;box-shadow:0 0 0 2px var(--background,#fff);pointer-events:none}
