@@ -55,6 +55,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/research/2026-11-05-baileys-whatsapp-transport.md`](research/2026-11-05-baileys-whatsapp-transport.md) | settled | 2026-11-05 | What the plugin asks of WhatsAgent today, what an in-plugin Baileys transport would make us own, the first pro |
 | [`docs/research/linkedin/linkedin-inbox-options.md`](research/linkedin/linkedin-inbox-options.md) | settled | 2026-11-03 | Which LinkedIn surfaces can feed unified-inbox, which access paths exist, and what each costs in maintenance a |
 | [`docs/research/linkedin/linkedincli-safer-transport.md`](research/linkedin/linkedincli-safer-transport.md) | settled | 2026-11-03 | static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external L |
 | [`docs/research/linkedin/linkedincli-unread-test.md`](research/linkedin/linkedincli-unread-test.md) | settled | 2026-11-03 |  |
