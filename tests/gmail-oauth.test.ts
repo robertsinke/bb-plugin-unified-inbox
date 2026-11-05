@@ -13,6 +13,7 @@ import {
   type GmailCredentialRecord,
   type TokenFetch,
 } from '../src/gmail-oauth.ts';
+import { redactProviderText } from '../src/adapters/provider-error.ts';
 
 const NOW = 1_700_000_000_000;
 const HOUR = 3_600_000;
@@ -197,4 +198,33 @@ test('a written record is mode 0600 and a rewrite replaces it atomically', async
   const left = readdirSync(dir).filter(name => name.endsWith('.tmp'));
   assert.deepEqual(left, [], 'an atomic write leaves no partial file behind');
   assert.deepEqual(await credentials.read('gmail-personal'), second);
+});
+
+test('a corrupt record names the fix, and the fix survives scrubbing', async () => {
+  const dir = await tempDir();
+  const { fetch } = fakeTokenEndpoint();
+  const credentials = createGmailCredentials({ dir, fetch, now: () => NOW });
+  await writeFile(gmailCredentialPath('gmail-personal', dir), '{not json', { mode: 0o600 });
+
+  await assert.rejects(credentials.read('gmail-personal'), (error: Error) => {
+    // Pinned verbatim: the panel never shows a filesystem path (redactProviderText scrubs it), so
+    // the message has to carry the command that replaces the file instead.
+    assert.equal(
+      error.message,
+      'Gmail credential for gmail-personal is not valid JSON; run bb unified-inbox import-gws-account gmail-personal --force',
+    );
+    assert.doesNotMatch(error.message, /\/(Users|\.bb)\//);
+    return true;
+  });
+});
+
+test('every "run this command" message survives redaction unchanged', () => {
+  // The class, not the instance: a message that names a command must come out of the scrubber
+  // byte-identical, or the panel shows the reader something they cannot type.
+  for (const account of ['gmail-personal', 'gmail-business'] as const) {
+    for (const message of [
+      `No Gmail credential for ${account}; run bb unified-inbox import-gws-account ${account}`,
+      `Gmail credential for ${account} is not valid JSON; run bb unified-inbox import-gws-account ${account} --force`,
+    ]) assert.equal(redactProviderText(message), message);
+  }
 });
