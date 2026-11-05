@@ -40,6 +40,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | document | status | date | says |
 | --- | --- | --- | --- |
 | [`docs/plans/2026-11-05-001-feat-whatsapp-transport-in-the-plugin-plan.md`](plans/2026-11-05-001-feat-whatsapp-transport-in-the-plugin-plan.md) | shipped | 2026-11-05 |  |
+| [`docs/plans/2026-11-05-002-feat-lazy-loading-and-search-reach-plan.md`](plans/2026-11-05-002-feat-lazy-loading-and-search-reach-plan.md) | proposed | 2026-11-05 | Seven units: search membership stops being the cache's listing, WhatsApp and Messages index what they already  |
 | [`docs/plans/2026-11-04-001-refactor-own-source-transports-plan.md`](plans/2026-11-04-001-refactor-own-source-transports-plan.md) | active | 2026-11-04 |  |
 | [`docs/plans/2026-11-03-001-fix-mail-approval-rollout-plan.md`](plans/2026-11-03-001-fix-mail-approval-rollout-plan.md) | active | 2026-11-03 |  |
 | [`docs/plans/2026-11-02-next-slices.md`](plans/2026-11-02-next-slices.md) | current | 2026-11-02 |  |
@@ -60,6 +61,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | --- | --- | --- | --- |
 | [`docs/research/2026-11-05-baileys-rc14-against-the-pin.md`](research/2026-11-05-baileys-rc14-against-the-pin.md) | settled | 2026-11-05 | rc14 installs, patches after a one-line anchor fix, keeps 487 tests green, grows the bundle by 426 bytes, and  |
 | [`docs/research/2026-11-05-baileys-whatsapp-transport.md`](research/2026-11-05-baileys-whatsapp-transport.md) | superseded | 2026-11-05 | What the plugin asks of WhatsAgent today, what an in-plugin Baileys transport would make us own, the first pro |
+| [`docs/research/2026-11-05-lazy-loading-and-search-reach.md`](research/2026-11-05-lazy-loading-and-search-reach.md) | current | 2026-11-05 | Measured: the panel sees 111 of 699 WhatsApp chats, and search indexes 111 conversations with 999 of 6,186 sto |
 | [`docs/research/2026-11-05-whatsapp-transport-a-stranger-can-install.md`](research/2026-11-05-whatsapp-transport-a-stranger-can-install.md) | settled | 2026-11-05 | Under the real constraint — a plugin user has no WhatsAgent — what has to ship, how a stranger pairs, which of |
 | [`docs/research/linkedin/linkedin-inbox-options.md`](research/linkedin/linkedin-inbox-options.md) | settled | 2026-11-03 | Which LinkedIn surfaces can feed unified-inbox, which access paths exist, and what each costs in maintenance a |
 | [`docs/research/linkedin/linkedincli-safer-transport.md`](research/linkedin/linkedincli-safer-transport.md) | settled | 2026-11-03 | static research and a synthetic loopback test only. No LinkedIn session, cookie, Keychain entry, or external L |
@@ -77,6 +79,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | document | status | date | says |
 | --- | --- | --- | --- |
 | [`docs/bugs/2026-11-05-a-dead-socket-was-never-reopened.md`](bugs/2026-11-05-a-dead-socket-was-never-reopened.md) | settled | 2026-11-05 |  |
+| [`docs/bugs/2026-11-05-the-browser-outlives-the-plugin.md`](bugs/2026-11-05-the-browser-outlives-the-plugin.md) | fixed | 2026-11-05 |  |
 | [`docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md`](bugs/2026-11-04-media-download-failure-is-not-temporary.md) | settled | 2026-11-04 |  |
 | [`docs/bugs/2026-11-04-the-failure-line-hides-the-failure.md`](bugs/2026-11-04-the-failure-line-hides-the-failure.md) | fixed | 2026-11-04 |  |
 | [`docs/bugs/2026-11-03-handler-error-counter-conflates-timeouts.md`](bugs/2026-11-03-handler-error-counter-conflates-timeouts.md) | open | 2026-11-03 |  |
