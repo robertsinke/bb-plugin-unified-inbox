@@ -107,6 +107,32 @@ test('the idle window stops a socket nobody linked, and the account state is lef
   assert.equal(h.lifecycle.current(), reopened);
 });
 
+test('a QR-linked device keeps its socket even though the registered flag is still false', async (t) => {
+  // rc13 sets `creds.registered` only on its pair-device path, so a device paired by QR carries a live
+  // identity with the flag false. Reading the flag as "unpaired" closed a working socket ten minutes
+  // after it opened, and nothing said so: this is that bug, as one assertion.
+  const dir = mkdtempSync(join(tmpdir(), 'wa-lifecycle-'));
+  const sockets = createSocketFactory();
+  const lifecycle = createWhatsAppLifecycle({
+    create: () => new WhatsAppConnection({
+      authDir: dir,
+      socketFactory: sockets.factory,
+      createAuthStore: () => ({
+        ...fakeAuthStore(),
+        state: { creds: { registered: false, me: { id: '31683799485:12@s.whatsapp.net' } } },
+      } as never),
+      waVersion: VERSION,
+    }),
+    idleMs: 20,
+  });
+  t.after(async () => { await lifecycle.close(); });
+
+  const opened = await lifecycle.open();
+  await sleep(80);
+
+  assert.equal(lifecycle.current(), opened, 'the idle rule is for a pairing QR, not for a linked device');
+});
+
 test('a linked socket is never stopped for being idle: it is how messages arrive', async (t) => {
   const h = harness(t, { registered: true, idleMs: 20 });
   const opened = await h.lifecycle.open();
@@ -248,6 +274,10 @@ test('the socket\'s life is one recorded line per open, close and refusal', asyn
 
   const opened = await h.lifecycle.open();
 
+  // A socket that reached WhatsApp is a second fact, and it arrives as the socket's own event.
+  h.sockets.sockets.at(-1)!.emit('connection.update', { connection: 'open' });
+  await h.sockets.sockets.at(-1)!.flush();
+
   // What WhatsApp said about the socket it closed, in its own words: the fact no reload recovers.
   h.sockets.sockets.at(-1)!.emit('connection.update', {
     connection: 'close',
@@ -266,7 +296,8 @@ test('the socket\'s life is one recorded line per open, close and refusal', asyn
   assert.equal(again.status(), 'disconnected');
 
   const said = lines.map(([level, line]) => `${level} ${line}`);
-  assert.ok(said.some(line => line === 'info WhatsApp socket opened for a linked device'), `opening is recorded: ${said.join(' | ')}`);
+  assert.ok(said.some(line => line === 'info WhatsApp socket opened'), `opening is recorded: ${said.join(' | ')}`);
+  assert.ok(said.some(line => line === 'info WhatsApp socket is connected as a linked device'), 'reaching WhatsApp is recorded too');
   assert.ok(said.some(line => line === 'info WhatsApp socket closed: the host stopped the whatsapp-connection service'), 'the caller\'s reason is recorded');
   assert.ok(said.some(line => line.startsWith('warn WhatsApp closed the socket: Connection Failure (status 428)')), 'WhatsApp\'s own reason is recorded');
   assert.ok(said.some(line => line === 'warn WhatsApp reported this device logged out; pairing is needed again'), 'a terminal close is recorded too');

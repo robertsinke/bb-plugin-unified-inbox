@@ -90,3 +90,23 @@ asks for one first, and with nothing to ask the answer is `notConnected` with th
 No test opens a socket against the live account state: `connectionReplaced` spends a device slot and
 re-pairing is the ban lever, so every test runs on fakes and the live proof is the parent's reload
 plus one media read and one send.
+
+## Why the socket actually died
+
+The child left this as "not fully recoverable". It was recoverable, and the parent found it on the live
+account: **`creds.registered` is `false` on a device paired by QR.** Read of the live state through the
+plugin's own `createFileAuthStore()`: `registered = false | has me = true | hasCreds = true`. rc13 sets
+that flag in one place only, `Socket/messages-recv.js` on the pair-device path, so a device paired by
+scanning a QR keeps a live identity with the flag still false.
+
+`WhatsAppConnection.registered()` answered from that flag, and `armIdle()` reads it as "still a pairing
+in progress, so a timer may stop it". Every linked socket therefore got the ten-minute idle timer, and
+`close()` at that time wrote nothing. Timeline matches to the minute: the plugin reloaded at 18:02:54,
+opened one socket, kept receiving until 18:06:56, and the socket was gone by 18:17 — with no stop line
+anywhere, because there was nothing to log.
+
+The fix is the definition, not the timer: `registered()` now answers from the device identity
+(`creds.me?.id`), which is what "linked" means. `tests/whatsapp/lifecycle.test.ts` pins the exact state —
+`me` present, `registered: false`, idle window 20 ms — and asserts the socket survives it.
+`tests/whatsapp/fake-socket.ts` now carries an identity for a linked fake, so a fake cannot model a
+device that does not exist.
