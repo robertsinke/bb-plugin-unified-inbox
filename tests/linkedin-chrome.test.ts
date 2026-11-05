@@ -162,3 +162,22 @@ test('an endpoint with no browser behind it does not become a browser', async ()
   const refused = async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:51234'); };
   assert.equal(await adoptRunningBrowser(profileWithEndpoint(), refused), undefined);
 });
+
+test('a command whose reply never comes is refused, so a dead browser cannot wedge the source', async () => {
+  const { transport, messages } = fakeTransport();
+  const client = createCdpClient(transport, { commandTimeoutMs: 20 });
+  // No reply is delivered: the browser died between receiving this and answering it.
+  await assert.rejects(client.send('Browser.getVersion'), /did not answer Browser\.getVersion/);
+  assert.equal(messages.length, 1);
+  // The pending entry is gone, so a late reply finds nothing to resolve rather than doing so twice.
+  client.close();
+});
+
+test('one late reply still resolves its own command after the cap has not yet passed', async () => {
+  const { transport, messages, reply } = fakeTransport();
+  const client = createCdpClient(transport, { commandTimeoutMs: 5_000 });
+  const answer = client.send<{ ok: boolean }>('Browser.getVersion');
+  const sent = JSON.parse(messages[0] ?? '{}') as { id?: number };
+  reply({ id: sent.id, result: { ok: true } });
+  assert.deepEqual(await answer, { ok: true });
+});
