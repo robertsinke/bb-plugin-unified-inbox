@@ -134,6 +134,31 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       };
     },
 
+    /**
+     * The whole store as a corpus: every chat with every message it holds, oldest first. A store
+     * read like the list, so a search reaches 6,186 messages with no socket — a socket here would
+     * spend a device slot for a query, and a replaced device is a re-pair.
+     */
+    async listCorpus() {
+      return store.listCorpus().map(({ chat, unread, messages }) => ({
+        jid: chat.jid,
+        name: chat.name ?? contactName(chat.jid),
+        kind: chat.kind,
+        lastMsgAt: chat.last_msg_at,
+        unread,
+        messages: messages.map((message): WhatsAppMessageRow => ({
+          id: message.id,
+          chatJid: message.chatJid,
+          fromMe: message.fromMe,
+          ts: message.ts,
+          type: message.type,
+          text: message.text,
+          sender: message.fromMe ? '' : senderName(message.sender),
+          edited: message.edited,
+        })),
+      }));
+    },
+
     async openChat({ id, limit }) {
       const rows = await Promise.all(store.listRecentMessages(id, limit).map(async (message): Promise<WhatsAppMessageRow> => {
         const media = await factsOf(message);

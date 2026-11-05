@@ -193,6 +193,44 @@ test('open answers the newest rows of one chat, oldest first, and an unknown cha
   }
 });
 
+test('the corpus is every chat with every stored message, read from the store with no socket', async () => {
+  const { db, store } = fixture();
+  try {
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 3_000 });
+    store.upsertChat({ jid: GROUP, name: 'Builders', kind: 'group', last_msg_at: 9_000 });
+    store.upsertContact({ jid: '255700000001@s.whatsapp.net', push_name: 'Grace' });
+    for (let index = 1; index <= 120; index += 1) {
+      store.upsertMessage(message({ id: `m${String(index).padStart(3, '0')}`, chat_jid: DM, ts: index * 1_000, text: `body ${index}` }));
+    }
+    store.upsertMessage(message({ id: 'g1', chat_jid: GROUP, ts: 2_000, sender: '255700000001@s.whatsapp.net', text: 'Ship it' }));
+    store.markChatsRead([DM, GROUP]);
+    store.upsertMessage(message({ id: 'unread', chat_jid: GROUP, ts: 9_000, sender: '255700000001@s.whatsapp.net', text: 'Anyone there' }));
+
+    // The socket answers nothing and may not even be asked: a corpus is a store read.
+    let socketAsked = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => { socketAsked += 1; return undefined; },
+      ensure: async () => { socketAsked += 1; return undefined; },
+    });
+    const corpus = await transport.listCorpus();
+
+    assert.deepEqual(corpus.map(row => row.jid), [GROUP, DM], 'newest activity first, like the list');
+    const [, direct] = corpus;
+    assert.equal(direct.messages.length, 120, 'every stored message, not the newest page');
+    assert.deepEqual(direct.messages.slice(0, 2).map(row => row.text), ['body 1', 'body 2'], 'oldest first, the order a thread reads in');
+    assert.equal(direct.unread, 0, 'a chat read up to its newest has nothing unread');
+    const [group] = corpus;
+    assert.equal(group.messages[1].sender, 'Grace', 'a group message names its sender from the stored contact');
+    assert.equal(group.unread, 1, 'and the unread count is the list\'s own rule');
+    assert.equal(direct.messages[0].type, 'text');
+    assert.equal('raw' in direct.messages[0], false, 'the corpus carries words, not envelopes');
+    assert.equal(socketAsked, 0, 'a corpus read never touches the socket');
+  } finally {
+    db.close();
+  }
+});
+
 test('media is served from cached bytes, and a ref whose file is gone answers no bytes', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'wa-media-'));
   const { db, store } = fixture();

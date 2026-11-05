@@ -64,7 +64,9 @@ export const rpcContract = defineRpcContract({
   list: { input: z.object({ older: z.boolean().optional(), account: account.optional() }).strict().nullable(), output: z.object({ items: z.array(item), errors: z.array(z.string()), more: z.boolean().optional() }) },
   cached: { input: noArgs, output: z.object({ items: z.array(item), freshness: freshness.optional(), more: z.record(account, z.boolean()).optional() }) },
   freshness: { input: noArgs, output: freshness },
-  search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })), truncated: z.boolean() }) },
+  // `ids` is the ranking; `items` is the row behind each of them, because a hit can be a
+  // conversation the list never loaded and the panel has nothing else to draw it from.
+  search: { input: z.object({ query: z.string().max(200) }).strict(), output: z.object({ ids: z.array(z.object({ account, id: z.string(), score: z.number() })), items: z.array(item), truncated: z.boolean() }) },
   search_status: { input: noArgs, output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
   clear_cache: { input: noArgs, output: z.object({ cleared: z.boolean() }) },

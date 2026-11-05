@@ -144,6 +144,15 @@ export interface WhatsAppMediaAnswer {
   notConnected?: boolean;
 }
 
+/**
+ * One chat with every stored message, as the search corpus reads it: what a conversation search
+ * can reach without a page, a socket or a network call.
+ */
+export interface WhatsAppCorpusChat extends WhatsAppChatRow {
+  /** Every stored message of the chat, oldest first. */
+  messages: WhatsAppMessageRow[];
+}
+
 /** What the account is doing, in the words a caller can act on. */
 export interface WhatsAppTransportStatus {
   connection: 'connecting' | 'connected' | 'disconnected';
@@ -167,6 +176,11 @@ export interface WhatsAppTransport {
   listChats(input: { cursor?: string; limit: number }): Promise<{ chats: WhatsAppChatRow[]; cursor?: string }>;
   /** The newest `limit` stored messages of one chat, oldest first. */
   openChat(input: { id: string; limit: number }): Promise<WhatsAppMessageRow[]>;
+  /**
+   * Every stored chat with every stored message — the corpus a search reads once, not a page. A
+   * store read like `listChats`: no socket, and nothing here opens one.
+   */
+  listCorpus(): Promise<WhatsAppCorpusChat[]>;
   /** The stored media descriptor, the cached bytes, or one download when the socket is open. */
   loadMedia(messageId: string): Promise<WhatsAppMediaAnswer>;
   /**
@@ -475,6 +489,16 @@ export interface SyncResult {
 }
 
 /**
+ * One conversation the search index should hold, with the body text its source already has. A
+ * source that keeps its own corpus answers `item` plus the messages it stores; one that does not
+ * answers the row alone and the index reads the cached thread.
+ */
+export interface SearchRow {
+  item: Conversation;
+  messages?: Message[];
+}
+
+/**
  * One provider behind the gateway. The registry (src/adapters/index.ts,
  * state 3) maps Account → adapter; the gateway owns caching, search, audit,
  * error isolation, and the send policy layer (spec goals 1–3). The gateway
@@ -535,4 +559,10 @@ export interface Adapter {
    * adapter that owns the shape fixes them without reading its source again.
    */
   repairThread?(id: string, messages: Message[]): Promise<Message[]>;
+  /**
+   * The conversations this source can answer for, past the newest page, without a network call or
+   * a socket: a source whose data is already on this disk says so, and search reaches all of it.
+   * Absent means the cache's listing is the corpus, which is what every networked source has.
+   */
+  searchCorpus?(): SearchRow[] | Promise<SearchRow[]>;
 }
