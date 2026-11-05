@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInboxCache } from './src/inbox-cache';
+import { createWhatsAppStore } from './src/whatsapp/store';
 import { createSearchIndex, createSearchStore } from './src/search-index';
 import { createSendAudit } from './src/send-audit';
 import { ImsgClient } from './src/imsg-client';
@@ -36,7 +37,8 @@ import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 
 export default function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
-  const cache = createInboxCache(db);
+  const whatsappStore = createWhatsAppStore(db);
+  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear()] });
   const searchIndex = createSearchIndex(cache, createSearchStore(db));
   // Every send attempt is written here: one table in the plugin's own database.
   const sendAudit = createSendAudit(db);
