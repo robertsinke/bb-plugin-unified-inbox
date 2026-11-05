@@ -132,6 +132,23 @@ test('a row draws initials first, and its sender’s contact photo on a later re
   } finally { h.close(); }
 });
 
+test('a cached row is drawn with the face the store already knows, without waiting for a sync', async () => {
+  // The panel paints from the cache first, and a row cached before its sender's photo was learned
+  // kept its initials until that thread changed again. `decorate` is the read that answers this:
+  // every list, cached or fresh, passes a row through it.
+  const h = harness({ people: { connections: async () => ({ photos: [{ address: 'ada@example.com', url: FACE }] }) } });
+  try {
+    const decorated = h.registry['gmail-personal'].decorate;
+    assert.ok(decorated, 'the Gmail adapter answers a face on every read');
+    const row = { account: 'gmail-personal' as const, id: 'thread-1', title: '', preview: '', date: 0, unread: false, sender: 'Ada Lovelace', senderAddress: 'ada@example.com' };
+    decorated(row);
+    await settle();
+    assert.equal(decorated(row).avatarUrl, FACE, 'a row from the cache draws the picture the store holds');
+    assert.equal(decorated({ ...row, senderAddress: 'grace@example.com' }).avatarUrl, undefined, 'and a sender with no photo keeps its initials');
+    assert.equal(decorated({ ...row, senderAddress: undefined }).avatarUrl, undefined, 'a row that carries no address asks for nothing');
+  } finally { h.close(); }
+});
+
 test('a photo URL the allowlist refuses is dropped, so the row keeps drawing initials', async () => {
   const h = harness({ people: { connections: async () => ({ photos: [{ address: 'ada@example.com', url: 'https://evil.example/face.png' }] }) } });
   try {

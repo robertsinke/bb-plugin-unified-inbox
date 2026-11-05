@@ -236,6 +236,13 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     source: SOURCE[account],
     capabilities: () => CAPABILITIES,
 
+    /**
+     * A face is answered from the store on every read, so a cached row draws the picture the plugin
+     * already has instead of waiting for the next sync to re-save it. Without this, a row cached
+     * before its sender's photo was learned kept its initials until its thread changed again.
+     */
+    decorate: withFace,
+
     async list(cursor, opts?: OpenOptions): Promise<ListResult> {
       return { ...(await listThreads(opts?.limit ?? 20, cursor)), errors: [] };
     },
