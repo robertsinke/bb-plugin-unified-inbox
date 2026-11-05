@@ -4,12 +4,14 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  adoptRunningBrowser,
   browserArgs,
   chromeStartupError,
   createCdpClient,
   linkedinChromePath,
   parseDevtoolsUrl,
   prewarmLinkedInBrowser,
+  runningBrowserUrl,
   stopLinkedInBrowser,
   type CdpTransport,
 } from '../src/linkedin-chrome.ts';
@@ -104,4 +106,59 @@ test('prewarming is best effort and stopping an idle browser is safe', async () 
     delete process.env.UNIFIED_INBOX_CHROME;
     delete process.env.UNIFIED_INBOX_LINKEDIN_PROFILE;
   }
+});
+
+/** A profile as the plugin's own browser left it: it wrote its endpoint there when it started. */
+function profileWithEndpoint(): string {
+  const profile = mkdtempSync(join(tmpdir(), 'linkedin-profile-'));
+  writeFileSync(join(profile, 'DevToolsActivePort'), '51234\n/devtools/browser/1a2b-3c4d\n');
+  return profile;
+}
+
+/** A browser that answers every request with `version`, so adoption can be asked without a Chrome. */
+function answeringBrowser(version: { product?: string; userAgent?: string }) {
+  const sent: { method?: string }[] = [];
+  let receive: (message: string) => void = () => {};
+  const transport: CdpTransport = {
+    send(message) {
+      const request = JSON.parse(message) as { id: number; method: string };
+      sent.push(request);
+      receive(JSON.stringify({ id: request.id, result: version }));
+    },
+    onMessage(handler) { receive = handler; },
+    onClose() {},
+    close() {},
+  };
+  return { connect: async () => transport, sent };
+}
+
+test('the endpoint a browser wrote into the profile is the profile\'s ws url', () => {
+  const profile = mkdtempSync(join(tmpdir(), 'linkedin-profile-'));
+  // The sign-in window runs without remote debugging, so it leaves no endpoint behind.
+  assert.equal(runningBrowserUrl(profile), undefined);
+  writeFileSync(join(profile, 'DevToolsActivePort'), '51234\n/devtools/browser/1a2b-3c4d\n');
+  assert.equal(runningBrowserUrl(profile), 'ws://127.0.0.1:51234/devtools/browser/1a2b-3c4d');
+  writeFileSync(join(profile, 'DevToolsActivePort'), 'half written');
+  assert.equal(runningBrowserUrl(profile), undefined);
+});
+
+test('a headless browser holding the profile is taken over, not replaced', async () => {
+  const { connect, sent } = answeringBrowser({ product: 'HeadlessChrome/131.0.6778.85', userAgent: 'Mozilla/5.0 HeadlessChrome/131.0.6778.85' });
+  const browser = await adoptRunningBrowser(profileWithEndpoint(), connect);
+  assert.equal(browser?.alive, true);
+  assert.equal(browser?.wsUrl, 'ws://127.0.0.1:51234/devtools/browser/1a2b-3c4d');
+  await browser?.stop();
+  // The browser is closed through the protocol: nothing here holds a child handle to signal.
+  assert.deepEqual(sent.map(request => request.method), ['Browser.getVersion', 'Browser.close']);
+});
+
+test('a window the owner opened on the profile is left alone, not adopted', async () => {
+  const { connect, sent } = answeringBrowser({ product: 'Chrome/131.0.6778.85', userAgent: 'Mozilla/5.0 (Macintosh) Chrome/131.0.6778.85 Safari/537.36' });
+  assert.equal(await adoptRunningBrowser(profileWithEndpoint(), connect), undefined);
+  assert.deepEqual(sent.map(request => request.method), ['Browser.getVersion']);
+});
+
+test('an endpoint with no browser behind it does not become a browser', async () => {
+  const refused = async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:51234'); };
+  assert.equal(await adoptRunningBrowser(profileWithEndpoint(), refused), undefined);
 });
