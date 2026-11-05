@@ -18,6 +18,7 @@ import { isInvitationId } from './src/linkedin-inbox';
 import { migrateDraftAccountIds } from './src/inbox-drafts';
 import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps, type MailDraft } from './src/inbox-session';
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
+import { ItemMenu, filterActions, menuTrigger } from './src/inbox-menu.tsx';
 import { WhatsAppPairingCard } from './src/whatsapp-pairing.tsx';
 import { sourceLabel } from './src/source-label.ts';
 import type { SourceMap } from './src/adapters/types';
@@ -477,6 +478,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
   const filtered=items.filter(i=>filter==='all'||(filter==='unread'?i.unread:i.account===filter));
   const shown=hits===null?filtered:hits.flatMap(hit=>{const item=filtered.find(row=>row.account===hit.account&&row.id===hit.id);return item?[item]:[];});
+  /* The header is one control now: the filter is a group inside its menu, so the trigger is what
+     says the list is narrowed, and it says it in the name as well as in the dot. */
+  const trigger=menuTrigger(sources,filter,errors.length?`Some messages couldn't load: ${errors.map(error=>errorLine(error,sources)).join(' ')}`:'');
   // LinkedIn's messages are messages too, so it takes the composer and (in slice G) the bubble layout; Gmail stays a document.
   /* A source that declares `threads` reads as a bubble thread; everything else opens as a document. */
   const chat=!!selected&&hasThread(capabilities,selected.account);
@@ -506,7 +510,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
       </div>
       {composer==='mail'&&mail?<MailDraftComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list"><header className="ui-mail-bar"><FilterMenu value={filter} onChange={next=>session.setFilter(next)} sources={sources} /><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label="this inbox" marker={errors.length?`Some messages couldn't load: ${errors.map(error=>errorLine(error,sources)).join(' ')}`:undefined} actions={[
+    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list"><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
           { label: 'New', run: () => setCompose(!compose) },
           {
             label: auditOpen ? 'Back to inbox' : 'Send log',
@@ -529,46 +533,6 @@ function Inbox({ threadId }: { threadId: string | null }) {
  * LinkedIn carries two kinds of row, and only one is a conversation: an invitation has no read
  * state to change and no thread to open, so the inbox stops offering controls that can only fail.
  */
-/**
- * The inbox is filtered by one control rather than five. The sources stack under it on hover or
- * focus, each with its own icon, so the filter keeps its shape whichever source is chosen and the
- * bar stops carrying a row of buttons that only one of them can be.
- */
-function FilterMenu({value,onChange,sources}:{value:InboxFilter; onChange:(next:InboxFilter)=>void; sources:SourceMap|null}) {
-  const order = ['whatsapp','gmail-personal','gmail-business','imessage','linkedin'] as const;
-  return <span className="ui-menu ui-menu-start">
-    <button type="button" className="ui-icon-button" aria-haspopup="menu" aria-label={`Filter: ${value==='all'?'all conversations':value==='unread'?'unread':sourceLabel(sources,value)}`} title="Filter this inbox"><Icon name="ListView" aria-hidden="true"/></button>
-    <span className="ui-menu-list" role="menu">
-      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='all'} onClick={()=>onChange('all')}><Icon name="LayoutList" aria-hidden="true"/>All</button>
-      <button type="button" role="menuitem" className="ui-menu-item" aria-pressed={value==='unread'} onClick={()=>onChange('unread')}><Icon name="Mail" aria-hidden="true"/>Unread</button>
-      {order.map(key=><button type="button" key={key} role="menuitem" className="ui-menu-item" aria-pressed={value===key} onClick={()=>onChange(key)}><AppIcon account={key}/>{sourceLabel(sources,key)}</button>)}
-    </span>
-  </span>;
-}
-
-/** What the list is narrowed to: everything, the unread, or one source. */
-type InboxFilter = 'all' | 'unread' | Account;
-
-type MenuAction = { label: string; run: () => void; title?: string; disabled?: boolean };
-
-/**
- * One control per row instead of one per action: a few dots that open their list under the cursor,
- * or under keyboard focus. The list is the row's whole vocabulary, so a source that cannot do
- * something simply never contributes its entry.
- */
-function ItemMenu({label,actions,marker}:{label:string; actions:MenuAction[]; marker?:string}) {
-  return <span className="ui-menu">
-    <button type="button" className="ui-icon-button" aria-haspopup="menu" aria-label={`More actions for ${label}`} title={marker??'More actions'}><Icon name="MoreHorizontal" aria-hidden="true"/></button>
-    {marker&&<span className="ui-menu-marker" aria-hidden="true"/>}
-    <span className="ui-menu-list" role="menu" aria-label={`Actions for ${label}`}>
-      {/* The menu stays usable while the inbox refreshes: that heartbeat runs every few seconds, so
-          a menu disabled by it is a menu the owner can almost never open. Actions that must not run
-          mid-flight say so themselves — the session guards `mark` on `busy`, and `refresh` skips a
-          source it is already reading. */}
-      {actions.map(action=><button key={action.label} type="button" role="menuitem" className="ui-menu-item" disabled={action.disabled===true} title={action.title} onClick={event=>{event.stopPropagation();action.run();}}>{action.label}</button>)}
-    </span>
-  </span>;
-}
 
 function isConversationRow(item: Item): boolean {
   return !(item.account === 'linkedin' && isInvitationId(item.id));
