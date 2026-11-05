@@ -16,6 +16,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`decisions/0008-the-plugin-owns-the-gmail-credential.md`](../decisions/0008-the-plugin-owns-the-gmail-credential.md) | accepted | 2026-11-05 |  |
 | [`decisions/0002-the-ceiling-is-the-encoded-message.md`](../decisions/0002-the-ceiling-is-the-encoded-message.md) | accepted | 2026-11-03 |  |
 | [`decisions/0003-the-session-is-minted-where-it-reads.md`](../decisions/0003-the-session-is-minted-where-it-reads.md) | accepted | 2026-11-03 |  |
 | [`decisions/0005-keep-sends-enabled-until-verified-approval.md`](../decisions/0005-keep-sends-enabled-until-verified-approval.md) | accepted | 2026-11-03 |  |
