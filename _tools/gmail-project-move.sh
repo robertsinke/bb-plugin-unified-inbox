@@ -263,10 +263,15 @@ open_url "https://console.cloud.google.com/auth/overview?project=$GCP_PROJECT_ID
 step "Press Get started."
 step "App name: Unified Inbox. Support email: your own address."
 step "Audience: External. Then finish and press Create."
-step "Open the Audience tab and add your Gmail address under Test users."
+step "Open the Audience tab: Publishing status must read Testing."
+step "Under Test users, add the exact address you sign in with."
 say ""
 note "External + Testing is deliberate: no verification review is needed, and the"
 note "only people who can consent are the test users you list."
+warn "If it reads 'In production', press Back to testing now: an unverified app in"
+warn "production blocks every account with 'has not completed the Google"
+warn "verification process', which is the wall that stops the login."
+note "Audience page: https://console.cloud.google.com/auth/audience?project=$GCP_PROJECT_ID"
 note "Route if the link has moved: APIs & Services → OAuth consent screen."
 
 # ── 4 ─────────────────────────────────────────────────────────────────────

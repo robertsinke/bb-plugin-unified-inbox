@@ -292,6 +292,10 @@ note "https://www.googleapis.com/auth/contacts.other.readonly"
 say ""
 note "Route if the link has moved: APIs & Services → OAuth consent screen → Data access."
 note "This project is in Testing mode: it must still list you as a test user."
+say ""
+note "If Google blocks the browser with 'has not completed the Google verification"
+note "process', the account is not a test user on this project, or the project is"
+note "published: Audience page → https://console.cloud.google.com/auth/audience?project=$PROJECT"
 
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
