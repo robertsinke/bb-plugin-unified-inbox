@@ -8,9 +8,13 @@
  *
  * Chrome for Testing is used because this machine has no system Chrome; the profile is kept
  * apart from any personal browsing profile.
+ *
+ * A browser the plugin started can outlive the plugin (a reload kills the process, not its browser),
+ * so the profile is taken over through the endpoint that browser left on disk before a new one is
+ * launched at it. `adoptRunningBrowser` says why that is safe and what it refuses.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -47,6 +51,8 @@ const READ_TIMEOUT = 60_000;
 const LIST_READ_TIMEOUT = 20_000;
 const NAVIGATE_TIMEOUT = 30_000;
 const SIGN_IN_WINDOW_HINT = 'Close the LinkedIn sign-in window before refreshing the inbox.';
+/** A probe of somebody else's browser must not stall the read that needed a page. */
+const ADOPT_TIMEOUT = 5_000;
 
 export type CdpTransport = {
   send(message: string): void;
@@ -227,6 +233,70 @@ async function startBrowser(profile: string): Promise<Browser> {
   });
   browser.wsUrl = wsUrl;
   return browser;
+}
+
+/**
+ * The DevTools endpoint Chrome wrote into the profile when it started with
+ * `--remote-debugging-port=0`: the port on the first line, the browser path on the second. A browser
+ * started without that flag — the sign-in window — writes no such file.
+ */
+export function runningBrowserUrl(profile: string): string | undefined {
+  let text: string;
+  try { text = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8'); } catch { return undefined; }
+  const [port = '', path = ''] = text.split('\n');
+  const number = Number(port.trim());
+  const endpoint = path.trim();
+  if (!Number.isInteger(number) || number <= 0 || !endpoint.startsWith('/')) return undefined;
+  return `ws://127.0.0.1:${number}${endpoint}`;
+}
+
+/** The plugin's own browser calls itself `HeadlessChrome`; a window the owner opened never does. */
+export function isPluginBrowser(version: { product?: unknown; userAgent?: unknown } | null | undefined): boolean {
+  const product = typeof version?.product === 'string' ? version.product : '';
+  const agent = typeof version?.userAgent === 'string' ? version.userAgent : '';
+  return /HeadlessChrome/.test(`${product} ${agent}`);
+}
+
+/**
+ * Takes over the browser a previous plugin instance left holding the profile, instead of launching a
+ * second one against the same directory and being refused by it.
+ *
+ * The plugin reloads; the headless Chrome it started does not exit with it, and it keeps the profile
+ * (and the signed-in session in it). Its endpoint is on disk, so the cheapest recovery is to attach:
+ * no process dies, and the page already carries the owner's state. Adoption is refused — and the
+ * owner's browser left untouched — in the two cases where the answer is not ours: no endpoint (the
+ * sign-in window is started without remote debugging), and an endpoint whose browser does not call
+ * itself headless (a window somebody opened on the profile). Both then fall through to the launch,
+ * which classifies the abort as the sign-in window exactly as before.
+ */
+export async function adoptRunningBrowser(
+  profile: string,
+  connect: (url: string) => Promise<CdpTransport> = webSocketTransport,
+): Promise<Browser | undefined> {
+  const wsUrl = runningBrowserUrl(profile);
+  if (!wsUrl) return undefined;
+  // A browser that exited without cleaning up leaves the endpoint behind; connecting finds nothing.
+  const transport = await connect(wsUrl).catch(() => undefined);
+  if (!transport) return undefined;
+  const client = createCdpClient(transport);
+  const browser: Browser = {
+    wsUrl,
+    alive: true,
+    // It is not this process's child, so it is closed through the protocol rather than a signal.
+    stop: async () => {
+      await client.send('Browser.close').catch(() => undefined);
+      client.close();
+    },
+  };
+  transport.onClose(() => { browser.alive = false; });
+  try {
+    const version = await withTimeout(client.send<{ product?: unknown; userAgent?: unknown }>('Browser.getVersion'), ADOPT_TIMEOUT, 'The LinkedIn browser did not answer.');
+    if (!isPluginBrowser(version)) { client.close(); return undefined; }
+    return browser;
+  } catch {
+    client.close();
+    return undefined;
+  }
 }
 
 /** Serializes page use and suspends idle teardown during it. Only failed writes reset the page. */
@@ -517,7 +587,7 @@ async function warmPage(): Promise<Page> {
   await stopLinkedInBrowser();
   const profile = linkedinProfileDir();
   mkdirSync(profile, { recursive: true });
-  const browser = await startBrowser(profile);
+  const browser = (await adoptRunningBrowser(profile)) ?? await startBrowser(profile);
   const client = createCdpClient(await webSocketTransport(browser.wsUrl));
   try {
     const { targetId } = await client.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' });
