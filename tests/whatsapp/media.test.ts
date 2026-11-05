@@ -3,14 +3,14 @@
 // docs/bugs/2026-11-04-media-download-failure-is-not-temporary.md records: a WhatsApp-side miss is
 // terminal, and a retriable failure must not be stored as one.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WAMessage } from 'baileys';
 import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
-import { classifyMediaFailure, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
+import { classifyMediaFailure, clearCachedMedia, downloadAndCacheMedia, MediaDownloadFailure } from '../../src/whatsapp/media.ts';
 import { createWhatsAppStore } from '../../src/whatsapp/store.ts';
 
 const DAY = 86_400;
@@ -95,4 +95,21 @@ test('the failure classification: 404/410 terminal, the rest retriable until the
   assert.equal(classifyMediaFailure({ statusCode: 418 }, { messageTs, now: now + 14 * DAY * 1000 }), 'unavailable');
   // A connection error says nothing happened, so it is never terminal, at any age.
   assert.equal(classifyMediaFailure(new Error('ECONNRESET'), { messageTs, now: now + 100 * DAY * 1000 }), 'transient');
+});
+
+test('a cache clear takes the media bytes with the rows that named them', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'u6-clear-'));
+  const mediaDir = join(dataDir, 'media');
+  mkdirSync(mediaDir, { recursive: true });
+  writeFileSync(join(mediaDir, 'a.jpg'), 'bytes');
+  writeFileSync(join(mediaDir, 'b.webp'), 'bytes');
+  writeFileSync(join(dataDir, 'keep.txt'), 'not media');
+
+  assert.equal(clearCachedMedia(dataDir), 2);
+  // The directory stays: the next download recreates files, not the plugin's layout.
+  assert.equal(existsSync(join(mediaDir, 'a.jpg')), false);
+  assert.equal(existsSync(join(dataDir, 'keep.txt')), true);
+  // Nothing cached yet is not an error, and a second clear removes nothing.
+  assert.equal(clearCachedMedia(dataDir), 0);
+  assert.equal(clearCachedMedia(join(dataDir, 'absent')), 0);
 });
