@@ -1,5 +1,5 @@
 // Inhouse Gmail: the same declaration as personal Gmail, proven against the
-// business adapter and its own credential directory. Every source is stubbed.
+// business adapter and its own account. Every source is stubbed.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, refused } from './harness.ts';
@@ -48,7 +48,7 @@ test('business Gmail: declared capabilities match what action and send accept', 
     await refused(h.calls, () => adapter.action('confirm', 't1', { text: 'hi' }), /not supported/);
     await refused(h.calls, () => adapter.action('reject', 't1', {}), /not supported/);
 
-    // No call in this test used the personal credential directory.
+    // No call in this test used the personal account's transport.
     assert.ok(h.calls.every(call => call.startsWith('gmail:gmail-business:')));
   } finally { h.close(); }
 });

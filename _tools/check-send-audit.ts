@@ -7,8 +7,8 @@ const WINDOW_DAYS = 7;
 
 /**
  * One `bb status --json` round-trip, which spawns the CLI and reaches the BB server. 30 s is the
- * budget `src/adapters/gws.ts` already gives an external CLI; the 5 s this used to allow made a
- * loaded machine look exactly like an audit that could not be read, and the log said so either way.
+ * budget every external tool gets here; the 5 s this used to allow made a loaded machine look
+ * exactly like an audit that could not be read, and the log said so either way.
  */
 const CLI_TIMEOUT_MS = Number(process.env.UNIFIED_INBOX_AUDIT_TIMEOUT_MS ?? 30_000);
 

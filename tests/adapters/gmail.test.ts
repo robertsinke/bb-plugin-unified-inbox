@@ -3,8 +3,12 @@
 // at the source boundary, and the bytes an attachment read returns are used as they arrive rather
 // than decoded a second time here.
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { GmailApiError } from '../../src/gmail-client.ts';
+import { createGmailClient, GmailApiError } from '../../src/gmail-client.ts';
+import { createGmailCredentials } from '../../src/gmail-oauth.ts';
 import { harness } from './harness.ts';
 
 const TOKEN = 'ya29.a0AfH6SMBx9TcdefGHijklmnopqrstuvwxyz1234567890';
@@ -76,4 +80,24 @@ test('an HTML body that only exists as an attachment is fetched through the same
     assert.equal(opened.messages[0].html, '<p>Hello</p>');
     assert.deepEqual(h.calls, ['gmail:gmail-personal:threads:get', 'gmail:gmail-personal:messages:attachments']);
   } finally { h.close(); }
+});
+
+// INBOX-13 / U5: with the CLI runner gone, an account nobody imported yet is the ordinary case, not
+// a crash. The real credential store, the real HTTPS client and the real adapter are used here; the
+// only fake is the network, which must never be reached because there is no token to send.
+test('an account with no stored credential fails as one scrubbed ProviderError, offline', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bb-inbox-nocredential-'));
+  const offline = async (url: string) => { throw new Error(`the network was reached without a credential: ${url}`); };
+  const credentials = createGmailCredentials({ dir, fetch: offline });
+  const h = harness({ gmail: account => createGmailClient({ account, credentials, fetch: offline }) });
+  try {
+    await assert.rejects(h.registry['gmail-personal'].list(), (error: Error) => {
+      assert.match(error.message, /^gmail gmail-personal request failed \(unknown/, 'the ProviderError template still classifies it');
+      assert.match(error.message, /No Gmail credential for gmail-personal/i, 'the account that needs one is named');
+      assert.doesNotMatch(error.message, /ENOENT/, 'a missing file is reported as a missing credential, not as a filesystem error');
+      return true;
+    });
+    assert.deepEqual(h.calls, [], 'nothing crossed the adapter boundary: there was no token to send');
+    assert.equal((await credentials.status('gmail-personal')).present, false, 'the state is inspectable without an exception');
+  } finally { h.close(); await rm(dir, { recursive: true, force: true }); }
 });

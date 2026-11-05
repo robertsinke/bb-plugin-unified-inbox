@@ -30,13 +30,12 @@ import { createGmailCredentials, gmailCredentialPath, type GmailCredentialRecord
 
 const exec = promisify(execFile);
 
-/** Installed CLI path, the same one `src/adapters/gws.ts` names: the runner does not search PATH. */
+/** Installed CLI path: the import does not search PATH. */
 const GWS_BINARY = '/usr/local/bin/gws';
 
 /**
- * Google Workspace CLI credential directory, one per Gmail account. Copied from
- * `src/adapters/gws.ts` rather than imported: U5 deletes that module, and this mapping has to
- * outlive it by exactly one run.
+ * Google Workspace CLI credential directory, one per Gmail account. It lived in the CLI runner
+ * until that was deleted; this mapping has to outlive it by exactly one run.
  */
 export function gwsConfigDir(account: GmailAccount): string {
   return join(homedir(), account === 'gmail-business' ? '.config/gws-inhouse' : '.config/gws');

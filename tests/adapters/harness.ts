@@ -8,7 +8,7 @@ import { createInboxCache } from '../../src/inbox-cache.ts';
 import { createRegistry } from '../../src/adapters/index.ts';
 import { toProviderError } from '../../src/adapters/provider-error.ts';
 import type { RegistryDeps } from '../../src/adapters/deps.ts';
-import type { Account, Adapter, GmailClient } from '../../src/adapters/types.ts';
+import type { Account, Adapter, GmailClient, GmailTransport } from '../../src/adapters/types.ts';
 
 
 export const LINKEDIN_ID = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAtest,2-abc)';
@@ -114,6 +114,8 @@ export interface Harness {
 
 export interface HarnessOptions {
   gmailCall?: (account: Account, call: GmailCall) => unknown;
+  /** Replace the whole Gmail transport factory, for a test that needs the real client. */
+  gmail?: GmailTransport;
   linkedInThread?: () => Promise<unknown>;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
@@ -128,7 +130,7 @@ export function harness(options: HarnessOptions = {}): Harness {
   const deps: RegistryDeps = {
     cache,
     // One typed client per account: no test in this directory spawns a CLI or opens a socket.
-    gmail: account => {
+    gmail: options.gmail ?? (account => {
       const answer = (call: GmailCall): any => {
         calls.push(`gmail:${account}:${GMAIL_LABEL[call.method]}`);
         return options.gmailCall ? options.gmailCall(account, call) : gmailResponse(call);
@@ -146,7 +148,7 @@ export function harness(options: HarnessOptions = {}): Harness {
           return { id: 'm-sent' };
         },
       };
-    },
+    }),
     whatsapp: {
       call: async tool => { calls.push(`whatsapp:${tool}`); return whatsappResponse(tool); },
       runtime: async () => { calls.push('whatsapp:runtime'); return { baseUrl: 'http://whatsapp.test', token: 'test-token', port: 1 }; },

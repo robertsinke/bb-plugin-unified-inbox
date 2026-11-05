@@ -15,12 +15,13 @@ import {
 import { createLinkedInPageSession } from './src/linkedin-page-session';
 import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, parseMentionId, type MentionMessage } from './src/inbox-mention';
 import { message, rpcContract } from './src/rpc-contract';
-import { createGwsRunner } from './src/adapters/gws';
 import { createRegistry } from './src/adapters/index';
 import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createWhatsAgent } from './src/adapters/whatsagent';
 import { createGateway } from './src/gateway';
+import { createGmailClient } from './src/gmail-client';
+import { createGmailCredentials } from './src/gmail-oauth';
 import { accounts, gmailAccounts, type GmailAccount } from './src/adapters/types';
 import { importGwsAccount } from './src/account-import';
 import { runInboxRefresh } from './src/inbox-refresh';
@@ -57,9 +58,14 @@ export default function plugin(bb: BbPluginApi) {
   // Chrome's start is the slow part of a LinkedIn read; load the page once the profile exists.
   if (existsSync(linkedinProfileDir())) void prewarmLinkedInBrowser();
 
+  // The plugin's own Gmail credential: one store for both accounts, so a token renewed for one
+  // account is never handed to the other, and concurrent reads wait on one grant per account.
+  const gmailCredentials = createGmailCredentials();
+
   const registry = createRegistry({
     cache,
-    gmail: createGwsRunner(),
+    // Gmail reads and sends go over HTTPS with the plugin's own credential — no CLI, no shell.
+    gmail: account => createGmailClient({ account, credentials: gmailCredentials }),
     whatsapp: createWhatsAgent(),
     imsg,
     linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),

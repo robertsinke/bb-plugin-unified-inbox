@@ -115,7 +115,7 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     assert.deepEqual(f.cache.list().map(item => item.id), ['t1'], 'an older page is a read: the cache is untouched');
 
     // The gateway asks for a smaller older page than the twenty-row first load, because a Gmail
-    // row is one CLI read and twenty of them per account did not fit the panel's ceiling.
+    // row is one thread read and twenty of them per account did not fit the panel's ceiling.
     await adapter.list('page-2', { limit: 10 });
     assert.equal(input(f.calls.gmail.filter(call => call.method === 'threadsList').at(-1)!).maxResults, 10, 'the page size the gateway names is the page size Gmail is asked for');
   } finally {

@@ -163,10 +163,10 @@ const SEARCH_DEBOUNCE_MS = 150;
 const DRAFT_DEBOUNCE_MS = 250;
 
 /**
- * How long one round of "show older" may run. A Gmail source spends about a second per row (a CLI
- * read per thread, bounded by the runner's pool) and WhatsAgent about a second per page, so a
- * whole page lands in ten seconds or so; 15s leaves room for a slow mailbox and still never leaves
- * the control loading with no end. A round that misses it degrades into a line in `errors`.
+ * How long one round of "show older" may run. A Gmail source reads one thread per row and
+ * WhatsAgent about a second per page, so a whole page lands in a few seconds; 15s leaves room for
+ * a slow mailbox and still never leaves the control loading with no end. A round that misses it
+ * degrades into a line in `errors`.
  */
 const OLDER_TIMEOUT_MS = 15_000;
 

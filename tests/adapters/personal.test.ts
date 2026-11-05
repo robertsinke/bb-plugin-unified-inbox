@@ -1,5 +1,5 @@
 // Personal Gmail: every declared capability is proven against the adapter's
-// own accept/refuse behaviour, with the gws runner stubbed.
+// own accept/refuse behaviour, with the Gmail transport stubbed.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, refused } from './harness.ts';
@@ -46,7 +46,7 @@ test('personal Gmail: declared capabilities match what action and send accept', 
     await refused(h.calls, () => adapter.action('confirm', 't1', { text: 'hi' }), /not supported/);
     await refused(h.calls, () => adapter.action('reject', 't1', {}), /not supported/);
 
-    // Every call carried the personal credential directory.
+    // Every call carried the personal account's transport.
     assert.ok(h.calls.every(call => call.startsWith('gmail:gmail-personal:')));
   } finally { h.close(); }
 });
