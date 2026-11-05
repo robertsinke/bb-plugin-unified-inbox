@@ -13,9 +13,13 @@ test('a Google contact photo is its host and its path shape, and nothing else on
   // so the host alone would let a row draw something that is not a face.
   assert.equal(sourceAvatarUrl('https://lh3.googleusercontent.com/a/ACg8ocPhoto=s96-c', 'gmail'), 'https://lh3.googleusercontent.com/a/ACg8ocPhoto=s96-c');
   assert.equal(sourceAvatarUrl('https://lh3.googleusercontent.com/a-/ALV-UjPhoto=s256-c-ns', 'gmail'), 'https://lh3.googleusercontent.com/a-/ALV-UjPhoto=s256-c-ns');
+  // The People API answered this shape for the owner's own contact photo (2026-11-05), so a face
+  // Google had just served was dropped by the path test until /cm/ was admitted.
+  assert.equal(sourceAvatarUrl('https://lh3.googleusercontent.com/cm/AGPWSu-buzqe2KdW3KWTTUllwA', 'gmail'), 'https://lh3.googleusercontent.com/cm/AGPWSu-buzqe2KdW3KWTTUllwA');
   for (const value of [
     'https://lh3.googleusercontent.com/d/1AbCdrivefile',
     'https://lh3.googleusercontent.com/u/0/uploaded',
+    'https://lh3.googleusercontent.com/cmd/AGPWSu',
     'https://lh4.googleusercontent.com/a/ACg8ocPhoto',
     'https://evil.example/a/ACg8ocPhoto',
     'https://lh3.googleusercontent.com/a/',
