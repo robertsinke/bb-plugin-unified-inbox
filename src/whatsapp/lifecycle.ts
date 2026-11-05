@@ -15,6 +15,11 @@
 // MB spent on nothing. A linked socket is the receipt path — the reason this is an inbox and not a
 // reader of what happened to be stored last time — so a timer must never close it, or the source goes
 // deaf while every read still succeeds.
+//
+// A stopped socket is not a broken source. `close()` is the host's dispose, the boot service's abort
+// path and the owner's unpair, and each leaves a linked account that can be opened again; so a caller
+// that needs a socket has `ensure()` rather than a `current()` and a shrug. Reading `current()` and
+// giving up is how a recoverable state became a source that silently answered nothing.
 import type { WhatsAppConnection } from './connection.ts';
 
 /** Long enough for a distracted scan, short of leaving a pairing socket open all night. */
@@ -25,6 +30,12 @@ export interface WhatsAppLifecycleDeps {
   create(): WhatsAppConnection | Promise<WhatsAppConnection>;
   /** How long a socket opened for a pairing waits before it is stopped for being idle. */
   idleMs?: number;
+  /**
+   * One line per socket opened, closed or refused, and per close WhatsApp reported. Words only: never
+   * the account state, never a message body. This is the only record of a socket's life, so a repeat
+   * of a source that went deaf can be read back instead of guessed at.
+   */
+  note?: (level: 'info' | 'warn', line: string) => void;
 }
 
 export interface WhatsAppLifecycle {
@@ -32,8 +43,15 @@ export interface WhatsAppLifecycle {
   current(): WhatsAppConnection | undefined;
   /** Opens, or hands back the one already open. Throws when the socket will not start. */
   open(): Promise<WhatsAppConnection>;
+  /**
+   * The socket for a call that needs a live one: `open()` for a caller that cannot throw. A linked
+   * account is reopened on demand; a refusal is kept in `failure()` and answered with `undefined`.
+   */
+  ensure(): Promise<WhatsAppConnection | undefined>;
+  /** Whether an open is in flight right now — the boot service's, or a caller's. */
+  opening(): boolean;
   /** Stops and forgets the socket and anything a failed start said. Idempotent. */
-  close(): Promise<void>;
+  close(reason?: string): Promise<void>;
   /** What the last refused start said, until an open succeeds or the socket is closed. */
   failure(): string | undefined;
 }
@@ -49,6 +67,10 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
   let failure: string | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
+  function note(level: 'info' | 'warn', line: string): void {
+    deps.note?.(level, line);
+  }
+
   function clearIdle(): void {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = undefined;
@@ -62,10 +84,40 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
       const opened = await startOne();
       connection = opened;
       failure = undefined;
+      watch(opened);
       armIdle(opened);
+      note('info', opened.registered()
+        ? 'WhatsApp socket opened for a linked device'
+        : 'WhatsApp socket opened, waiting for a pairing');
       return opened;
     })().finally(() => { opening = undefined; });
     return opening;
+  }
+
+  /** `open()` for a caller that cannot throw: a media read or a send reports the refusal instead. */
+  async function ensure(): Promise<WhatsAppConnection | undefined> {
+    try {
+      return await open();
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * What the socket says about itself while this module holds it. A close WhatsApp reported is the
+   * one fact nobody can recover afterwards — the ladder will try again, and the reason is what says
+   * whether waiting is worth it.
+   */
+  function watch(opened: WhatsAppConnection): void {
+    opened.onEvent(event => {
+      if (event.type === 'logged-out') {
+        note('warn', 'WhatsApp reported this device logged out; pairing is needed again');
+      }
+      if (event.type === 'connection-closed') {
+        note('warn', `WhatsApp closed the socket: ${event.reason}`
+          + (event.retryMs === undefined ? '; not reopening' : `; reopening in ${Math.round(event.retryMs / 1000)} s`));
+      }
+    });
   }
 
   /** One attempt, with the refusal kept where the card can read it. */
@@ -81,6 +133,7 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
       // that never started.
       await opened?.stop();
       failure = messageOf(error);
+      note('warn', `WhatsApp socket did not open: ${failure}`);
       throw error;
     }
   }
@@ -93,24 +146,30 @@ export function createWhatsAppLifecycle(deps: WhatsAppLifecycleDeps): WhatsAppLi
       idleTimer = undefined;
       // Pairing completes while a socket is open, and the same socket is then the receipt path.
       if (connection !== opened || opened.registered()) return;
-      void close();
+      void close('nobody scanned the pairing QR, so the socket was stopped');
     }, idleMs);
     // An idle timer must not be the reason a process stays alive.
     timer.unref?.();
     idleTimer = timer;
   }
 
-  async function close(): Promise<void> {
+  async function close(reason = 'the plugin asked for it'): Promise<void> {
     clearIdle();
     const closing = connection;
     connection = undefined;
     failure = undefined;
-    await closing?.stop();
+    if (!closing) return;
+    // Which caller closed the socket is the question a dead source leaves behind, so the reason is
+    // written before the socket is stopped: `stop()` itself says nothing to anyone.
+    note('info', `WhatsApp socket closed: ${reason}`);
+    await closing.stop();
   }
 
   return {
     current: () => connection,
     open,
+    ensure,
+    opening: () => opening !== undefined,
     close,
     failure: () => failure,
   };

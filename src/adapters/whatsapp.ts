@@ -181,9 +181,12 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     const limit = ceilingFor(facts.kind);
     if (facts.size !== undefined && facts.size > limit) throw tooLarge(facts.kind);
 
-    const { info, bytes } = await transport.loadMedia(messageId);
+    const { info, bytes, notConnected } = await transport.loadMedia(messageId);
     if (!info) throw new Error('This message has no media.');
+    // WhatsApp refusing to serve a message is permanent; WhatsApp not being reachable is not, and
+    // the owner can act on the second. Two different sentences, because they are two different facts.
     if (!info.available) throw new Error('This media is no longer available.');
+    if (notConnected) throw new Error('WhatsApp is not connected, so this media cannot be fetched yet. Reconnect it and try again.');
     if (!info.cached || !bytes) throw new Error('This media could not be loaded.');
     if (bytes.byteLength > limit) {
       await transport.discardMedia(messageId);
