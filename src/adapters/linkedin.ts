@@ -84,7 +84,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       const found = thread.find(value => {
         if (!value || typeof value !== 'object') return false;
         const message = value as LinkedInMessage;
-        return message.id === id || message.media?.messageId === id;
+        return message.id === id || message.messageId === id || message.media?.messageId === id;
       });
       if (found) return found as LinkedInMessage;
     }
@@ -203,7 +203,11 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         if (!outcome.accepted) throw new Error(`LinkedIn did not accept the answer (status ${outcome.status}); the invitation was not ${kind === 'confirm' ? 'accepted' : 'ignored'}.`);
         return { status: kind === 'confirm' ? 'Accepted.' : 'Ignored.' };
       }
+      // No captured reaction request exists, so react stays false and this builds nothing.
+      if (kind === 'react' && !CAPABILITIES.react) throw new Error('This source cannot react to one message. Nothing was sent.');
       if (CAPABILITIES.send && kind === 'reply') {
+        // A message id is a reply to one message. quoteReply stays false until a capture names that target, so this must not become a conversation send.
+        if (opts?.messageId && !CAPABILITIES.quoteReply) throw new Error('This source cannot reply to one message. Nothing was sent.');
         const text = typeof opts?.text === 'string' ? opts.text.trim() : '';
         const write = text ? linkedinSendWrite(id, text) : null;
         if (!write) throw new Error(id.startsWith('urn:li:msg_conversation:') ? 'A reply needs the text to send.' : 'That LinkedIn conversation cannot receive a reply.');

@@ -16,7 +16,7 @@ export type LinkedInPhoto = MessageMedia & { url: string };
  * A LinkedIn message. A photo has no text and carries `media`; a shared post has
  * no text and no thumbnail, so it carries the link to the post instead.
  */
-export type LinkedInMessage = { id?: string; sender: string; text: string; date: number; fromMe: boolean; media?: LinkedInPhoto; link?: string };
+export type LinkedInMessage = { id?: string; messageId?: string; sender: string; text: string; date: number; fromMe: boolean; media?: LinkedInPhoto; link?: string };
 export type LinkedInPayload = { conversations?: unknown; invitations?: unknown };
 
 const PREVIEW_LIMIT = 300;
@@ -72,7 +72,8 @@ export function linkedinMessages(payload: { messages?: unknown }): LinkedInMessa
     if (!body && !media && !link) return [];
     const date = Number(raw.date);
     return [{
-      ...(id ? { id } : {}),
+      // The page expression already parsed this urn. Copy it; do not invent one, and do not read a reaction from a path the payload does not have.
+      ...(id ? { id, messageId: id } : {}),
       sender: text(raw.sender) || 'LinkedIn',
       text: body,
       date: Number.isFinite(date) && date > 0 ? date : 0,
