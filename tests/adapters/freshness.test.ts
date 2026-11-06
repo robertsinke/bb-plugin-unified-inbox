@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harness, LINKEDIN_ID } from './harness.ts';
+import { GmailApiError } from '../../src/gmail-client.ts';
 import { gmailSummaryCursor } from '../../src/sync-plan.ts';
 
 for (const account of ['gmail-personal', 'gmail-business'] as const) {
@@ -34,6 +35,20 @@ for (const account of ['gmail-personal', 'gmail-business'] as const) {
     } finally { h.close(); }
   });
 }
+
+test('a Gmail quota stop serves the cached page and the cached thread without an error', async () => {
+  const h = harness({ gmailCall: () => { throw new GmailApiError(403, 'rateLimitExceeded', 'Quota exceeded', 'GET /users/me/profile'); } });
+  try {
+    h.cache.save('gmail-personal', [{ account: 'gmail-personal', id: 't', title: 'Subject', preview: 'Old', date: 1, unread: true, sender: 'Ada', recipients: '', attachments: [], senderAddress: 'ada@example.com' }]);
+    h.cache.saveThread('gmail-personal', 't', [{ sender: 'Ada', text: 'Old body', date: 1 }]);
+    const listed = await h.registry['gmail-personal'].sync();
+    assert.equal(listed.items[0].preview, 'Old');
+    const opened = await h.registry['gmail-personal'].open('t');
+    assert.equal(opened.messages[0].text, 'Old body');
+    assert.equal(opened.cacheFallback, undefined);
+    await assert.rejects(h.registry['gmail-business'].sync(), /403/);
+  } finally { h.close(); }
+});
 
 test('LinkedIn failed body read declares cache fallback without changing verification time', async () => {
   const h = harness({ linkedInThread: async () => { throw new Error('offline'); } });

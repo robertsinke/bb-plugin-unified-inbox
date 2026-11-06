@@ -121,6 +121,36 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
   }
 });
 
+test('a known Gmail row is refreshed with metadata and keeps its attachment names', async () => {
+  let history = '77';
+  const f = fixture(call => {
+    if (call.method === 'profile') return { historyId: history };
+    if (call.method === 'threadsList') return { threads: [{ id: 't1', historyId: history, snippet: 'Newest' }] };
+    if (call.method === 'threadGet') {
+      const body = thread(input(call).id, 'Newest', 2);
+      const message = body.messages[0] as { payload: Record<string, unknown> };
+      message.payload = {
+        ...message.payload,
+        parts: [{ filename: 'plan.pdf', mimeType: 'application/pdf', body: { attachmentId: 'a1', size: 4 } }],
+      };
+      return body;
+    }
+    throw new Error(`unexpected Gmail call: ${call.method}`);
+  });
+  try {
+    const adapter = createGmailAdapter(f.deps, 'gmail-personal');
+    const first = await adapter.list();
+    assert.deepEqual(first.items[0].attachments, ['plan.pdf'], 'the first read of a thread can see its files');
+    history = '78';
+    const again = await adapter.sync();
+    const reads = f.calls.gmail.filter(call => call.method === 'threadGet').map(input);
+    assert.deepEqual(reads.map(read => read.format), ['full', 'metadata'], 'a later change does not read the whole thread');
+    assert.deepEqual(again.items[0].attachments, ['plan.pdf'], 'the names already stored stay on the row');
+  } finally {
+    f.close();
+  }
+});
+
 test('WhatsApp pages by the row offset the transport answers, and an older page leaves the cache alone', async () => {
   const asked: Array<{ cursor?: string; limit: number }> = [];
   const row = (jid: string, name: string, text: string, at: number) => ({
