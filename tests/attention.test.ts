@@ -303,6 +303,8 @@ test('a LinkedIn invitation is not asked', async () => {
     ]);
     await settle();
     assert.deepEqual(asked, ['can you review this']);
+    store.put('linkedin', 'urn:li:fs_relInvitation:abc', { verdict: 'yes', noul: 0.91, stateHash: 'x', lines: null, anchor: null });
+    assert.equal(store.get('linkedin', 'urn:li:fs_relInvitation:abc'), null);
   } finally {
     watch.stop();
     db.close();
