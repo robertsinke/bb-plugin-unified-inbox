@@ -8,12 +8,31 @@ import { accounts, gmailAccounts } from './adapters/types.ts';
 import { MEDIA_KINDS, attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
 import { sourceDeclarationSchema } from './adapters/source.ts';
+import { isReactionEmoji } from './reaction-set.ts';
 
 const account = z.enum(accounts);
 export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no', 'unsettled']).optional(), attentionDismissed: z.boolean().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
-export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const quote = z.object({ targetId: z.string().optional(), sender: z.string().optional(), text: z.string().optional() });
+export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), quote: quote.optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const actionInput = z.object({
+  account,
+  id: z.string().min(1).max(512),
+  action: z.enum(['read', 'unread', 'archive', 'reply', 'confirm', 'reject', 'react']),
+  text: z.string().max(20000).optional(),
+  allow: z.literal('send').optional(),
+  messageId: z.string().min(1).max(512).optional(),
+  emoji: z.string().max(16).optional(),
+  remove: z.boolean().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.emoji !== undefined && !isReactionEmoji(value.emoji)) {
+    ctx.addIssue({ code: 'custom', path: ['emoji'], message: 'A reaction is heart, like, dislike, or laugh.' });
+  }
+  if (value.action !== 'react') return;
+  if (!value.messageId) ctx.addIssue({ code: 'custom', path: ['messageId'], message: 'A reaction needs the message it reacts to.' });
+  if (!value.emoji) ctx.addIssue({ code: 'custom', path: ['emoji'], message: 'A reaction needs one of the four emoji.' });
+});
 const pageControl = z.object({ index: z.number().int().nonnegative(), role: z.string(), name: z.string(), tag: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number(), focused: z.boolean() });
 const recordedWrite = z.object({ method: z.string().min(3).max(7), url: z.string().min(1).max(2048), body: z.string().max(131_072), capturedAt: z.number().int().nonnegative() }).strict();
 export const mailAttachment = z.object({
@@ -117,7 +136,7 @@ export const rpcContract = defineRpcContract({
   },
   // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
   // refuses and records the attempt: a send is never approved by merely happening.
-  action: { input: z.object({ account, id: z.string().min(1).max(512), action: z.enum(['read','unread','archive','reply','confirm','reject']), text: z.string().max(20000).optional(), allow: z.literal('send').optional() }).strict(), output: z.object({ status: z.string(), text: z.string().optional() }) },
+  action: { input: actionInput, output: z.object({ status: z.string(), text: z.string().optional() }) },
   send_gmail: { input: z.object({ account: z.enum(gmailAccounts), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
     // Legacy flag remains a migration input, never a fallback from envelope refusal.
     allow: z.literal('send').optional(), envelope: z.unknown().optional(),

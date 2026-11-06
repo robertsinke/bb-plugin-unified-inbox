@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NO_CAPABILITIES } from '../src/adapters/capability.ts';
+import { REACTION_SET } from '../src/reaction-set.ts';
 import { createSendGate, type AuditRow, type SendAuditStore } from '../src/adapters/policy.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Adapter, Conversation, ListResult } from '../src/adapters/types.ts';
@@ -307,4 +308,77 @@ test('the pairing handler forwards one call and nothing about the socket', async
   assert.deepEqual(await f.gateway.whatsapp_pairing({ op: 'pair' }), { state: 'connecting' });
   assert.deepEqual(asked.at(-1), { op: 'pair' }, 'an act crosses the boundary unchanged');
   assert.equal(rpcContract.whatsapp_pairing.output.safeParse(await f.gateway.whatsapp_pairing(null)).success, true);
+});
+
+const LIKE = REACTION_SET.find(item => item.label === 'like')!.emoji;
+
+/** The adapter's action is the deliver function. A before-gate refusal must not call it. */
+function watchDeliver(f: ReturnType<typeof fixture>, account: Account) {
+  let delivered = 0;
+  f.registry[account].action = async () => {
+    delivered += 1;
+    f.calls.push('deliver');
+    return { status: 'Sent.' };
+  };
+  return () => delivered;
+}
+
+test('a conversation reply with no message id still reaches the adapter after the gate', async () => {
+  const f = fixture();
+  const delivered = watchDeliver(f, 'whatsapp');
+  const answered = await f.gateway.action({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', allow: 'send' });
+  assert.deepEqual(answered, { status: 'Sent.' });
+  assert.equal(delivered(), 1);
+  assert.deepEqual(f.calls, ['audit:record', 'deliver'], 'the allowed row is written before delivery');
+  assert.equal(f.auditRows[0].decision, 'allowed');
+});
+
+test('a Gmail react does not call the adapter and writes no allowed row', async () => {
+  const f = fixture();
+  const delivered = watchDeliver(f, 'gmail-personal');
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'gmail-personal', id: 't1', action: 'react', messageId: 'm1', emoji: LIKE, allow: 'send' }),
+    /cannot react to one message/,
+  );
+  assert.equal(delivered(), 0);
+  assert.deepEqual(f.auditRows, []);
+});
+
+test('a WhatsApp react is refused while the flag is false, and deliver is not called', async () => {
+  const f = fixture();
+  const delivered = watchDeliver(f, 'whatsapp');
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: LIKE, allow: 'send' }),
+    /cannot react to one message/,
+  );
+  assert.equal(delivered(), 0, 'the fake deliver function is not called');
+  assert.deepEqual(f.auditRows.filter(row => row.decision === 'allowed'), []);
+});
+
+test('a targeted reply, a bad emoji, a missing message id, and a removal are refused before the gate', async () => {
+  const f = fixture();
+  const delivered = watchDeliver(f, 'whatsapp');
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', messageId: 'm1', allow: 'send' }),
+    /cannot reply to one message/,
+  );
+  f.registry.whatsapp.capabilities = () => ({ ...NO_CAPABILITIES, react: true });
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: '‼️', allow: 'send' }),
+    /not one of the four/,
+  );
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: '❓', allow: 'send' }),
+    /not one of the four/,
+  );
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'react', emoji: LIKE, allow: 'send' }),
+    /needs the message/,
+  );
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: LIKE, remove: true, allow: 'send' }),
+    /cannot remove a reaction/,
+  );
+  assert.equal(delivered(), 0);
+  assert.deepEqual(f.auditRows.filter(row => row.decision === 'allowed'), []);
 });

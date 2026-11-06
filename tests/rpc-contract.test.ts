@@ -3,7 +3,8 @@
 // here is a claim a caller can rely on.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { rpcContract } from '../src/rpc-contract.ts';
+import { message, rpcContract } from '../src/rpc-contract.ts';
+import { REACTION_SET } from '../src/reaction-set.ts';
 
 test('a minimal Gmail send reaches the policy, not a schema refusal', () => {
   const parsed = rpcContract.send_gmail.input.safeParse({
@@ -40,6 +41,35 @@ test('a chat send says allow: send, and an unknown field is still refused', () =
   assert.equal(ok.success, true);
   const typo = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', allows: 'send' });
   assert.equal(typo.success, false, 'a mistyped approval field is refused rather than ignored');
+});
+
+test('a reaction names a message and one of the four, and a reply may name a message', () => {
+  const like = REACTION_SET.find(item => item.label === 'like')!.emoji;
+  const react = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: like, allow: 'send' });
+  assert.equal(react.success, true, 'react with a message id and one of the four passes');
+  const reply = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', messageId: 'm1', allow: 'send' });
+  assert.equal(reply.success, true, 'a reply may name the message it answers');
+  const conversation = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'reply', text: 'hi', allow: 'send' });
+  assert.equal(conversation.success, true, 'a reply with no message id is still a conversation reply');
+  const removal = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: like, remove: true, allow: 'send' });
+  assert.equal(removal.success, true, 'remove with a listed emoji passes the schema');
+  const quoted = message.parse({ sender: 'Ada', text: 'ok', date: 1, replyTo: '<mail@id>', replyContext: true, quote: { targetId: 'm1', sender: 'Grace', text: 'earlier' } });
+  assert.equal(quoted.replyTo, '<mail@id>', 'replyTo stays the mail header');
+  assert.equal(quoted.replyContext, true, 'replyContext stays in place');
+  assert.deepEqual(quoted.quote, { targetId: 'm1', sender: 'Grace', text: 'earlier' });
+});
+
+test('an emoji outside the four, an empty reaction target, and an unknown field are refused', () => {
+  const outside = rpcContract.action.input.safeParse({ account: 'imessage', id: 'c', action: 'react', messageId: 'm1', emoji: '‼️', allow: 'send' });
+  assert.equal(outside.success, false, 'emphasis is not one of the four');
+  const question = rpcContract.action.input.safeParse({ account: 'imessage', id: 'c', action: 'react', messageId: 'm1', emoji: '❓', allow: 'send' });
+  assert.equal(question.success, false, 'question is not one of the four');
+  const empty = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'react', messageId: '', emoji: REACTION_SET[0].emoji, allow: 'send' });
+  assert.equal(empty.success, false, 'an empty message id on react is refused');
+  const missing = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'react', emoji: REACTION_SET[0].emoji, allow: 'send' });
+  assert.equal(missing.success, false, 'a reaction with no message id is refused');
+  const extra = rpcContract.action.input.safeParse({ account: 'whatsapp', id: 'c', action: 'react', messageId: 'm1', emoji: REACTION_SET[0].emoji, emphasis: true });
+  assert.equal(extra.success, false, 'an unknown action field is refused');
 });
 
 test('a send decision that was allowed has no reason, and the contract says so', () => {

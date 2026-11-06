@@ -23,7 +23,7 @@ test('WhatsApp: declared capabilities match what action and media accept', async
   try {
     const adapter = h.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     // send: true — one transport call, and a chat id is all it needs, so a group works the same way.
     h.calls.length = 0;
@@ -237,6 +237,7 @@ test('WhatsApp: open returns stored messages oldest-first, and an empty thread i
       ['You', 'On my way', true, true],
       ['Ada', '', false, undefined],
     ], 'a protocol stub is filtered, and a picture with no caption is an empty bubble, not a type label');
+    assert.deepEqual(opened1.messages.map(m => m.messageId), ['m1', 'm2', 'm3'], 'a text message carries the stored id, and a media message keeps its own');
     assert.deepEqual(opened1.messages[2].media, { messageId: 'm3', kind: 'image', cached: false, available: true });
     assert.deepEqual(h.cache.readThread('whatsapp', WHATSAPP_ID)?.length, 3, 'the panel cache keeps what the open returned');
 
@@ -536,5 +537,124 @@ test('WhatsApp: an oversized document is refused before it is downloaded, a big 
     if (downloadsBefore === undefined) delete process.env.UNIFIED_INBOX_DOWNLOADS_DIR;
     else process.env.UNIFIED_INBOX_DOWNLOADS_DIR = downloadsBefore;
     rmSync(downloads, { recursive: true, force: true });
+  }
+});
+
+test('WhatsApp: open keeps a stored reaction and quote, and the message id', async () => {
+  const h = harness({
+    whatsapp: {
+      async openChat() {
+        return [{
+          id: 'm1',
+          chatJid: WHATSAPP_ID,
+          fromMe: false,
+          ts: 1_700_000_000_000,
+          type: 'text',
+          text: 'See you',
+          sender: 'Ada',
+          edited: false,
+          reactions: [{ sender: 'Grace', label: '👍' }, { sender: '', label: '😂' }],
+          quote: { targetId: 'earlier', sender: 'Grace', text: 'the earlier line' },
+        }];
+      },
+    },
+  });
+  try {
+    const [message] = (await h.registry.whatsapp.open(WHATSAPP_ID)).messages;
+    assert.equal(message.messageId, 'm1');
+    assert.deepEqual(message.reactions, [{ sender: 'Grace', label: '👍' }, { sender: '', label: '😂' }]);
+    assert.deepEqual(message.quote, { targetId: 'earlier', sender: 'Grace', text: 'the earlier line' });
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a gated reaction calls sendReaction once, and remove sends an empty emoji', async () => {
+  const rows: AuditRow[] = [];
+  const gate = createSendGate({ now: () => 1_700_000_000_000, store: { record(row) { rows.push(row); }, hasSpent() { return false; } } });
+  const seen: Array<{ id: string; messageId: string; emoji: string }> = [];
+  const h = harness({
+    whatsapp: {
+      async sendReaction(input) { seen.push(input); },
+    },
+  });
+  try {
+    const adapter = h.registry.whatsapp;
+    const deliver = (emoji: string, remove?: boolean) => gate(
+      { account: 'whatsapp', conversationId: WHATSAPP_ID, text: '' },
+      approvalFor('send', WHATSAPP_ID, 1_700_000_000_000),
+      () => adapter.action('react', WHATSAPP_ID, { messageId: 'm1', emoji, ...(remove ? { remove } : {}) }),
+    );
+
+    assert.deepEqual(await deliver('👍'), { status: 'Sent.' });
+    assert.deepEqual(seen, [{ id: WHATSAPP_ID, messageId: 'm1', emoji: '👍' }]);
+
+    // A second emoji is another send. The adapter does not write a reaction row of its own.
+    seen.length = 0;
+    rows.length = 0;
+    assert.deepEqual(await deliver('❤️'), { status: 'Sent.' });
+    assert.deepEqual(seen, [{ id: WHATSAPP_ID, messageId: 'm1', emoji: '❤️' }]);
+
+    seen.length = 0;
+    assert.deepEqual(await deliver('😂', true), { status: 'Sent.' });
+    assert.deepEqual(seen, [{ id: WHATSAPP_ID, messageId: 'm1', emoji: '' }]);
+
+    const before = seen.length;
+    await assert.rejects(adapter.action('react', WHATSAPP_ID, { messageId: 'm1', emoji: '‼️' }), /not one of the four/);
+    await assert.rejects(adapter.action('react', WHATSAPP_ID, { messageId: 'm1', emoji: '❓' }), /not one of the four/);
+    assert.equal(seen.length, before, 'an emoji outside the four never reaches sendReaction');
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a quote reply sends the stored envelope, and a missing one does not send', async () => {
+  const texts: Array<{ id: string; text: string; quoted?: unknown }> = [];
+  const envelope = { key: { id: 'm1', remoteJid: WHATSAPP_ID } };
+  const h = harness({
+    whatsapp: {
+      async storedEnvelope(messageId) {
+        return messageId === 'm1' ? envelope : undefined;
+      },
+      async sendText(input) { texts.push(input); },
+    },
+  });
+  try {
+    const adapter = h.registry.whatsapp;
+    assert.deepEqual(
+      await adapter.action('reply', WHATSAPP_ID, { text: '  on my way  ', messageId: 'm1' }),
+      { status: 'Sent.' },
+    );
+    assert.deepEqual(texts, [{ id: WHATSAPP_ID, text: 'on my way', quoted: envelope }]);
+
+    const before = texts.length;
+    await assert.rejects(
+      adapter.action('reply', WHATSAPP_ID, { text: 'hello', messageId: 'gone' }),
+      /not stored/,
+    );
+    assert.equal(texts.length, before, 'a missing envelope does not call sendText');
+  } finally {
+    h.close();
+  }
+});
+
+test('WhatsApp: a disconnected reaction is the offline result, and it is not retried', async () => {
+  let attempts = 0;
+  const h = harness({
+    whatsapp: {
+      async sendReaction() {
+        attempts += 1;
+        throw new WhatsAppDisconnectedError();
+      },
+    },
+  });
+  try {
+    await assert.rejects(
+      h.registry.whatsapp.action('react', WHATSAPP_ID, { messageId: 'm1', emoji: '👍' }),
+      /Nothing was sent: WhatsApp is not connected/,
+    );
+    assert.equal(attempts, 1, 'one attempt: a disconnected socket is not asked again');
+  } finally {
+    h.close();
   }
 });

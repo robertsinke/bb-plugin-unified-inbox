@@ -25,8 +25,12 @@ import type { ActionKind, Capabilities } from './types.ts';
  * - `followsList`: re-reading one conversation is cheap enough that the open thread
  *   may follow a list refresh. A source whose read is expensive declares false and
  *   keeps what it showed until reopened.
+ * - `react`: the source can set one of the four shared reactions on one message.
+ * - `reactRemove`: the source can remove a reaction it already shows for the owner.
+ * - `quoteReply`: a reply can name the one message it answers. A reply with no
+ *   message id stays a conversation reply.
  */
-export const CAPABILITY_KEYS = ['send', 'markRead', 'archive', 'invitations', 'media', 'attachments', 'threads', 'followsList'] as const;
+export const CAPABILITY_KEYS = ['send', 'markRead', 'archive', 'invitations', 'media', 'attachments', 'threads', 'followsList', 'react', 'reactRemove', 'quoteReply'] as const;
 
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
@@ -50,8 +54,8 @@ export const capabilitiesSchema = z.strictObject({
 
 /**
  * The capability flag behind each state-changing action. Deliberately partial:
- * `reply` (and LinkedIn's `confirm` / `reject`, which answer an invitation) is a
- * surface the source implements or does not — it is not a boolean the UI offers.
+ * `reply`, `react`, and LinkedIn's `confirm` / `reject` are not in this map.
+ * A reaction and a reply to one message use `react`, `reactRemove`, and `quoteReply`.
  */
 const STATE_ACTION: Partial<Record<ActionKind, 'markRead' | 'archive'>> = {
   read: 'markRead',

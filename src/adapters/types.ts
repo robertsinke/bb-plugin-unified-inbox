@@ -160,6 +160,10 @@ export interface WhatsAppMessageRow {
   sender: string;
   edited: boolean;
   media?: WhatsAppMedia;
+  /** Stored reactions. A row with an empty sender still carries its emoji. */
+  reactions?: Reaction[];
+  /** Stored quote columns, when the row has a target, a sender, or text. */
+  quote?: Message['quote'];
 }
 
 /** One media answer: the stored descriptor, the cached bytes when there are any, and why there are none. */
@@ -229,8 +233,18 @@ export interface WhatsAppTransport {
   discardMedia(messageId: string): Promise<void>;
   /** Records where reading stopped; a live socket also tells WhatsApp. */
   markRead(input: { id: string; messageId?: string }): Promise<void>;
-  /** Sends text over the socket. Rejects when there is no socket to send over. */
-  sendText(input: { id: string; text: string }): Promise<void>;
+  /**
+   * The stored envelope for one message id, for a quote reply. Undefined when the row is missing
+   * or its envelope will not parse. A store read: it does not open a socket.
+   */
+  storedEnvelope(messageId: string): Promise<unknown>;
+  /** Sends text over the socket. `quoted` is a stored envelope. Rejects when there is no socket. */
+  sendText(input: { id: string; text: string; quoted?: unknown }): Promise<void>;
+  /**
+   * Sends one reaction for a message id. An empty emoji removes it. Rejects when there is no
+   * socket. This call does not write a reaction row; ingest does that when the echo arrives.
+   */
+  sendReaction(input: { id: string; messageId: string; emoji: string }): Promise<void>;
   status(): Promise<WhatsAppTransportStatus>;
 }
 
@@ -320,6 +334,12 @@ export interface Message {
   edited?: boolean;
   /** Messages thread indicator (context only; full threading is a non-goal). */
   replyContext?: boolean;
+  /** The earlier message this one quotes, when the source stored a target, a sender, or text. */
+  quote?: {
+    targetId?: string;
+    sender?: string;
+    text?: string;
+  };
   /** Messages stable row id, used by a `kind: 'imsg'` media request. */
   imsgId?: string;
   /** A message that is a link rather than a picture or text (a shared post). */
@@ -410,11 +430,17 @@ export interface SendReceipt {
  * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,
  * and those two kinds now carry LinkedIn's accept / ignore of an invitation.
  */
-export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject';
+export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject' | 'react';
 
 /** Mirrors the optional fields of the rpcContract `action` input. */
 export interface ActionOptions {
   text?: string;
+  /** The message a reaction or a targeted reply names. Absent on a conversation reply. */
+  messageId?: string;
+  /** One of the four shared reactions. Required when `kind` is `react`. */
+  emoji?: string;
+  /** Remove the named reaction. Refused while the source declares `reactRemove` false. */
+  remove?: boolean;
 }
 
 export interface ActionResult {

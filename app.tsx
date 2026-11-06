@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './src/rpc-contract';
@@ -25,7 +25,8 @@ import type { SourceMap } from './src/adapters/types';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
-import { canAnswerInvitation, canArchive, canMarkRead, canSend, hasThread } from './src/ui-capabilities';
+import { REACTION_SET } from './src/reaction-set.ts';
+import { canAnswerInvitation, canArchive, canMarkRead, canQuoteReply, canReact, canSend, hasThread } from './src/ui-capabilities';
 import type { Account, Message as InboxMessage } from './src/adapters/types';
 
 /*
@@ -388,20 +389,68 @@ function MessagesAttachment({ chatId, messageId, attachment }: { chatId: string;
   if (!attachment.available) return <p className="ui-media-note">{attachment.name} — attachment unavailable or unsupported.</p>;
   return <div className="ui-bubble-media ui-media-prompt"><button type="button" className="ui-text-button" disabled={state==='loading'} onClick={()=>void load()}>{state==='loading'?'Loading image…':state==='error'?'Retry image':`Show ${attachment.name}`}</button>{state==='error'&&<span role="status">Could not load this attachment.</span>}</div>;
 }
-function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account }) {
+/** One chip per emoji. Senders stay on the chip so a repeat from the same person still reads as one reaction. */
+function reactionChips(reactions: NonNullable<Message['reactions']>): { label: string; senders: string[] }[] {
+  const chips: { label: string; senders: string[] }[] = [];
+  for (const reaction of reactions) {
+    const label = reaction.label.trim();
+    if (!label) continue;
+    const existing = chips.find(chip => chip.label === label);
+    const sender = reaction.sender.trim();
+    if (existing) { if (sender) existing.senders.push(sender); continue; }
+    chips.push({ label, senders: sender ? [sender] : [] });
+  }
+  return chips;
+}
+
+/** The sender text a from-me row already carries. Empty when the thread has none, so a tap cannot guess a removal. */
+function ownerLabel(messages: Message[]): string {
+  for (const message of messages) {
+    if (!message.fromMe) continue;
+    const label = message.sender.trim();
+    if (label) return label;
+  }
+  return '';
+}
+function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLabel, canReact: reactionsOn, canQuoteReply: quotesOn, busy, onReact, onReply }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account; selfLabel: string; canReact: boolean; canQuoteReply: boolean; busy: boolean; onReact: (messageId: string, emoji: string, remove: boolean) => void; onReply: (messageId: string) => void }) {
   const text = m.text.trim();
   const hasText = Boolean(text) && (!m.media || text !== `[${m.media.kind}]`);
   const inlineSender = group && !m.fromMe && Boolean(m.sender) && hasText;
-  return <article className={bubbleClass(account)}>
+  const quoteText = m.quote?.text?.trim() ?? '';
+  const quoteSender = m.quote?.sender?.trim() ?? '';
+  const messageId = m.messageId?.trim() ?? '';
+  const chips = m.reactions?.length ? reactionChips(m.reactions) : [];
+  const mine = (emoji: string) => Boolean(selfLabel) && (m.reactions ?? []).some(reaction => reaction.label === emoji && reaction.sender === selfLabel);
+  const frame = useRef<HTMLElement>(null);
+  const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
+  const [open, setOpen] = useState(false);
+  const actions = ((reactionsOn && !m.fromMe) || quotesOn) && Boolean(messageId);
+  function place(event: { clientX: number; clientY: number }) {
+    const node = frame.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const bar = node.querySelector('.ui-bubble-actions');
+    const width = bar instanceof HTMLElement ? bar.offsetWidth : 0;
+    const height = bar instanceof HTMLElement ? bar.offsetHeight : 0;
+    let x = event.clientX - rect.left - width / 2;
+    const y = event.clientY - rect.top - height - 6;
+    const room = rect.width - width;
+    x = room < 8 ? (node.closest('.ui-chat-outgoing') ? room : 0) : Math.min(Math.max(0, x), room);
+    setSpot({ x, y });
+    setOpen(true);
+  }
+  function close() { setOpen(false); }
+  return <article ref={frame} className={bubbleClass(account)} onMouseEnter={actions ? place : undefined} onMouseLeave={actions ? close : undefined}>
     <span className="ui-sr">{m.fromMe ? 'You' : m.sender || 'WhatsApp'}</span>
     {!inlineSender && !m.fromMe && m.sender && <div className="ui-bubble-sender">{m.sender}</div>}
-    {m.replyContext && <p className="ui-media-note">Reply to an earlier message</p>}
+    {quoteText ? <blockquote className="ui-quote">{quoteSender ? <span className="ui-quote-sender">{quoteSender}</span> : null}<span className="ui-quote-text">{quoteText}</span></blockquote> : m.replyContext ? <p className="ui-quote ui-quote-marker">Reply to an earlier message</p> : null}
     {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media?.kind === 'audio' ? <WhatsAppAudio media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
     {m.edited && <span className="ui-media-note">Edited</span>}
-    {m.reactions?.length ? <div aria-label="Reactions">{m.reactions.map((reaction, index)=><span key={index} title={reaction.sender}>{reaction.label} </span>)}</div> : null}
     {m.date > 0 && <time className="ui-bubble-time">{new Date(m.date).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>}
+    {chips.length ? <div className="ui-reaction-pills" aria-label="Reactions">{chips.map(chip => <span key={chip.label} className="ui-reaction-pill" title={chip.senders.join(', ')}>{chip.label}{chip.senders.length > 1 ? <span className="ui-reaction-count">{chip.senders.length}</span> : null}</span>)}</div> : null}
+    {actions ? <div className={`ui-bubble-actions${open ? ' is-open' : ''}`} style={spot ? { '--ui-action-x': `${spot.x}px`, '--ui-action-y': `${spot.y}px` } as CSSProperties : undefined}>{reactionsOn && !m.fromMe ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
   </article>;
 }
 function Inbox({ threadId }: { threadId: string | null }) {
@@ -412,7 +461,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const session=getInboxSession(rpc);
   // State and time live in the session; the panel renders its snapshot.
   const state=useSyncExternalStore(session.subscribe,session.snapshot);
-  const {items,errors,capabilities,sources,selected,messages,status,text,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen,pairing}=state;
+  const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen,pairing}=state;
   /* Which account picker is open is the one thing only the panel needs to know. */
   const [compose,setCompose]=useState(false);
   const [mailFocus,setMailFocus]=useState(0);
@@ -500,6 +549,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const chat=!!selected&&hasThread(capabilities,selected.account);
   const threaded=chat;
   const sendable=!!selected&&canSend(capabilities,selected.account);
+  const reactionsOn=!!selected&&canReact(capabilities,selected.account);
+  const quotesOn=!!selected&&canQuoteReply(capabilities,selected.account);
+  const mine=ownerLabel(messages);
+  const aimed=replyMessageId?messages.find(message=>message.messageId===replyMessageId):undefined;
   const composer=composerMode({selected:!!selected,draft:!!mail,draftForThisThread:draftForConversation(mail?.threadId,selected?.id),threaded:chat});
   return <div
     className={`ui-inbox ${selected?'ui-inbox-detail':''}`}
@@ -520,9 +573,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
           ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => { if(window.confirm('Archive this Gmail conversation?')) void session.mark(selected,'archive'); } }]:[]),
         ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
-      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
+      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
     </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
           { label: 'New', run: () => setCompose(!compose) },

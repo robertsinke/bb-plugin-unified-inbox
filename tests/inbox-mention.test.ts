@@ -55,6 +55,8 @@ test('mentions never teach self-approval or provide a send recipe, for any sourc
     assert.match(context, /does not authorize sending/i);
     assert.match(context, /caller-supplied flags are not proof of owner approval/i);
     assert.doesNotMatch(context, /printf|bb plugin rpc|"allow"\s*:|send_gmail|send once from the page/);
+    assert.doesNotMatch(context, /inbox_react|inbox_reply/);
+    assert.match(context, /This mention does not authorize sending/);
   }
 });
 

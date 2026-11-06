@@ -149,7 +149,7 @@ test('personal Gmail lists, opens and updates through its adapter', async () => 
   const f = fixture();
   try {
     const adapter = f.registry['gmail-personal'];
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true, react: false, reactRemove: false, quoteReply: false });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.errors, []);
@@ -199,7 +199,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   try {
     const adapter = f.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['whatsapp', '15551234567@s.whatsapp.net', 'Ada', true]]);
@@ -216,7 +216,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
   try {
     const adapter = f.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['imessage', '50', 'Ada', true]]);
@@ -235,7 +235,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;

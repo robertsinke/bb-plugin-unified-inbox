@@ -1,10 +1,10 @@
 // Messages adapter (Migration state 3). It owns the imsg shapes: chats, history
-// with attachment slots, the one permitted mutation (`send`), local read state,
-// and the attachment payload. Every other write stays refused by the client and
-// by this adapter's capabilities.
+// with attachment slots, the permitted mutations (`send` and `tapback`), local
+// read state, and the attachment payload. Every other write stays refused by
+// the client and by this adapter's capabilities.
 import { IMSG_CHAT_LIMIT, findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from '../imsg-mapping.ts';
 import { readImsgImage } from '../imsg-media.ts';
-import { sendImsgText } from '../imsg-send.ts';
+import { sendImsgTapback, sendImsgText } from '../imsg-send.ts';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
@@ -12,7 +12,7 @@ import type {
 } from './types.ts';
 import type { MediaRequest } from './media.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true };
 
 const ACCOUNT = 'imessage';
 
@@ -114,8 +114,10 @@ export function createIMessageAdapter(deps: RegistryDeps): Adapter {
         cache.keepUnread(ACCOUNT, id);
         return { status: 'Marked unread.' };
       }
-      // Sending is enabled for Messages at the owner's explicit request; nothing else here mutates the source.
-      if (CAPABILITIES.send && kind === 'reply' && opts?.text?.trim()) return { status: await sendImsgText(deps.imsg, id, opts.text) };
+      // A reaction is one tapback. A reply that names a message is the same send, with that guid.
+      // A bridge refusal stops here: nothing is sent without the target.
+      if (kind === 'react') return { status: await sendImsgTapback(deps.imsg, opts?.messageId ?? '', opts?.emoji ?? '', opts?.remove === true) };
+      if (CAPABILITIES.send && kind === 'reply' && opts?.text?.trim()) return { status: await sendImsgText(deps.imsg, id, opts.text, opts.messageId) };
       throw new Error('This action is not supported for Messages.');
     },
   };
