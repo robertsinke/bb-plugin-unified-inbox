@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { createGmailFaces, createGmailFaceStore, FACE_RETRY_MS, FACE_TTL_MS, SOURCE_RETRY_MS } from '../src/gmail-faces.ts';
+import { createGmailFaces, createGmailFaceStore } from '../src/gmail-faces.ts';
 import { PeopleApiError } from '../src/google-people.ts';
 import type { GooglePeoplePage } from '../src/adapters/types.ts';
 
@@ -88,24 +88,21 @@ test('one address book read answers a page of senders, not one call per sender',
   } finally { f.close(); }
 });
 
-test('a sender with no photo is remembered as a miss, and asked again after the hour', async () => {
+test('a sender with no photo is remembered once, and a later email does not ask again', async () => {
   const f = fixture();
   try {
     f.faces.url(ADA);
     await settle();
     assert.equal(f.store.get('gmail-personal', ADA)?.state, 'failed', '"no photo" is an answer, and it is recorded');
     const asked = f.asks.length;
+    f.advance(7 * 24 * 60 * 60 * 1000);
     f.faces.url(ADA);
     await settle();
-    assert.equal(f.asks.length, asked, 'a miss inside its window is not re-asked on every draw');
-    f.advance(FACE_RETRY_MS + 1);
-    f.faces.url(ADA);
-    await settle();
-    assert.ok(f.asks.length > asked, 'a person can set a picture later, so the miss expires');
+    assert.equal(f.asks.length, asked, 'the same sender is never asked a second time');
   } finally { f.close(); }
 });
 
-test('a refused read is an inert source: initials, one line, and nothing remembered as a miss', async () => {
+test('a refused read is asked once: initials, one line, and the sender is not asked again', async () => {
   const f = fixture({ fail: listing => refused(listing) });
   try {
     assert.equal(f.faces.url(ADA), undefined);
@@ -117,14 +114,11 @@ test('a refused read is an inert source: initials, one line, and nothing remembe
     assert.doesNotMatch(f.notes[0], /ya29|Bearer/, 'a line about a face never carries a credential');
 
     const asked = f.asks.length;
+    f.advance(7 * 24 * 60 * 60 * 1000);
     f.faces.url(ADA);
     await settle();
-    assert.equal(f.asks.length, asked, 'a refused scope is not re-asked by every draw');
-    f.advance(SOURCE_RETRY_MS + 1);
-    f.faces.url(ADA);
-    await settle();
-    assert.ok(f.asks.length > asked, 'it is asked again after the hour, so a consent needs no reload');
-    assert.equal(f.notes.length, 2, 'and says so once an hour, never five times in a row');
+    assert.equal(f.asks.length, asked, 'a refused scope is asked once, not on every later email');
+    assert.equal(f.notes.length, 1, 'and the missing scope is named once');
   } finally { f.close(); }
 });
 
@@ -138,23 +132,23 @@ test('a grant that covers saved contacts but not other contacts still draws the 
     f.faces.url('stranger@example.com');
     await settle();
     assert.equal(f.faces.url(ADA), PHOTO, 'the granted half answers');
-    assert.equal(f.store.get('gmail-personal', 'stranger@example.com'), undefined, 'a half-read book cannot say an address has no photo');
+    assert.equal(f.store.get('gmail-personal', 'stranger@example.com')?.state, 'failed', 'a sender asked once and not found is not asked again');
     assert.equal(f.notes.length, 1);
     assert.match(f.notes[0], /contacts\.other\.readonly is not granted/);
     assert.doesNotMatch(f.notes[0], /auth\/contacts\.readonly is not granted/);
   } finally { f.close(); }
 });
 
-test('a URL past its TTL is still drawn while a fresh one is asked for', async () => {
+test('a stored picture is drawn again without another request', async () => {
   const f = fixture({ saved: { photos: [{ address: ADA, url: PHOTO }] } });
   try {
     f.faces.url(ADA);
     await settle();
-    f.advance(FACE_TTL_MS + 1);
     const asked = f.asks.length;
-    assert.equal(f.faces.url(ADA), PHOTO, 'a stale picture beats initials');
+    f.advance(7 * 24 * 60 * 60 * 1000);
+    assert.equal(f.faces.url(ADA), PHOTO);
     await settle();
-    assert.ok(f.asks.length > asked, 'and a fresh one is asked for behind it');
+    assert.equal(f.asks.length, asked, 'a sender who already has a picture is not refreshed');
   } finally { f.close(); }
 });
 

@@ -37,15 +37,16 @@ const SELF: Record<GmailAccount, string> = {
 const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true };
 
 /**
- * What a person knows each mailbox by, and how the panel paces it. A Gmail row costs one thread
- * read per thread; twenty of those per account, with the periodic refreshes in the same round,
- * measured 11–20s over the CLI and lost the panel's 15-second ceiling — so the owner saw the
- * WhatsApp page and no mail. Ten fits the panel. The ceiling, not the transport, is the reason:
- * a read is faster now, and the page size stays until someone measures it again.
+ * What a person knows each mailbox by, and how the panel paces it. The mailbox is refreshed every
+ * three minutes: a 45-second poll left too little of the per-user Gmail quota for opening a thread.
+ * A Gmail row costs one thread read per thread; twenty of those per account, with the periodic
+ * refreshes in the same round, measured 11–20s over the CLI and lost the panel's 15-second ceiling
+ * — so the owner saw the WhatsApp page and no mail. Ten fits the panel. The ceiling, not the
+ * transport, is the reason: a read is faster now, and the page size stays until someone measures it again.
  */
 const SOURCE: Record<GmailAccount, SourceDeclaration> = {
-  'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
-  'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 },
+  'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 180_000, pageSize: 10 },
+  'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 180_000, pageSize: 10 },
 };
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */

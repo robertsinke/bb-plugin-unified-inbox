@@ -16,8 +16,9 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 
 ## What you get
 
-- An **Inbox** page on the sidebar rail: the sources in one list, the open
-  conversation on the right, and `#` in any composer to tag one into a thread.
+- An **Inbox** tab on the thread's right side panel: the sources in one list,
+  the open conversation beside them, and `#` in any composer to tag one into
+  a thread.
 - Personal and business Gmail: read, archive, read/unread, a reply /
   reply-all / forward / new-mail composer that sends, and the sender's Google
   contact photo in the list where the contacts grant allows it — initials
@@ -124,7 +125,9 @@ only to stop a runaway download, not to decide what the owner may receive.
 BB registers five read-only tools on the same gateway the panel uses: `inbox_list` browses the cached
 conversation list, `inbox_search` requires a query and returns ranked cached excerpts, `inbox_refresh`
 updates one source's newest page, `inbox_read` returns messages and media references, and
-`inbox_view_image` returns a PNG, JPEG, WebP, or GIF from a reference in that cached conversation.
+`inbox_view_attachment` returns one file from that conversation plus its type. A picture comes back as
+an image. Any other file comes back inline up to 5 MiB; a larger one comes back as its type, name and
+size, without the bytes.
 Stored Gmail account ids are `gmail-personal` and `gmail-business`. These tools do not send.
 
 One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeated here, so it cannot fall

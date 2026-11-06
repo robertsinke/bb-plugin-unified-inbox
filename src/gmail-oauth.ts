@@ -41,8 +41,11 @@ export interface GmailCredentialRecord {
   scopes?: string[];
   /** Where the credential came from; a later login flow adds a second value without a schema change. */
   source: 'gws-import' | 'login';
-  /** Last failed refresh, kept so an unusable credential can be reported without a terminal. */
-  lastError?: { at: number; message: string };
+  /**
+   * Last failed refresh, kept so an unusable credential can be reported without a terminal.
+   * `reason: 'deleted_client'` is terminal: the client is gone, so later asks do not call Google.
+   */
+  lastError?: { at: number; message: string; reason?: string };
 }
 
 /** The credential as a log line can show it: present, has refresh token, last error. */
@@ -161,9 +164,18 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
   /** Keep the failure on the record so the panel's stale-cache path can name it. Never masks the failure. */
   async function noteError(account: GmailAccount, record: GmailCredentialRecord, error: unknown): Promise<void> {
     const message = redactProviderText(error instanceof Error ? error.message : String(error));
+    const reason = error instanceof GmailCredentialError ? error.reason : undefined;
     try {
-      await write(account, { ...record, lastError: { at: now(), message } });
+      await write(account, { ...record, lastError: { at: now(), message, ...(reason ? { reason } : {}) } });
     } catch { /* the failure being reported outranks the note about it */ }
+  }
+
+  /**
+   * A deleted client cannot become valid by asking again. The stored failure is the answer until
+   * a new record replaces it.
+   */
+  function clientIsDeleted(record: GmailCredentialRecord): boolean {
+    return record.lastError?.reason === 'deleted_client' || record.lastError?.message.includes('deleted_client') === true;
   }
 
   async function refresh(account: GmailAccount): Promise<string> {
@@ -220,10 +232,9 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
       };
     },
     async accessToken(account, opts = {}) {
-      if (!opts.force) {
-        const record = await read(account);
-        if (unexpired(record)) return record.access_token as string;
-      }
+      const record = await read(account);
+      if (clientIsDeleted(record)) throw new GmailCredentialError(401, 'deleted_client', 'The OAuth client was deleted.');
+      if (!opts.force && unexpired(record)) return record.access_token as string;
       const running = inflight.get(account);
       if (running) return running;
       const grant = refresh(account).finally(() => inflight.delete(account));

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
-import type { ExperimentalBadge } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './src/rpc-contract';
 import { bubbleClass } from './src/inbox-appearance.ts';
 import { composerMode, draftForConversation } from './src/composer-mode.ts';

@@ -8,14 +8,14 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
 
 function fixture() {
   const { bb, harness } = createFakePluginHost({ pluginId: 'unified-inbox' });
-  const messages = [
+  const messages: Array<{ sender: string; text: string; date: number; media?: MessageMedia; html?: string; gmailId?: string; attachments?: string[]; imsgId?: string; imsgAttachments?: { index: number; name: string; available: boolean }[] }> = [
     { sender: 'Contact', text: 'Pickup information', date: 100, media: { kind: 'image', messageId: 'photo-1', available: true, cached: true } as MessageMedia },
     { sender: 'Contact', text: 'x'.repeat(21_000), date: 200, html: '<p>private HTML</p>', gmailId: 'mail-1', attachments: ['photo.png'] },
     { sender: 'Contact', text: '', date: 300, imsgId: '42', imsgAttachments: [{ index: 0, name: 'photo.png', available: true }] },
   ];
   let loads = 0;
   let opens = 0;
-  let payload = { dataUrl: `data:image/png;base64,${png}`, mime: 'image/png' };
+  let payload: { dataUrl?: string; mime: string; filename?: string; size?: number; savedPath?: string; url?: string } = { dataUrl: `data:image/png;base64,${png}`, mime: 'image/png' };
   const fresh = { lastAttemptAt: 100, lastSuccessAt: 100, lastError: null, cacheFallback: false };
   const gateway = {
     cached: () => ({
@@ -55,7 +55,7 @@ test('native tools are selected and expose only read operations', async t => {
   const f = fixture();
   t.after(() => f.harness.lifecycle.dispose());
   const config = await f.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-  assert.deepEqual(config.tools.map(tool => tool.name), ['inbox_list', 'inbox_search', 'inbox_refresh', 'inbox_read', 'inbox_view_image']);
+  assert.deepEqual(config.tools.map(tool => tool.name), ['inbox_list', 'inbox_search', 'inbox_refresh', 'inbox_read', 'inbox_view_attachment']);
   assert.deepEqual(config.skills, []);
 });
 
@@ -88,9 +88,9 @@ test('read pages text and returns reusable media references for all three addres
   assert.equal(f.loads, 0);
   assert.equal(result.title, 'Contact');
   assert.equal(result.returnedMessages, 3);
-  assert.deepEqual(result.messages[0].media, [{ description: 'image', viewable: true, reference: { kind: 'message', id: 'photo-1', index: 0 } }]);
-  assert.deepEqual(result.messages[1].media, [{ description: 'image, photo.png', viewable: true, reference: { kind: 'attachment', id: 'mail-1', filename: 'photo.png' } }]);
-  assert.deepEqual(result.messages[2].media, [{ description: 'image, photo.png', viewable: true, reference: { kind: 'imsg', chatId: 'chat-1', messageId: '42', index: 0 } }]);
+  assert.deepEqual(result.messages[0].media, [{ description: 'image', type: 'image', viewable: true, reference: { kind: 'message', id: 'photo-1', index: 0 } }]);
+  assert.deepEqual(result.messages[1].media, [{ description: 'image, photo.png', type: 'image', viewable: true, reference: { kind: 'attachment', id: 'mail-1', filename: 'photo.png' } }]);
+  assert.deepEqual(result.messages[2].media, [{ description: 'image, photo.png', type: 'image', viewable: true, reference: { kind: 'imsg', chatId: 'chat-1', messageId: '42', index: 0 } }]);
   assert.equal(result.messages[1].html, undefined);
   assert.equal(result.messages[1].text.length, 20_000);
   assert.equal(result.messages[1].nextTextOffset, 20_000);
@@ -102,10 +102,10 @@ test('read pages text and returns reusable media references for all three addres
   assert.equal(f.opens, 1);
 });
 
-test('image tool returns native image content with provenance, not a JSON data URL', async t => {
+test('a picture comes back as an image, with a note that it is untrusted', async t => {
   const f = fixture();
   t.after(() => f.harness.lifecycle.dispose());
-  const result = await f.harness.behavior.callAgentTool('inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } });
+  const result = await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } });
   assert.equal(typeof result, 'object');
   if (typeof result === 'string') throw new Error('Expected native image result');
   assert.deepEqual(result.content[1], { type: 'image', data: png, mimeType: 'image/png' });
@@ -113,27 +113,67 @@ test('image tool returns native image content with provenance, not a JSON data U
   assert.equal(f.loads, 1);
 });
 
-test('unrelated media and videos fail before retrieval', async t => {
+test('an unknown file is refused before retrieval, and a video comes back as a video', async t => {
   const f = fixture();
   t.after(() => f.harness.lifecycle.dispose());
-  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'other' } }), /does not belong/);
-  f.messages[0].media!.kind = 'video';
-  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }), /Video inspection/);
+  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'other' } }), /does not belong/);
   assert.equal(f.loads, 0);
+  f.messages[0].media!.kind = 'video';
+  f.setPayload({ dataUrl: 'data:video/mp4;base64,AAAA', mime: 'video/mp4', filename: 'clip.mp4' });
+  const video = json(await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }));
+  assert.equal(video.type, 'video');
+  assert.equal(video.included, true);
+  assert.equal(f.loads, 1);
 });
 
-test('unsupported MIME, invalid base64 and oversized images are refused', async t => {
+test('a mismatched type, bad encoding, or oversized image is refused, and SVG is not shown as a picture', async t => {
   const f = fixture();
   t.after(() => f.harness.lifecycle.dispose());
+  f.setPayload({ dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=', mime: 'image/svg+xml' });
+  const svg = json(await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }));
+  assert.equal(svg.included, true);
+  assert.equal(svg.data, 'PHN2Zz4=');
   for (const payload of [
-    { dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=', mime: 'image/svg+xml' },
     { dataUrl: `data:image/png;base64,${png}`, mime: 'image/jpeg' },
     { dataUrl: 'data:image/png;base64,a', mime: 'image/png' },
     { dataUrl: `data:image/png;base64,${Buffer.alloc(6 * 1024 * 1024 + 1).toString('base64')}`, mime: 'image/png' },
   ]) {
     f.setPayload(payload);
-    await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }), /supported image|encoding|limit/);
+    await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }), /encoding|limit|does not match|not encoded/);
   }
+});
+
+test('one attachment tool returns a picture as an image and any other file with its type', async t => {
+  const f = fixture();
+  t.after(() => f.harness.lifecycle.dispose());
+  const picture = await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } });
+  if (typeof picture === 'string' || picture.content[0].type !== 'text') throw new Error('Expected an image result');
+  assert.equal(JSON.parse(picture.content[0].text).type, 'image');
+  assert.deepEqual(picture.content[1], { type: 'image', data: png, mimeType: 'image/png' });
+
+  const pdf = Buffer.from('%PDF-1.4').toString('base64');
+  f.messages.push({ sender: 'Contact', text: 'invoice', date: 400, gmailId: 'mail-2', attachments: ['invoice.pdf'] });
+  f.setPayload({ dataUrl: `data:application/pdf;base64,${pdf}`, mime: 'application/pdf', filename: 'invoice.pdf' });
+  const file = json(await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'gmail-personal', id: 'chat-1', media: { kind: 'attachment', id: 'mail-2', filename: 'invoice.pdf' } }));
+  assert.equal(file.type, 'pdf');
+  assert.equal(file.included, true);
+  assert.equal(file.data, pdf);
+
+  const note = Buffer.from('hello').toString('base64');
+  f.messages.push({ sender: 'Contact', text: '', date: 500, gmailId: 'mail-3', attachments: ['note.txt'] });
+  f.setPayload({ dataUrl: `data:text/plain;base64,${note}`, mime: 'text/plain', filename: 'note.txt' });
+  const text = json(await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'gmail-personal', id: 'chat-1', media: { kind: 'attachment', id: 'mail-3', filename: 'note.txt' } }));
+  assert.equal(text.type, 'text');
+  assert.equal(text.text, 'hello');
+  assert.equal(text.data, undefined);
+
+  f.setPayload({ dataUrl: '', mime: 'application/pdf', filename: 'big.pdf', savedPath: '/tmp/big.pdf', size: 9_000_000 });
+  f.messages.push({ sender: 'Contact', text: '', date: 600, gmailId: 'mail-4', attachments: ['big.pdf'] });
+  const large = json(await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'gmail-personal', id: 'chat-1', media: { kind: 'attachment', id: 'mail-4', filename: 'big.pdf' } }));
+  assert.equal(large.type, 'pdf');
+  assert.equal(large.included, false);
+  assert.equal(large.savedPath, '/tmp/big.pdf');
+  assert.equal(large.data, undefined);
 });
 
 test('cancelled calls stop before any adapter reads or media loads', async t => {
@@ -143,7 +183,7 @@ test('cancelled calls stop before any adapter reads or media loads', async t => 
   controller.abort();
   for (const [name, input] of [
     ['inbox_read', { account: 'whatsapp', id: 'chat-1' }],
-    ['inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }],
+    ['inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1' } }],
   ] as const) {
     await assert.rejects(() => f.harness.behavior.callAgentTool(name, input, { signal: controller.signal }), /abort/i);
   }
@@ -158,6 +198,6 @@ test('tool schemas reject arbitrary URLs, unknown accounts and unbounded pages',
   await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_list', { query: 'Pickup' }));
   await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_search', {}));
   await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_read', { account: 'whatsapp', id: 'chat-1', limit: 1000 }));
-  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_image', { account: 'whatsapp', id: 'chat-1', media: { kind: 'message', id: 'photo-1', url: 'https://example.org' } }));
+  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: { kind: 'attachment', id: 'mail-1', filename: 'photo.png', url: 'https://example.org' } }));
   assert.equal(f.loads, 0);
 });
