@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WhatsAppAvatarSocket } from '../../src/whatsapp/connection.ts';
-import { AVATAR_RETRY_MS, AVATAR_TTL_MS, createWhatsAppAvatars } from '../../src/whatsapp/avatars.ts';
+import { AVATAR_RETRY_MS, createWhatsAppAvatars } from '../../src/whatsapp/avatars.ts';
 import { createWhatsAppStore, type WhatsAppStore } from '../../src/whatsapp/store.ts';
 
 const ADA = '15551234567@s.whatsapp.net';
@@ -159,29 +159,7 @@ test('a refused ask is not surfaced, and is retried like a no-picture answer', a
   }
 });
 
-test('a fresh URL is answered without asking, and a stale one is answered while it is refreshed', async () => {
-  const { store, close } = fixture();
-  try {
-    const fake = fakeSocket(() => GRACE_PICTURE);
-    const clock = { now: 1_700_000_000_000 };
-    store.setAvatar({ jid: ADA, url: PICTURE, state: 'ready', fetched_at: clock.now });
-    const pictures = avatars(store, fake.socket, clock);
-
-    assert.equal(pictures.url(ADA), PICTURE);
-    await settle();
-    assert.deepEqual(fake.asks, [], 'a URL inside its TTL is answered from the store alone');
-
-    clock.now += AVATAR_TTL_MS + 1;
-    assert.equal(pictures.url(ADA), PICTURE, 'a stale URL still loads, so it is drawn while it is refreshed');
-    await settle();
-    assert.equal(fake.asks.length, 1);
-    assert.equal(store.getAvatar(ADA)?.url, GRACE_PICTURE, 'and the refreshed URL replaces it');
-  } finally {
-    close();
-  }
-});
-
-test('a refresh that fails keeps the picture the chat already had', async () => {
+test('a stored picture is not asked again', async () => {
   const { store, close } = fixture();
   try {
     const fake = fakeSocket(() => new Error('item-not-found'));
@@ -189,16 +167,12 @@ test('a refresh that fails keeps the picture the chat already had', async () => 
     store.setAvatar({ jid: ADA, url: PICTURE, state: 'ready', fetched_at: clock.now });
     const pictures = avatars(store, fake.socket, clock);
 
-    clock.now += AVATAR_TTL_MS + 1;
+    clock.now += 30 * 24 * 60 * 60 * 1000;
     assert.equal(pictures.url(ADA), PICTURE);
     await settle();
-    assert.equal(fake.asks.length, 1, 'a stale picture is asked again');
-    assert.equal(pictures.url(ADA), PICTURE, 'a failed refresh does not blank a picture that already loaded');
+    assert.deepEqual(fake.asks, [], 'a picture the store has is not refreshed');
     assert.equal(store.getAvatar(ADA)?.url, PICTURE);
     assert.equal(store.getAvatar(ADA)?.state, 'ready');
-    assert.equal(pictures.url(ADA), PICTURE);
-    await settle();
-    assert.equal(fake.asks.length, 1, 'the kept picture is not asked again on the next draw');
   } finally {
     close();
   }
