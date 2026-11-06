@@ -74,6 +74,7 @@ test('a photo message with no text is still a message, and keeps the URL its thu
   ] });
   assert.deepEqual(messages, [{
     id: 'urn:li:msg_message:(urn:li:msg_conversation:(a,2-b),2-c)',
+    messageId: 'urn:li:msg_message:(urn:li:msg_conversation:(a,2-b),2-c)',
     sender: 'Bea',
     text: '',
     date: 1,
