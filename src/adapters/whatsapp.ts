@@ -22,7 +22,7 @@ import type {
   MediaPayload, Message, OpenOptions, OpenResult, SearchRow, SourceDeclaration, SyncResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';

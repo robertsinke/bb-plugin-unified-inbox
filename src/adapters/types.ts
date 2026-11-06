@@ -314,6 +314,12 @@ export interface Message {
   edited?: boolean;
   /** Messages thread indicator (context only; full threading is a non-goal). */
   replyContext?: boolean;
+  /** The earlier message this one quotes, when the source stored a target, a sender, or text. */
+  quote?: {
+    targetId?: string;
+    sender?: string;
+    text?: string;
+  };
   /** Messages stable row id, used by a `kind: 'imsg'` media request. */
   imsgId?: string;
   /** A message that is a link rather than a picture or text (a shared post). */
@@ -404,11 +410,17 @@ export interface SendReceipt {
  * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,
  * and those two kinds now carry LinkedIn's accept / ignore of an invitation.
  */
-export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject';
+export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject' | 'react';
 
 /** Mirrors the optional fields of the rpcContract `action` input. */
 export interface ActionOptions {
   text?: string;
+  /** The message a reaction or a targeted reply names. Absent on a conversation reply. */
+  messageId?: string;
+  /** One of the four shared reactions. Required when `kind` is `react`. */
+  emoji?: string;
+  /** Remove the named reaction. Refused while the source declares `reactRemove` false. */
+  remove?: boolean;
 }
 
 export interface ActionResult {
