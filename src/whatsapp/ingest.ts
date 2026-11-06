@@ -221,6 +221,12 @@ function quoteSnapshot(msg: WAMessage): QuoteSnapshot | null {
   };
 }
 
+/** A JID WhatsApp actually sent. An empty string is how a 1:1 key says "no participant". */
+function blankableJid(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function chatJidFromMessage(msg: WAMessage): string | undefined {
   const key = msg.key;
   if (!key) return undefined;
@@ -394,7 +400,10 @@ export function ingestBaileysMessage(
   const ts = toNumber(msg.messageTimestamp) ?? Date.now();
   const type = classifyMessageType(msg);
   const text = extractMessageText(msg);
-  const sender = fromMe ? null : (msg.key?.participant ?? msg.participant ?? chatJid);
+  // A live 1:1 key carries `participant: ""`. `??` treats that as a sender, so the row is stored
+  // with no one on it and the bubble reads "Unknown" even when the chat's contact is named.
+  const participant = blankableJid(msg.key?.participant) ?? blankableJid(msg.participant);
+  const sender = fromMe ? null : (participant ?? chatJid);
 
   // Harvest the sender's push name from the live envelope: history sync omits `pushName`, so a
   // stranger who messages you stays a number for ever without this.

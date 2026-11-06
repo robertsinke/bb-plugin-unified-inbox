@@ -79,17 +79,25 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     return usableName(contact?.name) ?? usableName(contact?.push_name) ?? '';
   }
 
-  /** Who wrote a stored row, in words the panel can draw. Never the chat's own title. */
-  function senderName(sender: string | null): string {
-    if (!sender || sender === 'me') return '';
-    return contactName(sender) || whatsappPhone(sender);
+  /**
+   * Who wrote a stored row, in words the panel can draw. Never the chat's own title.
+   *
+   * A 1:1 row whose sender was stored blank is still the other person: that is the chat jid.
+   * A group has many senders, so a blank one stays blank.
+   */
+  function senderName(sender: string | null, chatJid: string): string {
+    const stored = sender?.trim() ?? '';
+    if (stored === 'me') return '';
+    const jid = stored || (chatJid.endsWith('@g.us') ? '' : chatJid);
+    if (!jid) return '';
+    return contactName(jid) || whatsappPhone(jid);
   }
 
   function previewOf(message: Message): NonNullable<WhatsAppChatRow['preview']> {
     return {
       text: whatsappText(message.text ?? '', message.type, whatsAppMedia(message)),
       fromMe: message.from_me,
-      sender: senderName(message.sender),
+      sender: senderName(message.sender, message.chat_jid),
     };
   }
 
@@ -153,7 +161,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           ts: message.ts,
           type: message.type,
           text: message.text,
-          sender: message.fromMe ? '' : senderName(message.sender),
+          sender: message.fromMe ? '' : senderName(message.sender, message.chatJid),
           edited: message.edited,
         })),
       }));
@@ -169,7 +177,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           ts: message.ts,
           type: message.type,
           text: message.text ?? '',
-          sender: message.from_me ? '' : senderName(message.sender),
+          sender: message.from_me ? '' : senderName(message.sender, message.chat_jid),
           edited: message.edited_at != null,
           ...(media ? { media } : {}),
         };
