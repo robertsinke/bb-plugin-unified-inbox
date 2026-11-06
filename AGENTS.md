@@ -44,10 +44,10 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 
 ## Rules that bind an agent here
 
-1. **This checkout is not the live plugin.** The live install builds from a thread worktree under
-   `~/.bb/plugins/environment-git-worktree/host-data/worktrees/<thread>/bb-plugin-unified-inbox`. Merging to
-   `main` here changes nothing until that worktree fast-forwards and `bb plugin build` + `bb plugin reload
-   unified-inbox` run there. A child thread never does this; the parent verifies live.
+1. **This checkout is the live plugin.** It runs from `/Users/robert/dev/bb-plugin-unified-inbox` on `main`.
+   Confirm with `bb plugin source unified-inbox` before you build. `npm run build` then `bb plugin reload
+   unified-inbox` is what ships. A thread worktree is not live. A child thread never does this; the parent
+   verifies live.
 2. **Check the branch before merging.** `git merge` runs on whatever is checked out: `git branch --show-current`
    first. Child branches are generated names, not the spec's.
 3. **A child's green report is not a commit.** Read `git log <branch> -1` before believing it.
