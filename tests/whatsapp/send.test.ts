@@ -39,3 +39,24 @@ test('a send carries the message id, the quote, and nothing else', async () => {
     options: { messageId: 'MSG1', quoted },
   });
 });
+
+test('a reaction sends the emoji, and an empty emoji removes it', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const socket = {
+    async sendPresenceUpdate() {},
+    async sendMessage(jid: string, content: unknown) {
+      calls.push({ jid, content });
+      return {};
+    },
+    async readMessages() {},
+  };
+  const transport = createWhatsAppSendTransport(() => socket as unknown as WhatsAppSendSocket);
+  const key = { id: 'MSG1', remoteJid: 'jid@s.whatsapp.net' };
+
+  await transport.sendReaction('jid@s.whatsapp.net', key, '👍');
+  await transport.sendReaction('jid@s.whatsapp.net', key, '');
+  assert.deepEqual(calls, [
+    { jid: 'jid@s.whatsapp.net', content: { react: { text: '👍', key } } },
+    { jid: 'jid@s.whatsapp.net', content: { react: { text: '', key } } },
+  ]);
+});

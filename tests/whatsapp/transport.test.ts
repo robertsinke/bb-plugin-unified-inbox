@@ -741,3 +741,138 @@ test('the facts of a message answer before its bytes, and bytes nobody will show
     db.close();
   }
 });
+
+test('open copies stored reactions and quote text, and does not ask for a socket', async () => {
+  const { db, store } = fixture();
+  try {
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 2_000 });
+    store.upsertContact({ jid: '255700000001@s.whatsapp.net', push_name: 'Grace' });
+    store.upsertContact({ jid: '255700000002@s.whatsapp.net', name: 'Ida' });
+    store.upsertMessage(message({
+      id: 'm1',
+      chat_jid: DM,
+      ts: 2_000,
+      text: 'See you',
+      quote_target_id: 'earlier',
+      quote_sender: '255700000001@s.whatsapp.net',
+      quote_text: 'the earlier line',
+    }));
+    store.upsertMessageReaction({ chat_jid: DM, target_msg_id: 'm1', actor: '255700000001@s.whatsapp.net', emoji: '👍', updated_at: 1 });
+    store.upsertMessageReaction({ chat_jid: DM, target_msg_id: 'm1', actor: '255700000002@s.whatsapp.net', emoji: '👎', updated_at: 2 });
+    // History can name no one. The emoji still shows.
+    store.upsertMessageReaction({ chat_jid: DM, target_msg_id: 'm1', actor: '', emoji: '😂', updated_at: 5 });
+    // A falsey emoji is not a reaction, even when a row was written past the store's own delete.
+    db.prepare('INSERT INTO wa_message_reactions (chat_jid, target_msg_id, actor, emoji, updated_at) VALUES (?, ?, ?, ?, ?)').run(DM, 'm1', 'ghost', '', 3);
+    db.prepare('INSERT INTO wa_message_reactions (chat_jid, target_msg_id, actor, emoji, updated_at) VALUES (?, ?, ?, ?, ?)').run(DM, 'm1', 'blank', '   ', 4);
+
+    let asked = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => { asked += 1; return undefined; },
+      ensure: async () => { asked += 1; return undefined; },
+    });
+    const [row] = await transport.openChat({ id: DM, limit: 60 });
+
+    assert.equal(asked, 0, 'a read of stored reactions and quotes does not open a socket');
+    assert.deepEqual(row.reactions, [
+      { sender: 'Grace', label: '👍' },
+      { sender: 'Ida', label: '👎' },
+      { sender: '', label: '😂' },
+    ]);
+    assert.deepEqual(row.quote, { targetId: 'earlier', sender: 'Grace', text: 'the earlier line' });
+  } finally {
+    db.close();
+  }
+});
+
+test('a reaction send does not write a row; the next open shows it only after ingest stores it', async () => {
+  const { db, store } = fixture();
+  try {
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 1_000 });
+    store.upsertMessage(message({ id: 'm1', chat_jid: DM, ts: 1_000, from_me: false, text: 'hi' }));
+    store.upsertMessageReaction({ chat_jid: DM, target_msg_id: 'm1', actor: 'me', emoji: '👍', updated_at: 1 });
+    const sent: Array<{ text: string; key: { id?: string | null } }> = [];
+    const transport = createWhatsAppTransport({
+      store,
+      ...up({
+        async sendMessage(_jid: string, content: { react?: { text: string; key: { id?: string | null } } }) {
+          sent.push({ text: content.react?.text ?? '', key: content.react?.key ?? {} });
+          return {};
+        },
+      } as unknown as Partial<WhatsAppSendSocket>),
+    });
+
+    await transport.sendReaction({ id: DM, messageId: 'm1', emoji: '❤️' });
+    assert.deepEqual(sent, [{ text: '❤️', key: { remoteJid: DM, id: 'm1', fromMe: false } }]);
+    assert.deepEqual(store.listMessageReactions(DM, 'm1').map(row => row.emoji), ['👍'], 'the send does not invent a row');
+    assert.deepEqual((await transport.openChat({ id: DM, limit: 60 }))[0].reactions, [{ sender: '', label: '👍' }]);
+
+    // The same actor's next emoji replaces the stored one, because ingest keeps one row per actor.
+    store.upsertMessageReaction({ chat_jid: DM, target_msg_id: 'm1', actor: 'me', emoji: '❤️', updated_at: 2 });
+    assert.deepEqual((await transport.openChat({ id: DM, limit: 60 }))[0].reactions, [{ sender: '', label: '❤️' }]);
+
+    sent.length = 0;
+    await transport.sendReaction({ id: DM, messageId: 'm1', emoji: '' });
+    assert.deepEqual(sent, [{ text: '', key: { remoteJid: DM, id: 'm1', fromMe: false } }], 'remove sends an empty emoji');
+  } finally {
+    db.close();
+  }
+});
+
+test('a quote reply sends the stored envelope, and a missing envelope is not a message', async () => {
+  const { db, store } = fixture();
+  try {
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 1_000 });
+    const envelope = { key: { remoteJid: DM, id: 'm1', fromMe: false }, message: { conversation: 'hi' } };
+    store.upsertMessage(message({ id: 'm1', chat_jid: DM, ts: 1_000, text: 'hi', raw: JSON.stringify(envelope) }));
+    store.upsertMessage(message({ id: 'bare', chat_jid: DM, ts: 2_000, text: 'no envelope' }));
+    store.upsertMessage(message({ id: 'bad', chat_jid: DM, ts: 3_000, text: 'bad', raw: '{not json' }));
+
+    let asked = 0;
+    const sent: Array<{ content: unknown; quoted: unknown }> = [];
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => undefined,
+      ensure: async () => { asked += 1; return undefined; },
+    });
+    assert.deepEqual(await transport.storedEnvelope('m1'), envelope);
+    assert.equal(await transport.storedEnvelope('bare'), undefined, 'a row with no envelope cannot be quoted');
+    assert.equal(await transport.storedEnvelope('bad'), undefined, 'an envelope that will not parse cannot be quoted');
+    assert.equal(await transport.storedEnvelope('missing'), undefined);
+    assert.equal(asked, 0, 'loading an envelope does not open a socket');
+
+    const online = createWhatsAppTransport({
+      store,
+      ...up({
+        async sendMessage(_jid: string, content: unknown, options: { quoted?: unknown }) {
+          sent.push({ content, quoted: options.quoted });
+          return {};
+        },
+      } as unknown as Partial<WhatsAppSendSocket>),
+    });
+    const quoted = await online.storedEnvelope('m1');
+    await online.sendText({ id: DM, text: 'reply', quoted });
+    assert.deepEqual(sent, [{ content: { text: 'reply' }, quoted: envelope }]);
+  } finally {
+    db.close();
+  }
+});
+
+test('a reaction with no socket is the disconnected error, once', async () => {
+  const { db, store } = fixture();
+  try {
+    let ensures = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => undefined,
+      ensure: async () => { ensures += 1; return undefined; },
+    });
+    await assert.rejects(
+      transport.sendReaction({ id: DM, messageId: 'm1', emoji: '👍' }),
+      WhatsAppDisconnectedError,
+    );
+    assert.equal(ensures, 1, 'one attempt: a disconnected socket is not asked again');
+  } finally {
+    db.close();
+  }
+});

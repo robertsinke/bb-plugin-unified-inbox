@@ -12,6 +12,7 @@ import { whatsappListUnchanged } from '../sync-plan.ts';
 import { sourceAvatarUrl } from '../avatar-url.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
+import { isReactionEmoji } from '../reaction-set.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
 import { AUDIO_LIMIT, IMAGE_LIMIT, mediaDataUrl, SAVE_LIMIT, VIDEO_LIMIT } from './media.ts';
 import { savedPayload } from '../media-save.ts';
@@ -22,7 +23,7 @@ import type {
   MediaPayload, Message, OpenOptions, OpenResult, SearchRow, SourceDeclaration, SyncResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';
@@ -148,8 +149,11 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         fromMe: row.fromMe,
         text: whatsappText(row.text, row.type, row.media),
         date: whatsappTimestamp(row.ts),
+        messageId: row.id,
         ...(row.edited ? { edited: true } : {}),
         ...(row.media ? { media: row.media } : {}),
+        ...(row.reactions?.length ? { reactions: row.reactions } : {}),
+        ...(row.quote ? { quote: row.quote } : {}),
       }));
     cache.saveThread(ACCOUNT, id, messages);
     return { messages };
@@ -264,6 +268,18 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     },
 
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
+      if (kind === 'react') {
+        if (!opts?.messageId) throw new Error('A reaction needs the message it reacts to. Nothing was sent.');
+        // The four live in one list. Emphasis and question are not on it, so they never reach the socket.
+        if (!isReactionEmoji(opts.emoji)) throw new Error('That emoji is not one of the four reactions. Nothing was sent.');
+        try {
+          // `remove` sends an empty emoji. The send does not write a row; ingest does, from the echo.
+          await transport.sendReaction({ id, messageId: opts.messageId, emoji: opts.remove ? '' : opts.emoji });
+        } catch (error) {
+          throw sendFailure(error);
+        }
+        return { status: 'Sent.' };
+      }
       if (CAPABILITIES.send && kind === 'reply') {
         const draft = opts?.text?.trim();
         if (!draft) throw new Error('Sending needs the text to send.');
@@ -272,10 +288,16 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         if (draft.length > TEXT_LIMIT) {
           throw new Error(`Nothing was sent: WhatsApp accepts a message up to ${TEXT_LIMIT} characters, and this one is ${draft.length}.`);
         }
+        // A targeted reply quotes the stored envelope. A missing row or envelope is a refusal, and
+        // the untargeted send is not a fallback.
+        const quoted = opts?.messageId ? await transport.storedEnvelope(opts.messageId) : undefined;
+        if (opts?.messageId && !quoted) {
+          throw new Error('Nothing was sent: the message this reply quotes is not stored.');
+        }
         try {
           // One attempt per click, never a retry: a second attempt is a second message, and the
           // class the failure carries is how the panel tells "nothing left" from "may have".
-          await transport.sendText({ id, text: draft });
+          await transport.sendText(quoted ? { id, text: draft, quoted } : { id, text: draft });
         } catch (error) {
           throw sendFailure(error);
         }

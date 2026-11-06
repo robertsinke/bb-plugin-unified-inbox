@@ -29,7 +29,7 @@ test('every source declares every capability, so a new one cannot be forgotten i
       for (const key of CAPABILITY_KEYS) {
         assert.equal(typeof declared[key], 'boolean', `${account} declares ${key}`);
       }
-      const reacts = account === 'imessage';
+      const reacts = account === 'imessage' || account === 'whatsapp';
       assert.equal(declared.react, reacts, `${account} react`);
       assert.equal(declared.reactRemove, reacts, `${account} reactRemove`);
       assert.equal(declared.quoteReply, reacts, `${account} quoteReply`);
