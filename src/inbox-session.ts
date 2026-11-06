@@ -598,8 +598,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       showMessages(result);
       state.opening = false;
       notify();
-      // Opening a conversation is what marks it read. The row clears only once
-      // the source accepted it, and only if no other open has taken over.
+      // Opening a conversation is what marks it read. The row clears when that
+      // read is accepted, including a Gmail read held until the minute allows it.
       if (canMarkRead(state.capabilities, item.account) && item.unread) {
         try {
           await deps.rpc.call('action', { account: item.account, id: item.id, action: 'read' });
