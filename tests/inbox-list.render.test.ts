@@ -9,8 +9,6 @@ import { JSDOM } from 'jsdom';
 const require = createRequire(import.meta.url);
 
 import { loadComponent } from './jsdom-harness.ts';
-import { loadFootnote } from '../src/inbox-footnote.ts';
-
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true });
 install(dom);
 
@@ -65,7 +63,7 @@ function type(input: any, value: string): void {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-test('a hit the list never loaded is drawn with its own title, and the footnote names each declared page', async () => {
+test('a hit the list never loaded is drawn with its own title', async () => {
   const React = require('react');
   const { createRoot } = require('react-dom/client');
   const { flushSync } = require('react-dom');
@@ -79,12 +77,9 @@ test('a hit the list never loaded is drawn with its own title, and the footnote 
     flushSync(() => root.render(React.createElement(Inbox, { threadId: null })));
     await wait(50);
 
-    // Nothing loaded yet: the list is empty, and the footnote already says what each source loads.
     assert.deepEqual([...host.querySelectorAll('.ui-row-name')].map(row => row.textContent), []);
-    const footnote = host.querySelector('.ui-footnote')?.textContent ?? '';
-    for (const [size, label] of [['10', 'Personal Gmail'], ['10', 'Inhouse Gmail'], ['50', 'WhatsApp'], ['20', 'Messages'], ['20', 'LinkedIn']]) {
-      assert.ok(footnote.includes(`${size} ${label}`), `the footnote says ${label} loads ${size}: ${footnote}`);
-    }
+    assert.equal(host.querySelector('.ui-footnote'), null);
+    assert.equal(host.querySelector('.ui-more'), null);
 
     // Type a query; the panel searches once the typing pauses, on its own heartbeat.
     const search = host.querySelector('.ui-search');
@@ -96,20 +91,12 @@ test('a hit the list never loaded is drawn with its own title, and the footnote 
     const rows = [...host.querySelectorAll('.ui-row')];
     assert.equal(rows.length, 1, 'the hit is a row on screen');
     assert.equal(host.querySelector('.ui-row-name')?.textContent, 'Grace Hopper', 'drawn with the title the hit carried, not a placeholder');
-    assert.equal(host.querySelector('.ui-row-snippet')?.textContent, 'the lighthouse keeper wrote back');
+    assert.equal(host.querySelector('.ui-row-body')?.textContent, 'the lighthouse keeper wrote back');
     assert.ok(host.querySelector('.ui-row-open-hit'), 'and it can be opened');
   } finally {
     flushSync(() => root.unmount());
     host.remove();
   }
-});
-
-test('a source that declares no page promises none', () => {
-  // Every shipped source pages today, so the rule is kept by its own case: the sentence names only
-  // the sources that declared a page, and a source that cannot page is not in it.
-  const footnote = loadFootnote({ linkedin: { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000 } } as never);
-  assert.equal(footnote.includes('LinkedIn'), false);
-  assert.equal(footnote, '');
 });
 
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */

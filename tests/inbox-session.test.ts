@@ -131,6 +131,49 @@ test('a source that does not follow the list moves the row without re-reading th
   assert.equal(session.snapshot().selected?.preview, 'See you at six, then', 'but the selected row follows the list');
 });
 
+test('clearing a needed label marks the row and the open conversation none', async () => {
+  const target = row({ unread: false, needsAttention: 'yes' });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
+    open: () => ({ messages: [liveMessage] }),
+    clear_attention: () => ({ needsAttention: 'no' }),
+    restore_attention: () => ({ needsAttention: 'yes' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await session.refresh(['whatsapp']);
+  await session.open(target);
+  await session.clearAttention(session.snapshot().selected ?? target);
+  assert.equal(session.snapshot().selected?.needsAttention, 'no');
+  assert.equal(session.snapshot().selected?.attentionDismissed, true);
+  await session.restoreAttention(session.snapshot().selected ?? target);
+  assert.equal(session.snapshot().selected?.needsAttention, 'yes');
+  assert.equal(session.snapshot().selected?.attentionDismissed, false);
+  assert.equal(session.snapshot().items.find(item => item.id === 'chat-1')?.needsAttention, 'yes');
+  assert.equal(rpc.calls.filter(call => call.name === 'clear_attention').length, 1);
+  assert.equal(rpc.calls.filter(call => call.name === 'restore_attention').length, 1);
+});
+
+test('a new attention label reaches the open conversation without re-reading it', async () => {
+  const target = row({ unread: false, needsAttention: 'yes' });
+  let listed: InboxItem[] = [target];
+  const rpc = fakeRpc({
+    cached: () => ({ items: listed }),
+    sync: input => ({ items: input.account === 'whatsapp' ? listed : [] }),
+    open: () => ({ messages: [liveMessage] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await settle();
+  await session.open(target);
+
+  const opensBefore = rpc.calls.filter(call => call.name === 'open').length;
+  listed = [{ ...target, needsAttention: 'no' }];
+  await session.refresh(['whatsapp']);
+
+  assert.equal(rpc.calls.filter(call => call.name === 'open').length, opensBefore, 'the thread is not read a second time');
+  assert.equal(session.snapshot().selected?.needsAttention, 'no', 'the header chip follows the new label');
+});
+
 test('two failures that say exactly the same words are cleared by the source that owns them', async () => {
   // Both mailboxes fail with one sentence. Clearing one has to leave the other alone, and the text
   // cannot be what tells them apart: it is identical.

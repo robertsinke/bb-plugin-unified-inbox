@@ -3,6 +3,18 @@
 .ui-linkedin .ui-source-icon{background:#0a66c230;color:#5aa9e6}
 .ui-row-meta{display:inline-flex;align-items:center;gap:7px;flex:none}
 .ui-chip{display:inline-block;padding:1px 6px;border:1px solid #8886;border-radius:999px;font-size:10px;font-weight:650;letter-spacing:.02em;vertical-align:middle;white-space:nowrap;opacity:.8}
+/* Red, green, and amber: the three verdicts read apart before the words. Same tint as the source icons. */
+.ui-chip[data-attention]{opacity:1}
+.ui-chip[data-attention=yes]{color:#f07474;background:#ef444430;border-color:#ef444480}
+.ui-chip[data-attention=no]{color:#28bd69;background:#22c55e30;border-color:#22c55e80}
+.ui-chip[data-attention=unsettled]{color:#f0b429;background:#f59e0b30;border-color:#f59e0b80}
+.ui-inbox button.ui-chip{appearance:none;position:relative;font-size:10px;font-weight:650;letter-spacing:.02em;line-height:inherit;padding:1px 6px}
+.ui-chip-word{transition:opacity 180ms ease}
+.ui-chip-check{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity 180ms ease 140ms}
+.ui-chip-check [data-icon-root],.ui-chip-check svg{width:11px;height:11px}
+.ui-inbox button.ui-chip.is-marked .ui-chip-word{opacity:0}
+.ui-inbox button.ui-chip.is-marked .ui-chip-check{opacity:1}
+@media (prefers-reduced-motion:reduce){.ui-chip-word,.ui-chip-check{transition:none}}
 /* A pending invitation answers in place: the split pair is drawn over the chip's own box, so the
    two halves together are exactly as wide and as tall as the label they replace, and the row never
    moves under the cursor. Kept focusable while hidden so the keyboard reaches it too. */
@@ -27,22 +39,24 @@
 .ui-send-row-decision.is-allowed{color:#2e7d32}
 .ui-send-row-account{flex:none;opacity:.7;font-size:12px}
 .ui-send-row-reason{font-size:12px;opacity:.8;overflow-wrap:anywhere;line-height:1.35}
-/* The mail draft is the bottom composer, in the same slot a chat reply uses. */
-.ui-mail-composer{display:flex;flex-direction:column;gap:8px;padding:12px 14px 14px;margin-top:12px;border-radius:12px;background:#8881;border:1px solid #8882}
-.ui-mail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}
-.ui-mail-fields label{display:flex;align-items:center;gap:7px;font-size:11px;opacity:.75;min-width:0}
-.ui-mail-fields label:first-child{grid-column:1/-1}
-.ui-mail-fields input{flex:1;min-width:0;padding:5px 8px;border-radius:7px;border:1px solid #8883;background:transparent;color:inherit;font:inherit;font-size:12px}
-.ui-mail-fields input:focus-visible{outline:2px solid #007aff;outline-offset:1px}
-.ui-mail-body{width:100%;resize:vertical;min-height:96px;padding:9px 10px;border-radius:9px;border:1px solid #8883;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}
-.ui-mail-body:focus-visible{outline:2px solid #007aff;outline-offset:1px}
-.ui-mail-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+/* The mail draft is the chat prompt box, with the address rows above the message.
+   layout.css owns the box, the type, and the send control. These rules only add the rows. */
+.ui-mail-composer{display:flex;flex-direction:column;gap:6px;flex:none;box-sizing:border-box;width:100%;min-width:0;max-width:100%;max-height:52%;overflow:auto;margin:0;padding:4px 12px 12px;border:0;border-radius:0;background:transparent;scrollbar-gutter:stable}
+.ui-mail-composer .ui-promptbox{width:auto;max-width:100%;border:0;border-radius:12px;background:#fff;color:#111;box-shadow:none}
+.ui-mail-fields{display:flex;flex-direction:column;padding:2px 12px 0}
+.ui-mail-fields label{display:flex;align-items:center;gap:8px;min-height:32px;min-width:0;border-bottom:1px solid color-mix(in srgb, currentColor 12%, transparent);font-size:12px;opacity:1}
+.ui-mail-fields label:focus-within{background:color-mix(in srgb, currentColor 5%, transparent)}
+.ui-mail-fields label span{flex:none;width:58px;opacity:.55}
+.ui-mail-fields label:focus-within span{opacity:.9}
+.ui-mail-fields input{flex:1;min-width:0;margin:0;padding:6px 0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;font-size:13px}
+.ui-mail-fields input:focus,.ui-mail-fields input:focus-visible{outline:none}
+.ui-mail-composer .ui-promptbox textarea{min-height:72px;max-height:160px;padding:10px 14px 4px;border-radius:0}
+.ui-mail-composer .ui-attachment-list,.ui-mail-composer .ui-attachment-offer{padding:8px 12px 0}
+.ui-mail-composer .ui-mail-actions{display:flex;align-items:center;gap:2px;position:sticky;bottom:0;padding:2px 6px 6px;border:0;background:#fff}
+.ui-mail-composer .ui-prompt-send{position:static;flex:none;opacity:1}
 .ui-mail-composer .ui-notice{margin:0;font-size:11px;opacity:.7;text-align:left}
-/* What the box is for, not what happened to a send: no card, just a line under the controls. */
-.ui-mail-composer .ui-composer-hint{margin:0;font-size:11px;opacity:.6;text-align:left}
-.ui-mail-composer .ui-prompt-send{opacity:.5}
-/* A file dragged over the draft is claimed here, not by the browser: the border says so, no motion. */
-.ui-mail-composer.is-dropping{border-color:#ad9afb;background:#8063df26}
+/* A file dragged over the draft is claimed here, not by the browser. */
+.ui-mail-composer.is-dropping .ui-promptbox{background:#8063df26}
 /* A new message takes the panel; the account choice and the draft share the composer slot. */
 .ui-compose-view{display:flex;flex-direction:column;justify-content:flex-end;min-height:100%;padding-bottom:8px}
 .ui-compose-view .ui-compose-menu{margin:0 0 10px}

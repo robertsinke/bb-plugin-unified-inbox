@@ -1,4 +1,5 @@
-import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
+import { useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { MailAttachment, MailDraft } from './inbox-session.ts';
 import { formatBytes } from './format.ts';
 
@@ -25,8 +26,17 @@ export type MailComposerProps = {
  */
 export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromThread, onField, onAttach, onDetach, onDiscard, onSend }: MailComposerProps) {
   const files = useRef<HTMLInputElement>(null);
+  const body = useRef<HTMLTextAreaElement>(null);
   const [dropping, setDropping] = useState(false);
   const dropHint = useId();
+
+  /** Reply, reply-all and forward open here. The cursor lands in the message, above any quoted text. */
+  useLayoutEffect(() => {
+    const field = body.current;
+    if (!field) return;
+    field.focus();
+    field.setSelectionRange(0, 0);
+  }, []);
 
   /** A picked or dropped file lives in this page: base64 in, no server round trip until a send. */
   async function read(picked: FileList | null): Promise<void> {
@@ -75,38 +85,38 @@ export function MailComposer({ mail, accountLabel, busy, status, sendIcon, fromT
     onSubmit={event => { event.preventDefault(); if (ready && !busy) onSend(); }}
   >
     <p id={dropHint} className="ui-sr">Files can be dropped onto this draft, or chosen with Attach.</p>
-    <div className="ui-mail-fields">
-      <label>To<input value={mail.to} onChange={event => onField({ to: event.target.value })} /></label>
-      <label>Cc<input value={mail.cc} onChange={event => onField({ cc: event.target.value })} /></label>
-      <label>Bcc<input value={mail.bcc} onChange={event => onField({ bcc: event.target.value })} /></label>
-      <label>Subject<input value={mail.subject} onChange={event => onField({ subject: event.target.value })} /></label>
+    {/* Same prompt box a chat reply uses. Mail adds the address rows above the message. */}
+    <div className="ui-promptbox">
+      <div className="ui-mail-fields">
+        <label><span>To</span><input value={mail.to} aria-label="To" autoComplete="off" onChange={event => onField({ to: event.target.value })} /></label>
+        <label><span>Cc</span><input value={mail.cc} aria-label="Cc" autoComplete="off" onChange={event => onField({ cc: event.target.value })} /></label>
+        <label><span>Bcc</span><input value={mail.bcc} aria-label="Bcc" autoComplete="off" onChange={event => onField({ bcc: event.target.value })} /></label>
+        <label><span>Subject</span><input value={mail.subject} aria-label="Subject" onChange={event => onField({ subject: event.target.value })} /></label>
+      </div>
+      {mail.attachments.length > 0 && <ul className="ui-attachment-list" aria-label="Attachments">{mail.attachments.map((file, index) => (
+        <li key={`${file.name}:${index}`} className="ui-attachment-chip">
+          <span className="ui-attachment-name">{file.name}</span>
+          <span className="ui-attachment-size">{formatBytes(file.size)}</span>
+          <button type="button" className="ui-attachment-drop" onClick={() => onDetach(index)} aria-label={`Remove ${file.name}`} title="Remove">×</button>
+        </li>
+      ))}</ul>}
+      {fromThread && fromThread.names.length > 0 && <div className="ui-attachment-offer">
+        <span>In this conversation:</span>
+        {fromThread.names.map(name => (
+          <button key={name} type="button" className="ui-attachment-take" disabled={fromThread.taking !== ''} title="Take this attachment from the conversation through the media reader" onClick={() => fromThread.onTake(name)}>
+            {fromThread.taking === name ? 'Adding…' : `+ ${name}`}
+          </button>
+        ))}
+      </div>}
+      <textarea ref={body} className="ui-mail-body" rows={3} value={mail.text} aria-label="Message" placeholder="Write a message…" onChange={event => onField({ text: event.target.value })} />
+      <div className="ui-mail-actions">
+        <button type="button" className="ui-icon-button" disabled={busy} onClick={() => files.current?.click()} aria-label="Attach" title="Attach"><Icon name="Paperclip" aria-hidden="true" /></button>
+        <input ref={files} type="file" multiple className="ui-file-input" onChange={event => void read(event.target.files)} aria-label="Choose files to attach" />
+        <span className="ui-mail-actions-spacer" />
+        <button type="button" className="ui-icon-button" disabled={busy} onClick={onDiscard} aria-label="Discard" title="Discard"><Icon name="Trash2" aria-hidden="true" /></button>
+        <button type="submit" className="ui-prompt-send" disabled={busy || !ready} title={ready ? `Send from ${accountLabel}` : 'Add a recipient and a message or file first'} aria-label="Send">{sendIcon}</button>
+      </div>
     </div>
-    <textarea className="ui-mail-body" rows={6} value={mail.text} aria-label="Message" placeholder="Write a message…" onChange={event => onField({ text: event.target.value })} />
-    {mail.attachments.length > 0 && <ul className="ui-attachment-list" aria-label="Attachments">{mail.attachments.map((file, index) => (
-      <li key={`${file.name}:${index}`} className="ui-attachment-chip">
-        <span className="ui-attachment-name">{file.name}</span>
-        <span className="ui-attachment-size">{formatBytes(file.size)}</span>
-        <button type="button" className="ui-attachment-drop" onClick={() => onDetach(index)} aria-label={`Remove ${file.name}`} title="Remove">×</button>
-      </li>
-    ))}</ul>}
-    {fromThread && fromThread.names.length > 0 && <div className="ui-attachment-offer">
-      <span>In this conversation:</span>
-      {fromThread.names.map(name => (
-        <button key={name} type="button" className="ui-attachment-take" disabled={fromThread.taking !== ''} title="Take this attachment from the conversation through the media reader" onClick={() => fromThread.onTake(name)}>
-          {fromThread.taking === name ? 'Adding…' : `+ ${name}`}
-        </button>
-      ))}
-    </div>}
-    <div className="ui-mail-actions">
-      <button type="button" className="ui-text-button" disabled={busy} onClick={() => files.current?.click()}>Attach</button>
-      <input ref={files} type="file" multiple className="ui-file-input" onChange={event => void read(event.target.files)} aria-label="Choose files to attach" />
-      <span className="ui-mail-actions-spacer" />
-      <button type="button" className="ui-text-button" disabled={busy} onClick={onDiscard}>Discard</button>
-      <button type="submit" className="ui-prompt-send" disabled={busy || !ready} title={ready ? `Send from ${accountLabel}` : 'Add a recipient and a message or file first'} aria-label="Send">{sendIcon}</button>
-    </div>
-    {/* A send result keeps the notice; the hint below it only says what this box is for. */}
-    {status
-      ? <p className="ui-notice" role="status">{status}</p>
-      : <p className="ui-composer-hint">Drop files here, or use Attach. They stay in this panel until the draft is sent.</p>}
+    {status ? <p className="ui-notice" role="status">{status}</p> : null}
   </form>;
 }

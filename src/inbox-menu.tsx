@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
 
 import type { Account, SourceMap } from './adapters/types.ts';
+import { attentionWords, type AttentionVerdict } from './attention-label.ts';
 import type { InboxFilter } from './inbox-session.ts';
 import { sourceLabel } from './source-label.ts';
 
@@ -26,8 +27,13 @@ export type MenuAction = {
 export type MenuGroup = { heading: string; actions: MenuAction[] };
 
 /** What the list is narrowed to, in the words both the trigger and the entries use. */
+const ATTENTION: readonly AttentionVerdict[] = ['yes', 'no', 'unsettled'];
+
 export function filterLabel(sources: SourceMap | null, filter: InboxFilter): string {
-  return filter === 'all' ? 'all conversations' : filter === 'unread' ? 'unread' : sourceLabel(sources, filter);
+  if (filter === 'all') return 'all conversations';
+  if (filter === 'unread') return 'unread';
+  if (filter === 'yes' || filter === 'no' || filter === 'unsettled') return attentionWords(filter);
+  return sourceLabel(sources, filter);
 }
 
 /** The filter entries, in one fixed order: everything, the unread, then each source as it declares itself. */
@@ -43,6 +49,12 @@ export function filterActions({ filter, onFilter, sources, sourceIcon }: {
   return [
     { label: 'All', icon: <Icon name="LayoutList" aria-hidden="true" />, pressed: filter === 'all', run: () => onFilter('all') },
     { label: 'Unread', icon: <Icon name="Mail" aria-hidden="true" />, pressed: filter === 'unread', run: () => onFilter('unread') },
+    ...ATTENTION.map(verdict => ({
+      label: attentionWords(verdict),
+      icon: <span className="ui-filter-dot" data-attention={verdict} />,
+      pressed: filter === verdict,
+      run: () => onFilter(verdict),
+    })),
     ...FILTER_ORDER.map(account => ({
       label: sourceLabel(sources, account),
       icon: sourceIcon(account),

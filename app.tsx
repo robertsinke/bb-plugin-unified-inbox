@@ -15,12 +15,12 @@ import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
 import { isInvitationId } from './src/linkedin-inbox';
 import { migrateDraftAccountIds } from './src/inbox-drafts';
+import { attentionTitle, attentionWords } from './src/attention-label';
 import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps, type MailDraft } from './src/inbox-session';
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterActions, menuTrigger } from './src/inbox-menu.tsx';
 import { WhatsAppPairingCard } from './src/whatsapp-pairing.tsx';
 import { sourceLabel } from './src/source-label.ts';
-import { loadFootnote } from './src/inbox-footnote.ts';
 import type { SourceMap } from './src/adapters/types';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
@@ -91,7 +91,7 @@ function ContactAvatar({name,account,participants=[],avatarUrl}:{name:string;acc
     <AppIcon account={account}/>
   </span>;
 }
-function date(value:number) { if (!value) return ''; const d=new Date(value); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' · '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
+function date(value:number) { if (!value) return ''; const d=new Date(value); const now=new Date(); const sameDay=d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()&&d.getDate()===now.getDate(); return sameDay?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
 function safeMailDocument(html: string) {
   const stripped = sanitizeMailMarkup(html);
   if (typeof DOMParser === 'undefined') return mailDocument(stripped);
@@ -415,7 +415,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const {items,errors,capabilities,sources,selected,messages,status,text,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen,pairing}=state;
   /* Which account picker is open is the one thing only the panel needs to know. */
   const [compose,setCompose]=useState(false);
+  const [mailFocus,setMailFocus]=useState(0);
   const threadScroll=useRef<HTMLDivElement>(null); const pinnedBottom=useRef(true); const activeThread=useRef('');
+  const listScroll=useRef<HTMLDivElement>(null); const olderKey=useRef('');
   // The one heartbeat: `tick` runs every due list refresh, thread watch, search
   // debounce and draft write. A hidden panel ticks nothing, so a draft still inside
   // its debounce is written when the panel hides or goes away instead.
@@ -478,8 +480,18 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
   /* A search shows what it matched: a hit is a row, so it is drawn even when this list never loaded
      it. The filter is the owner's, so it still narrows both. */
-  const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:i.account===filter);
+  const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:filter==='yes'||filter==='no'||filter==='unsettled'?i.needsAttention===filter:i.account===filter);
   const shown=(hits??items).filter(matches);
+  function maybeOlder() {
+    const el=listScroll.current;
+    if(!el||hits!==null||!hasOlder||loadingOlder) return;
+    if(el.scrollHeight-el.scrollTop-el.clientHeight>320) return;
+    const key=`${filter}:${items.length}`;
+    if(olderKey.current===key) return;
+    olderKey.current=key;
+    void session.more();
+  }
+  useEffect(()=>{ maybeOlder(); },[hasOlder,loadingOlder,items.length,hits,filter,shown.length]);
   /* The header is one control now: the filter is a group inside its menu, so the trigger is what
      says the list is narrowed, and it says it in the name as well as in the dot. */
   const trigger=menuTrigger(sources,filter,errors.length?`Some messages couldn't load: ${errors.map(error=>errorLine(error,sources)).join(' ')}`:'');
@@ -498,11 +510,11 @@ function Inbox({ threadId }: { threadId: string | null }) {
   >
     
 
-    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>session.back()} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3>{selected.title}{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-meta">{selected.sender}</span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} actions={[
+    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>session.back()} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3><span className="ui-conversation-name">{selected.title}</span>{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}{selected.needsAttention&&<AttentionChip verdict={selected.needsAttention} dismissed={selected.attentionDismissed} onClear={()=>void session.clearAttention(selected)} onRestore={()=>void session.restoreAttention(selected)}/>}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-line"><span className="ui-conversation-meta">{selected.sender}</span></span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} actions={[
           ...(isMail(selected.account)?[
-            { label: 'Reply', run: () => session.startMail('reply', selected.account as 'gmail-personal'|'gmail-business'), title: 'Reply to this conversation', disabled: opening&&!messages.length },
-            { label: 'Reply all', run: () => session.startMail('replyAll', selected.account as 'gmail-personal'|'gmail-business'), title: 'Reply to everyone on this thread', disabled: opening&&!messages.length },
-            { label: 'Forward', run: () => session.startMail('forward', selected.account as 'gmail-personal'|'gmail-business'), title: 'Forward this conversation', disabled: opening&&!messages.length },
+            { label: 'Reply', run: () => { session.startMail('reply', selected.account as 'gmail-personal'|'gmail-business'); setMailFocus(n => n + 1); }, title: 'Reply to this conversation', disabled: opening&&!messages.length },
+            { label: 'Reply all', run: () => { session.startMail('replyAll', selected.account as 'gmail-personal'|'gmail-business'); setMailFocus(n => n + 1); }, title: 'Reply to everyone on this thread', disabled: opening&&!messages.length },
+            { label: 'Forward', run: () => { session.startMail('forward', selected.account as 'gmail-personal'|'gmail-business'); setMailFocus(n => n + 1); }, title: 'Forward this conversation', disabled: opening&&!messages.length },
           ]:[]),
           { label: 'Add to chat', run: () => tag(selected) },
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
@@ -510,9 +522,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
         ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {composer==='mail'&&mail?<MailDraftComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}><div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list"><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
+    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
           { label: 'New', run: () => setCompose(!compose) },
           {
             label: auditOpen ? 'Back to inbox' : 'Send log',
@@ -520,10 +532,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
             title: 'What the send gate decided; a refusal means nothing was sent',
           },
           { label: 'Refresh', run: () => void session.refresh(allSources), title: refreshTitle },
-        ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong><span className="ui-row-meta"><time className="ui-row-time">{date(i.date)}</time>{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><p><span className="ui-row-snippet">{i.preview||'No preview available'}</span></p></div></div><div className="ui-row-side"><div className="ui-row-actions"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
+        ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{i.preview||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
       { label: 'Add to chat', run: () => tag(i) },
       ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
-    ]}/></div></div></div>)}</div><p className="ui-footnote">{hasOlder&&hits===null?<button type="button" className="ui-more" aria-busy={loadingOlder} disabled={loadingOlder} onClick={()=>void session.more()}>{loadingOlder?'Loading older…':'Show older'}</button>:null}{loadFootnote(sources)}</p></>}
+    ]}/></span></div></div></div>)}{loadingOlder&&hits===null&&<p className="ui-older" role="status">Loading older…</p>}</div></>}
   </div>;
 }
 /**
@@ -538,6 +550,27 @@ function Inbox({ threadId }: { threadId: string | null }) {
 
 function isConversationRow(item: Item): boolean {
   return !(item.account === 'linkedin' && isInvitationId(item.id));
+}
+
+function AttentionChip({ verdict, dismissed, onClear, onRestore }: { verdict: 'yes' | 'no' | 'unsettled'; dismissed?: boolean; onClear: () => void; onRestore: () => void }) {
+  const [armed, setArmed] = useState(false);
+  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (wait.current) clearTimeout(wait.current); }, []);
+  const word = attentionWords(verdict);
+  function press(run: () => void) {
+    if (wait.current) { clearTimeout(wait.current); wait.current = null; setArmed(false); return; }
+    setArmed(true);
+    wait.current = setTimeout(() => { wait.current = null; setArmed(false); run(); }, 700);
+  }
+  if (verdict === 'no' && dismissed) {
+    return <button type="button" className="ui-chip ui-chip-clear" data-attention="no" title={armed ? 'Click again to cancel' : 'Click to mark as needed'} aria-label={armed ? 'Cancel' : 'Mark as needed'} onClick={event => { event.stopPropagation(); event.preventDefault(); press(onRestore); }}>{word}</button>;
+  }
+  if (verdict !== 'yes') return <span className="ui-chip" data-attention={verdict} title={attentionTitle(verdict)}>{word}</span>;
+  return <button type="button" className={`ui-chip ui-chip-clear${armed ? ' is-marked' : ''}`} data-attention="yes" title={armed ? 'Click again to cancel' : 'Click to mark as none'} aria-label={armed ? 'Cancel' : 'Mark as none'} onClick={event => {
+    event.stopPropagation();
+    event.preventDefault();
+    press(onClear);
+  }}><span className="ui-chip-word">{word}</span><span className="ui-chip-check" aria-hidden="true"><Icon name="Check" /></span></button>;
 }
 
 function InvitationChip({item,busy,onAnswer}:{item:Item; busy:boolean; onAnswer:(item:Item,action:'confirm'|'reject')=>void}) {

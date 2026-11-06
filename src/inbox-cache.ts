@@ -49,7 +49,7 @@ function parseAttachments(value: string | null): string[] | undefined {
   } catch { return undefined; }
 }
 
-export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; senderAddress?:string; avatarUrl?:string; recipients?:string; attachments?:string[] };
+export type CachedItem = { account: Account; id:string; title:string; preview:string; date:number; unread:boolean; sender?:string; senderAddress?:string; avatarUrl?:string; recipients?:string; attachments?:string[]; sentSnippet?:string };
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
 export function createInboxCache(db: Database.Database, options: { alsoClear?: Array<() => void> } = {}) {
   // What a cache clear covers is wider than this module's own tables: the WhatsApp transport keeps
@@ -63,7 +63,8 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     CREATE TABLE IF NOT EXISTS inbox_thread (account TEXT NOT NULL, id TEXT NOT NULL, messages TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_freshness (account TEXT PRIMARY KEY, last_attempt INTEGER, last_success INTEGER, last_error TEXT, cache_fallback INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox_unread_mark (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
-  let listener: ((change: CacheChange) => void) | null = null;
+  const listeners = new Set<(change: CacheChange) => void>();
+  const emit = (change: CacheChange) => { for (const listener of listeners) listener(change); };
   const columns = db.prepare('PRAGMA table_info(inbox_cache)').all() as { name: string }[];
   if (!columns.some(column => column.name === 'sender')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sender TEXT NOT NULL DEFAULT ""');
   if (!columns.some(column => column.name === 'recipients')) db.exec('ALTER TABLE inbox_cache ADD COLUMN recipients TEXT');
@@ -72,21 +73,28 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   // A face is keyed by the sender's address, and a cached row that kept only the display name could
   // never be given the picture that arrived after it was cached (`src/gmail-faces.ts`).
   if (!columns.some(column => column.name === 'sender_address')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sender_address TEXT');
+  if (!columns.some(column => column.name === 'sent_snippet')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sent_snippet TEXT');
   const threadColumns = db.prepare('PRAGMA table_info(inbox_thread)').all() as { name: string }[];
   if (!threadColumns.some(column => column.name === 'updated_at')) db.exec('ALTER TABLE inbox_thread ADD COLUMN updated_at INTEGER');
   migrateGmailAccountIds(db);
-  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, sender_address, avatar_url, recipients, attachments FROM inbox_cache ORDER BY date DESC, account, id');
+  const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, sender_address, avatar_url, recipients, attachments, sent_snippet FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
-  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,sender_address,avatar_url,recipients,attachments) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@senderAddress,@avatarUrl,@recipients,@attachments)');
+  const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,sender_address,avatar_url,recipients,attachments,sent_snippet) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@senderAddress,@avatarUrl,@recipients,@attachments,@sentSnippet)');
+  const writeSent = db.prepare('UPDATE inbox_cache SET sent_snippet = ? WHERE account = ? AND id = ?');
   const save = db.transaction((account: CachedItem['account'], items: CachedItem[]) => {
     if (items.some(item => item.account !== account)) throw new Error('Cache account mismatch');
     clear.run(account);
-    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', senderAddress: item.senderAddress ?? null, avatarUrl: item.avatarUrl ?? null, recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null });
+    for (const item of items) insert.run({ ...item, unread: item.unread ? 1 : 0, sender: item.sender ?? '', senderAddress: item.senderAddress ?? null, avatarUrl: item.avatarUrl ?? null, recipients: item.recipients ?? null, attachments: item.attachments ? JSON.stringify(item.attachments) : null, sentSnippet: item.sentSnippet ?? null });
   });
   return {
-    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'senderAddress'|'avatarUrl'|'recipients'|'attachments'> & {unread:number; sender:string; sender_address:string|null; avatar_url:string|null; recipients:string|null; attachments:string|null}>).map(({sender,sender_address,avatar_url,recipients,attachments,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(sender_address!==null?{senderAddress:sender_address}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{})};}); },
-    save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); listener?.({kind:'items', account}); },
-    onChange(fn: (change: CacheChange) => void) { listener = fn; },
+    list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'senderAddress'|'avatarUrl'|'recipients'|'attachments'|'sentSnippet'> & {unread:number; sender:string; sender_address:string|null; avatar_url:string|null; recipients:string|null; attachments:string|null; sent_snippet:string|null}>).map(({sender,sender_address,avatar_url,recipients,attachments,sent_snippet,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(sender_address!==null?{senderAddress:sender_address}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{}),...(sent_snippet?{sentSnippet:sent_snippet}:{})};}); },
+    save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); emit({kind:'items', account}); },
+    setSentSnippet(account: CachedItem['account'], id: string, text: string) {
+      const snippet = text.trim().slice(0, 2_000);
+      if (!snippet || writeSent.run(snippet, account, id).changes === 0) return;
+      emit({ kind: 'items', account });
+    },
+    onChange(fn: (change: CacheChange) => void) { listeners.add(fn); },
     freshness(account: CachedItem['account']): SourceFreshness {
       const row = db.prepare('SELECT last_attempt AS lastAttemptAt, last_success AS lastSuccessAt, last_error AS lastError, cache_fallback AS cacheFallback FROM inbox_freshness WHERE account = ?').get(account) as (Omit<SourceFreshness, 'cacheFallback'> & { cacheFallback: number }) | undefined;
       return row ? { ...row, cacheFallback: !!row.cacheFallback } : unknownFreshness();
@@ -98,7 +106,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       const row = db.prepare('SELECT updated_at FROM inbox_thread WHERE account = ? AND id = ?').get(account, id) as { updated_at: number | null } | undefined;
       return row?.updated_at ?? null;
     },
-    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); for (const clear of alsoClear) clear(); listener?.({kind:'clear'}); },
+    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); for (const clear of alsoClear) clear(); emit({kind:'clear'}); },
     keepUnread(account: CachedItem['account'], id: string) {
       db.prepare('INSERT INTO inbox_unread_mark (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
       db.prepare('UPDATE inbox_cache SET unread = 1 WHERE account = ? AND id = ?').run(account, id);
@@ -138,7 +146,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     },
     saveThread(account: CachedItem['account'], id: string, messages: unknown[], updatedAt: number | null = Date.now()) {
       db.prepare('INSERT INTO inbox_thread (account, id, messages, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(account, id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at').run(account, id, JSON.stringify(messages), updatedAt);
-      listener?.({kind:'thread', account, id});
+      emit({kind:'thread', account, id});
     },
   };
 }

@@ -245,6 +245,8 @@ export interface Conversation {
   id: string;
   title: string;
   preview: string;
+  /** A sent reply newer than the received message. The list still shows `preview`. The classifier reads this. */
+  sentSnippet?: string;
   date: number;
   unread: boolean;
   sender?: string;
@@ -258,6 +260,10 @@ export interface Conversation {
   recipients?: string;
   attachments?: string[];
   participants?: string[];
+  /** The decision model's yes/no for this conversation. Absent until a new message has been judged. */
+  needsAttention?: 'yes' | 'no' | 'unsettled';
+  /** The owner cleared Needed, and that clear can still be undone. */
+  attentionDismissed?: boolean;
 }
 
 /** Attachment media descriptor on a message (rpcContract `media` output input). */

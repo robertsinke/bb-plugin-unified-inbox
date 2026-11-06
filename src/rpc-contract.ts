@@ -10,7 +10,7 @@ import { capabilitiesSchema } from './adapters/capability.ts';
 import { sourceDeclarationSchema } from './adapters/source.ts';
 
 const account = z.enum(accounts);
-export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional() });
+export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no', 'unsettled']).optional(), attentionDismissed: z.boolean().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
@@ -70,6 +70,8 @@ export const rpcContract = defineRpcContract({
   search_status: { input: noArgs, output: z.object({ size: z.number().int().nonnegative(), updatedAt: z.number().int().nonnegative().nullable(), ready: z.boolean() }) },
   cached_open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
   clear_cache: { input: noArgs, output: z.object({ cleared: z.boolean() }) },
+  clear_attention: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ needsAttention: z.literal('no') }) },
+  restore_attention: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ needsAttention: z.literal('yes') }) },
   // One refresh primitive for every source: the adapter for the account decides
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
