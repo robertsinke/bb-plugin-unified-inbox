@@ -32,7 +32,7 @@ const LINKEDIN = { account: 'linkedin', id: '2-conversation-key', title: 'Grace 
 const GMAIL = { account: 'gmail-personal', id: 'thread-1', title: 'Budget', sender: 'Ada', preview: 'Hello', date: 1_700_000_000_000, unread: false };
 
 const THREAD = [
-  { sender: 'Ada', text: 'See you', date: 1, messageId: 'm1', reactions: [{ sender: 'Grace', label: '👍' }, { sender: '', label: '😂' }] },
+  { sender: 'Ada', text: 'See you', date: 1, messageId: 'm1', reactions: [{ sender: 'Grace', label: '👍' }, { sender: '', label: '😂' }, { sender: 'You', label: '❤️' }] },
   { sender: 'Ada', text: 'later', date: 2, messageId: 'm2', quote: { sender: 'Grace', text: 'earlier' } },
   { sender: 'You', text: 'mine', date: 3, fromMe: true, messageId: 'm3', reactions: [{ sender: 'You', label: '❤️' }, { sender: 'Grace', label: '👍' }] },
   { sender: 'Ada', text: 'marker', date: 4, replyContext: true },
@@ -172,20 +172,16 @@ test('a bubble shows reactions and quote text, and a click sends one reaction or
     assert.deepEqual(sent(calls, 'react').at(-1), {
       account: 'whatsapp', id: WHATSAPP.id, action: 'react', messageId: 'm1', emoji: '👍', allow: 'send',
     });
+    press(seen, '❤️');
+    await wait(40);
+    flush();
+    assert.deepEqual(sent(calls, 'react').at(-1), {
+      account: 'whatsapp', id: WHATSAPP.id, action: 'react', messageId: 'm1', emoji: '❤️', allow: 'send', remove: true,
+    });
 
     const mine = bubble(host, 'mine');
-    press(mine, '👍');
-    await wait(40);
-    flush();
-    assert.deepEqual(sent(calls, 'react').at(-1), {
-      account: 'whatsapp', id: WHATSAPP.id, action: 'react', messageId: 'm3', emoji: '👍', allow: 'send',
-    }, 'a like from someone else is a new reaction');
-    press(mine, '❤️');
-    await wait(40);
-    flush();
-    assert.deepEqual(sent(calls, 'react').at(-1), {
-      account: 'whatsapp', id: WHATSAPP.id, action: 'react', messageId: 'm3', emoji: '❤️', allow: 'send', remove: true,
-    });
+    assert.equal(mine.querySelector('.ui-reaction-set'), null, 'a message you sent has no reaction buttons');
+    assert.equal([...mine.querySelectorAll('button')].some(button => button.textContent === 'Reply'), true);
 
     const reply = [...quoted.querySelectorAll('button')].find(button => button.textContent === 'Reply');
     assert.ok(reply);
