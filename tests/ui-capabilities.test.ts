@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canAnswerInvitation, canArchive, canSend, canMarkRead, followsList, hasThread, type CapabilityMap } from '../src/ui-capabilities.ts';
+import { canAnswerInvitation, canArchive, canQuoteReply, canReact, canReactRemove, canSend, canMarkRead, followsList, hasThread, type CapabilityMap } from '../src/ui-capabilities.ts';
 import { accounts } from '../src/adapters/types.ts';
 import type { Account, Capabilities } from '../src/adapters/types.ts';
 
-const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, followsList: true };
-const NOTHING: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, followsList: false };
+const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true };
+const NOTHING: Capabilities = { send: false, markRead: false, archive: false, invitations: false, media: false, attachments: false, threads: false, followsList: false, react: false, reactRemove: false, quoteReply: false };
 
 const everySource = (declaration: Capabilities): CapabilityMap =>
   Object.fromEntries(accounts.map(account => [account, { ...declaration }])) as CapabilityMap;
@@ -16,6 +16,9 @@ const RULES = [
   ['archive', canArchive],
   ['a thread', hasThread],
   ['following the list', followsList],
+  ['a reaction', canReact],
+  ['removing a reaction', canReactRemove],
+  ['a reply to one message', canQuoteReply],
 ] as const;
 
 test('every one of the five sources is offered what it declares', () => {

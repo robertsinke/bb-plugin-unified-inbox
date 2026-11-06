@@ -29,6 +29,9 @@ test('every source declares every capability, so a new one cannot be forgotten i
       for (const key of CAPABILITY_KEYS) {
         assert.equal(typeof declared[key], 'boolean', `${account} declares ${key}`);
       }
+      assert.equal(declared.react, false, `${account} does not react yet`);
+      assert.equal(declared.reactRemove, false, `${account} does not remove a reaction yet`);
+      assert.equal(declared.quoteReply, false, `${account} does not reply to one message yet`);
       const undeclared = Object.keys(declared).filter(key => !CAPABILITY_KEYS.includes(key as never) && key !== 'search');
       assert.deepEqual(undeclared, [], `${account} declares nothing outside the list`);
     }

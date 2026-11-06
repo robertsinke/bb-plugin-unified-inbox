@@ -12,7 +12,7 @@ import type {
 } from './types.ts';
 import type { MediaRequest } from './media.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false };
 
 const ACCOUNT = 'imessage';
 
