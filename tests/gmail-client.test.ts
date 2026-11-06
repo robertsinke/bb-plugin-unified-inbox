@@ -2,7 +2,7 @@
 // `fetch` — no network, no CLI — and the 401 rule is exercised where it matters: mid-flight.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createGmailClient, GmailApiError, type GmailFetch } from '../src/gmail-client.ts';
+import { createGmailClient, GMAIL_MINUTE_BUDGET, GmailApiError, type GmailFetch } from '../src/gmail-client.ts';
 import { toProviderError } from '../src/adapters/provider-error.ts';
 import type { GmailAccount } from '../src/adapters/types.ts';
 
@@ -256,6 +256,41 @@ test('a 429 keeps the provider message and reason unchanged for the caller', asy
   assert.equal(error.providerMessage, message);
   assert.ok(error.message.includes(message));
   assert.equal(toProviderError(ACCOUNT, 'gmail', error).message.includes(message), true);
+});
+
+test('the minute budget stops the next full thread read before it is sent, and a minute later the read is allowed', async () => {
+  let now = 1_000_000;
+  const { fetch, calls } = fakeGmail([{ body: { id: 't' } }]);
+  const tokens = fakeCredentials();
+  const client = createGmailClient({ account: ACCOUNT, credentials: tokens.credentials, fetch, now: () => now });
+  const fits = Math.floor(GMAIL_MINUTE_BUDGET / 120);
+  for (let n = 0; n < fits; n++) await client.threadGet({ id: 't', format: 'full' });
+  assert.equal(calls.length, fits);
+  const error = await client.threadGet({ id: 't', format: 'full' }).then(() => null, (cause: unknown) => cause as GmailApiError);
+  assert.ok(error instanceof GmailApiError);
+  assert.equal(error.reason, 'rateLimitExceeded');
+  assert.equal(calls.length, fits, 'the call that would pass the budget is not sent');
+  now += 60_000;
+  await client.threadGet({ id: 't', format: 'full' });
+  assert.equal(calls.length, fits + 1);
+});
+
+test('a Gmail rateLimitExceeded blocks the next call for 60 seconds', async () => {
+  let now = 0;
+  const { fetch, calls } = fakeGmail([
+    { status: 403, body: providerError(403, 'rateLimitExceeded', 'Quota exceeded') },
+    { body: { historyId: '1' } },
+  ]);
+  const tokens = fakeCredentials();
+  const client = createGmailClient({ account: ACCOUNT, credentials: tokens.credentials, fetch, now: () => now });
+  const first = await client.profile().then(() => null, (cause: unknown) => cause as GmailApiError);
+  assert.ok(first instanceof GmailApiError);
+  assert.equal(first.reason, 'rateLimitExceeded');
+  await assert.rejects(client.profile(), /rateLimitExceeded/);
+  assert.equal(calls.length, 1, 'the pause does not send');
+  now += 60_000;
+  assert.equal((await client.profile()).historyId, '1');
+  assert.equal(calls.length, 2);
 });
 
 test('a 5xx body that is not JSON still reports its text and status', async () => {

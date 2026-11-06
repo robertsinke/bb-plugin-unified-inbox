@@ -52,11 +52,21 @@ export class GmailApiError extends Error {
   }
 }
 
+/**
+ * Units one account may spend in a rolling minute. A full refresh of ten threads is about 400
+ * once known threads are read as metadata, and this 403 is reported around 2,400 counted units
+ * while the console says 6,000. 1,500 leaves room for that refresh and several opens.
+ */
+export const GMAIL_MINUTE_BUDGET = 1_500;
+const QUOTA_PAUSE_MS = 60_000;
+
 /** Where the token comes from: U1's store owns it, and only the token is this module's business. */
 export interface GmailClientOptions {
   account: GmailAccount;
   credentials: Pick<GmailCredentials, 'accessToken'>;
   fetch?: GmailFetch;
+  /** Tests move the minute. The budget and the pause are measured against this clock. */
+  now?: () => number;
 }
 
 interface Request {
@@ -84,9 +94,45 @@ function describeFailure(body: unknown, text: string): { reason?: string; messag
   return { reason, message };
 }
 
+/** Published Gmail query cost for one request. A full thread read is 120; metadata is 40. */
+function unitsFor(request: Request): number {
+  const path = request.path;
+  const format = request.query?.get('format');
+  if (path === '/users/me/profile') return 1;
+  if (path === '/users/me/threads') return 10;
+  if (path.endsWith('/modify')) return 10;
+  if (path.endsWith('/send')) return 100;
+  if (path.includes('/attachments/')) return 20;
+  if (path.startsWith('/users/me/threads/')) return format === 'full' || format == null ? 120 : 40;
+  if (path.startsWith('/users/me/messages/')) return format === 'metadata' || format === 'minimal' ? 20 : 60;
+  return 5;
+}
+
 export function createGmailClient(options: GmailClientOptions): GmailClient {
   const { account, credentials } = options;
   const http = options.fetch ?? (fetch as unknown as GmailFetch);
+  const clock = options.now ?? Date.now;
+  const spent: { at: number; units: number }[] = [];
+  let pausedUntil = 0;
+
+  function quotaStop(label: string): GmailApiError {
+    return new GmailApiError(403, 'rateLimitExceeded', "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'", label);
+  }
+
+  /** Refuse the call, without sending it, when this minute is already full or Gmail has said so. */
+  function reserve(units: number, label: string): void {
+    const now = clock();
+    if (now < pausedUntil) throw quotaStop(label);
+    const recent = spent.filter(row => now - row.at < QUOTA_PAUSE_MS);
+    spent.length = 0;
+    spent.push(...recent);
+    const used = spent.reduce((sum, row) => sum + row.units, 0);
+    if (used + units > GMAIL_MINUTE_BUDGET) {
+      pausedUntil = now + QUOTA_PAUSE_MS;
+      throw quotaStop(label);
+    }
+    spent.push({ at: now, units });
+  }
 
   function target(request: Request): string {
     const params = request.query?.toString();
@@ -104,6 +150,7 @@ export function createGmailClient(options: GmailClientOptions): GmailClient {
   async function call<T>(request: Request): Promise<T> {
     const url = target(request);
     const label = `${request.method} ${request.path}`;
+    reserve(unitsFor(request), label);
     let response = await http(url, init(request, await credentials.accessToken(account)));
     if (response.status === 401) {
       const token = await credentials.accessToken(account, { force: true });
@@ -118,6 +165,7 @@ export function createGmailClient(options: GmailClientOptions): GmailClient {
     } catch { /* an unparseable body is still a failure worth reporting as text */ }
     if (!response.ok) {
       const { reason, message } = describeFailure(parsed ? body : undefined, text);
+      if (reason === 'rateLimitExceeded') pausedUntil = clock() + QUOTA_PAUSE_MS;
       throw new GmailApiError(response.status, reason, message, label);
     }
     if (!parsed) throw new Error(`Gmail API ${label} returned a body that is not JSON`);

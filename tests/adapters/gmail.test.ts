@@ -54,6 +54,44 @@ test('a remote attachment is fetched once and its bytes are used as they arrive'
   } finally { h.close(); }
 });
 
+test('opening a thread fetches every HTML body and leaves file attachments unread', async () => {
+  // The cached personal mailbox's largest thread is 4 messages. Each HTML part is an attachment id,
+  // which is how Gmail stores a normal HTML body. A file on the same message must wait for a click.
+  const h = harness({
+    gmailCall: (_account, call) => {
+      if (call.method === 'threadGet') {
+        return {
+          id: 't1',
+          messages: [1, 2, 3, 4].map(n => ({
+            id: `m${n}`,
+            internalDate: String(n),
+            snippet: 'preview',
+            payload: {
+              mimeType: 'multipart/mixed',
+              headers: [{ name: 'From', value: 'Ada <ada@example.com>' }, { name: 'Subject', value: 'Dinner' }],
+              parts: [
+                { mimeType: 'text/html', body: { attachmentId: `html-${n}`, size: 20 } },
+                { filename: 'plan.pdf', mimeType: 'application/pdf', body: { attachmentId: `file-${n}`, size: 40 } },
+              ],
+            },
+          })),
+        };
+      }
+      if (call.method === 'attachmentGet') return Buffer.from('<p>Hi</p>');
+      throw new Error(`unexpected Gmail call: ${call.method}`);
+    },
+  });
+  try {
+    const opened = await h.registry['gmail-personal'].open('t1');
+    assert.equal(opened.messages.length, 4);
+    assert.ok(opened.messages.every(message => message.html === '<p>Hi</p>'));
+    const htmlFetches = h.calls.filter(call => call === 'gmail:gmail-personal:messages:attachments');
+    assert.deepEqual(h.calls.slice(0, 1), ['gmail:gmail-personal:threads:get'], 'the thread is one read');
+    assert.equal(htmlFetches.length, 4, 'each HTML body is a second read, before the thread is shown');
+    assert.equal(h.calls.some(call => call.endsWith('messages:get')), false, 'a file attachment is not read on open');
+  } finally { h.close(); }
+});
+
 test('an HTML body that only exists as an attachment is fetched through the same typed call', async () => {
   const h = harness({
     gmailCall: (_account, call) => {
@@ -80,6 +118,51 @@ test('an HTML body that only exists as an attachment is fetched through the same
     const opened = await h.registry['gmail-personal'].open('t1');
     assert.equal(opened.messages[0].html, '<p>Hello</p>');
     assert.deepEqual(h.calls, ['gmail:gmail-personal:threads:get', 'gmail:gmail-personal:messages:attachments']);
+  } finally { h.close(); }
+});
+
+test('a read the Gmail budget cannot send still clears the row, and the next sync tells Gmail', async () => {
+  let allowModify = false;
+  const h = harness({
+    gmailCall: (_account, call) => {
+      if (call.method === 'threadsModify') {
+        if (!allowModify) throw new GmailApiError(403, 'rateLimitExceeded', 'Quota exceeded', 'POST /users/me/threads/macro/modify');
+        return {};
+      }
+      if (call.method === 'profile') return { historyId: '9' };
+      if (call.method === 'threadsList') return { threads: [{ id: 'macro', historyId: '9', snippet: '6 new' }] };
+      if (call.method === 'threadGet') {
+        return {
+          id: 'macro',
+          messages: [{
+            id: 'm', internalDate: '2', snippet: '6 new',
+            labelIds: allowModify ? ['INBOX'] : ['INBOX', 'UNREAD'],
+            payload: {
+              mimeType: 'text/plain',
+              headers: [
+                { name: 'Subject', value: 'You have 6 new notifications' },
+                { name: 'From', value: 'Macro <no-reply@notification.macro.com>' },
+                { name: 'To', value: 'work@example.com' },
+              ],
+              body: { data: Buffer.from('six').toString('base64url') },
+            },
+          }],
+        };
+      }
+      throw new Error(`unexpected Gmail call: ${call.method}`);
+    },
+  });
+  try {
+    h.cache.save('gmail-business', [{ account: 'gmail-business', id: 'macro', title: 'You have 6 new notifications', preview: '6 new', date: 2, unread: true, sender: 'Macro', recipients: '', attachments: [], senderAddress: 'no-reply@notification.macro.com' }]);
+    assert.deepEqual(await h.registry['gmail-business'].action('read', 'macro'), { status: 'Updated.' });
+    assert.equal(h.cache.list().find(item => item.id === 'macro')?.unread, false, 'the row is read on this machine');
+    assert.equal(h.cache.heldRead('gmail-business', 'macro'), true, 'Gmail has not accepted it yet');
+    const blocked = await h.registry['gmail-business'].sync();
+    assert.equal(blocked.items[0].unread, false, 'a sync during the pause does not paint it unread again');
+    allowModify = true;
+    const sent = await h.registry['gmail-business'].sync();
+    assert.equal(h.cache.heldRead('gmail-business', 'macro'), false, 'the label change was sent');
+    assert.equal(sent.items[0].unread, false);
   } finally { h.close(); }
 });
 

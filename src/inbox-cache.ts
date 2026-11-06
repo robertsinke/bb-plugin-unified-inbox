@@ -62,7 +62,8 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     CREATE TABLE IF NOT EXISTS inbox_revision (account TEXT NOT NULL, id TEXT NOT NULL, history_id TEXT NOT NULL, preview TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_thread (account TEXT NOT NULL, id TEXT NOT NULL, messages TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_freshness (account TEXT PRIMARY KEY, last_attempt INTEGER, last_success INTEGER, last_error TEXT, cache_fallback INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS inbox_unread_mark (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
+    CREATE TABLE IF NOT EXISTS inbox_unread_mark (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
+    CREATE TABLE IF NOT EXISTS inbox_read_hold (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
   let listener: ((change: CacheChange) => void) | null = null;
   const columns = db.prepare('PRAGMA table_info(inbox_cache)').all() as { name: string }[];
   if (!columns.some(column => column.name === 'sender')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sender TEXT NOT NULL DEFAULT ""');
@@ -98,7 +99,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       const row = db.prepare('SELECT updated_at FROM inbox_thread WHERE account = ? AND id = ?').get(account, id) as { updated_at: number | null } | undefined;
       return row?.updated_at ?? null;
     },
-    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); for (const clear of alsoClear) clear(); listener?.({kind:'clear'}); },
+    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); db.prepare('DELETE FROM inbox_read_hold').run(); for (const clear of alsoClear) clear(); listener?.({kind:'clear'}); },
     keepUnread(account: CachedItem['account'], id: string) {
       db.prepare('INSERT INTO inbox_unread_mark (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
       db.prepare('UPDATE inbox_cache SET unread = 1 WHERE account = ? AND id = ?').run(account, id);
@@ -109,6 +110,23 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     },
     keptUnread(account: CachedItem['account'], id: string) {
       return !!db.prepare('SELECT 1 FROM inbox_unread_mark WHERE account = ? AND id = ?').get(account, id);
+    },
+    /**
+     * The owner already read this row. Gmail may still carry UNREAD until the minute budget
+     * allows the label change. A later sync must not paint the row unread again.
+     */
+    holdRead(account: CachedItem['account'], id: string) {
+      db.prepare('INSERT INTO inbox_read_hold (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
+      db.prepare('UPDATE inbox_cache SET unread = 0 WHERE account = ? AND id = ?').run(account, id);
+    },
+    releaseRead(account: CachedItem['account'], id: string) {
+      db.prepare('DELETE FROM inbox_read_hold WHERE account = ? AND id = ?').run(account, id);
+    },
+    heldRead(account: CachedItem['account'], id: string) {
+      return !!db.prepare('SELECT 1 FROM inbox_read_hold WHERE account = ? AND id = ?').get(account, id);
+    },
+    heldReads(account: CachedItem['account']) {
+      return (db.prepare('SELECT id FROM inbox_read_hold WHERE account = ?').all(account) as { id: string }[]).map(row => row.id);
     },
     cursor(account: CachedItem['account']) {
       const row = db.prepare('SELECT history_id FROM inbox_sync WHERE account = ?').get(account) as { history_id: string } | undefined;
