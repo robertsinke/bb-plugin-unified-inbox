@@ -14,7 +14,9 @@
 // recorded cursor. A read that finds no socket is not a failure — that is the whole reason the store
 // exists.
 import { randomBytes } from 'node:crypto';
+import type { WAMessage, WAMessageKey } from 'baileys';
 import type {
+  Reaction,
   WhatsAppChatRow,
   WhatsAppMediaAnswer,
   WhatsAppMessageRow,
@@ -83,6 +85,58 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
   function senderName(sender: string | null): string {
     if (!sender || sender === 'me') return '';
     return contactName(sender) || whatsappPhone(sender);
+  }
+
+  /** Stored reactions for one message. A falsey emoji is not a reaction. An empty sender still shows. */
+  function reactionsOf(chatJid: string, messageId: string): Reaction[] | undefined {
+    const reactions = store.listMessageReactions(chatJid, messageId).flatMap((row) => {
+      const label = row.emoji?.trim();
+      if (!label) return [];
+      return [{ sender: senderName(row.actor), label }];
+    });
+    return reactions.length ? reactions : undefined;
+  }
+
+  /** Quote columns already on the row. A sender jid becomes the stored contact name, with no socket. */
+  function quoteOf(message: Message): WhatsAppMessageRow['quote'] | undefined {
+    const targetId = message.quote_target_id?.trim() || undefined;
+    const text = message.quote_text?.trim() || undefined;
+    const sender = message.quote_sender ? senderName(message.quote_sender) : '';
+    if (!targetId && !text && !sender) return undefined;
+    return {
+      ...(targetId ? { targetId } : {}),
+      ...(sender ? { sender } : {}),
+      ...(text ? { text } : {}),
+    };
+  }
+
+  /**
+   * The stored WAMessage, parsed the same way the store answers `getMessage`. Missing row, missing
+   * envelope, or a body that will not parse is undefined — a quote reply then has nothing to attach.
+   */
+  async function storedEnvelope(messageId: string): Promise<WAMessage | undefined> {
+    const stored = store.getMessage(messageId);
+    if (!stored?.raw) return undefined;
+    try {
+      const { BufferJSON } = await import('baileys');
+      const parsed = JSON.parse(stored.raw, BufferJSON.reviver) as WAMessage;
+      if (!parsed || typeof parsed !== 'object' || !parsed.key?.id) return undefined;
+      return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The key a reaction names. A group sender is the participant; a 1:1 key does not repeat the chat jid. */
+  function reactionKey(chatJid: string, messageId: string): WAMessageKey {
+    const stored = store.getMessage(messageId);
+    const participant = stored?.sender && stored.sender !== chatJid ? stored.sender : undefined;
+    return {
+      remoteJid: chatJid,
+      id: messageId,
+      ...(stored ? { fromMe: stored.from_me } : {}),
+      ...(participant ? { participant } : {}),
+    };
   }
 
   function previewOf(message: Message): NonNullable<WhatsAppChatRow['preview']> {
@@ -162,6 +216,8 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     async openChat({ id, limit }) {
       const rows = await Promise.all(store.listRecentMessages(id, limit).map(async (message): Promise<WhatsAppMessageRow> => {
         const media = await factsOf(message);
+        const reactions = reactionsOf(id, message.id);
+        const quote = quoteOf(message);
         return {
           id: message.id,
           chatJid: message.chat_jid,
@@ -172,6 +228,8 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           sender: message.from_me ? '' : senderName(message.sender),
           edited: message.edited_at != null,
           ...(media ? { media } : {}),
+          ...(reactions ? { reactions } : {}),
+          ...(quote ? { quote } : {}),
         };
       }));
       return rows;
@@ -260,13 +318,22 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       }
     },
 
-    async sendText({ id, text }) {
+    storedEnvelope,
+
+    async sendText({ id, text, quoted }) {
       const draft = text.trim();
       if (!draft) throw new Error('Expected text to send');
       // A send needs a live socket, so a linked account is reopened rather than reported dead. A
       // refusal still reaches the caller as the send failure it is, worded by `failure.ts`.
       if (!held()?.getSendSocket()) await ensureConnection();
-      await send.sendText(id, draft, newMessageId());
+      await send.sendText(id, draft, newMessageId(), quoted as WAMessage | undefined);
+    },
+
+    async sendReaction({ id, messageId, emoji }) {
+      // One attempt. The echo through ingest is what writes the row, so a send that fails cannot
+      // leave a reaction the phone does not have.
+      if (!held()?.getSendSocket()) await ensureConnection();
+      await send.sendReaction(id, reactionKey(id, messageId), emoji);
     },
 
     async status(): Promise<WhatsAppTransportStatus> {
