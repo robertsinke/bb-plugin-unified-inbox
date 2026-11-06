@@ -199,7 +199,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   try {
     const adapter = f.registry.whatsapp;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['whatsapp', '15551234567@s.whatsapp.net', 'Ada', true]]);
