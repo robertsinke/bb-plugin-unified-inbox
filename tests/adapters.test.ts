@@ -216,7 +216,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
   try {
     const adapter = f.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     const listed = await adapter.list();
     assert.deepEqual(listed.items.map(row => [row.account, row.id, row.title, row.unread]), [['imessage', '50', 'Ada', true]]);
