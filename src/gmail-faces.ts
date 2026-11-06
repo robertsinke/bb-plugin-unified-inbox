@@ -3,44 +3,21 @@
 // A face is the one fact about a sender the cache cannot already hold: it has to be asked for, and
 // asking is a network call to Google's People API. So the read is split in two, exactly as
 // `src/whatsapp/avatars.ts` splits WhatsApp's. `url(address)` answers what the store knows,
-// synchronously and without a request; an address it does not know — or knows from longer ago than
-// `FACE_TTL_MS` — is queued and asked for in the background, so a row draws initials on the draw it
-// first appears and its picture on the next one. No list call ever waits on Google.
+// synchronously and without a request. An address it has never been asked is queued once, so a new
+// sender draws initials on the first draw and the picture on the next. No list call waits on Google.
 //
-// Five rules live here and nowhere else:
-//   - the ask is an address book, not one lookup per sender. Both listings are read whole with a
-//     page token, and every queued address is answered from that one read: a page of ten rows is
-//     one or two calls, not ten. A page is drawn a row at a time (each row costs a thread read), so
-//     one read also answers for `BOOK_TTL_MS` afterwards — otherwise "batched" would only mean
-//     "batched per row". `MAX_PAGES` bounds a book that somehow never ends.
-//   - each listing is asked on its own account of time (`SOURCE_RETRY_MS` after it failed), because
-//     the two grants are separate: a consent that covers saved contacts and not other contacts must
-//     still draw the faces it can, and a refused scope must not be re-asked by every draw.
-//   - "no photo" is an answer, recorded as `failed` and re-asked only after `FACE_RETRY_MS`, like
-//     WhatsApp's hour. A person can set a picture later.
-//   - a refused or failed listing is not an answer at all: nothing is recorded for the addresses it
-//     was going to cover, so consenting later fills the book in at once instead of after a miss that
-//     was never measured. One log line names what is missing; the rows above it draw initials.
-//   - a stored URL is answered even past its TTL. It usually still loads, and the panel's own
-//     `onError` turns a dead one back into initials (`app.tsx`), so blanking a picture to refresh it
-//     is strictly worse than showing a stale one.
+// One rule: a sender is asked once, the first time a new email names them. A stored answer — a
+// picture or "no photo" — is final, so a later email from the same person costs no request. The ask
+// is still the address book, not one call per sender: several new senders in one draw share one
+// read, and that read also answers for `BOOK_TTL_MS`. A listing that fails is not asked again.
+// One log line names a missing scope. The panel's `onError` turns a dead picture back into initials.
 import type Database from 'better-sqlite3';
 import { redactProviderText } from './adapters/provider-error.ts';
 import type { GmailAccount, GooglePeopleClient, GooglePeoplePage } from './adapters/types.ts';
 
 /**
- * How long a picture URL is trusted before the book is read again. A person changes their photo
- * rarely — far more rarely than WhatsApp's links expire — so this is a week against WhatsApp's day.
- */
-export const FACE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** How long "this sender has no photo" is trusted before it is asked again. */
-export const FACE_RETRY_MS = 60 * 60 * 1000;
-/** How long a listing that failed is left alone, so one refused scope is one log line an hour. */
-export const SOURCE_RETRY_MS = 60 * 60 * 1000;
-/**
  * How long one address book read answers for. A page is drawn a row at a time, so without this the
- * first row's read would be repeated for every row after it and "batched" would mean "batched per
- * row". It sits far below `FACE_TTL_MS`, so it can never hold a picture past its trust.
+ * first new sender's read would be repeated for every new sender after it.
  */
 export const BOOK_TTL_MS = 10 * 60 * 1000;
 /** Ten pages of a thousand: a bound on the walk, not a guess about the address book. */
@@ -99,8 +76,8 @@ type Listing = {
   retryAt: number;
 };
 
-/** What one round of the address book answered: the photos, and whether every listing did. */
-type AddressBook = { photos: Map<string, string>; certain: boolean };
+/** What one round of the address book answered. */
+type AddressBook = { photos: Map<string, string> };
 
 export type GmailFacesOptions = {
   account: GmailAccount;
@@ -115,8 +92,7 @@ export type GmailFacesOptions = {
 export interface GmailFaces {
   /**
    * The picture this address already has, answered now and without a network call. An address the
-   * store knows nothing about — or knows from longer ago than the TTL — is asked for in the
-   * background, so this is a store read and never a wait.
+   * store has never been asked is asked once in the background. A stored answer is not asked again.
    */
   url(address: string): string | undefined;
 }
@@ -135,11 +111,9 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
   /** The last address book read, kept so the rest of the page it was read for costs no request. */
   let memo: (AddressBook & { at: number }) | undefined;
 
-  /** Whether what the store holds is too old to be trusted. A URL past its TTL is still drawn. */
-  function stale(face: GmailFace | undefined, at: number): boolean {
-    if (!face || face.fetched_at === null) return true;
-    const age = at - face.fetched_at;
-    return face.state === 'ready' ? age > FACE_TTL_MS : age > FACE_RETRY_MS;
+/** A stored answer is final. Only an address this account has never asked is worth a request. */
+  function unseen(face: GmailFace | undefined): boolean {
+    return !face || face.fetched_at === null;
   }
 
   /**
@@ -163,11 +137,11 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
         queued.clear();
         if (!addresses.length) break;
         const book = await currentBook();
-        // Nothing answered, so nothing is known: the addresses are not remembered as misses (a
-        // later consent must fill them in at once) and the next draw asks again — after the
-        // per-listing retry, which is what stops an hourly ask from being a per-draw ask.
+        // Nothing answered, so nothing is known about these senders. They are not stored as
+        // misses: a refused address book is not "no photo". The listing is not asked again
+        // this session, which is what stops every later email from calling Google.
         if (!book) break;
-        for (const address of addresses) remember(address, book);
+        for (const address of addresses) remember(address, book.photos.get(address) ?? null);
       }
     } finally {
       // Whatever is left was not asked (nothing answered), so it must be askable again.
@@ -195,14 +169,14 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
         for (const [address, url] of await pages(listing)) if (!photos.has(address)) photos.set(address, url);
         answered += 1;
       } catch (cause) {
-        listing.retryAt = clock() + SOURCE_RETRY_MS;
+        listing.retryAt = Number.POSITIVE_INFINITY;
         refused.push(reasonFor(listing, cause));
       }
     }
     // One line per round, however many listings refused: a missing consent is one thing to fix, and
     // a draw must not fill the log with a line per listing or a line per row.
     if (refused.length) note(`Gmail faces for ${account} are off: ${refused.join('; ')}. Rows draw initials; re-consent steps are in README.md, "Gmail contact photos".`);
-    return answered ? { photos, certain: answered === listings.length } : undefined;
+    return answered ? { photos } : undefined;
   }
 
   async function pages(listing: Listing): Promise<Map<string, string>> {
@@ -217,14 +191,8 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
     return photos;
   }
 
-  /**
-   * What one address now knows. A miss is recorded only when every listing answered: a listing that
-   * was refused cannot say an address has no photo, and recording its silence as a miss would hide
-   * the face for an hour after the owner consents.
-   */
-  function remember(address: string, book: AddressBook): void {
-    const url = book.photos.get(address) ?? null;
-    if (!url && !book.certain) return;
+/** What one address now knows. Written once: a later email from this sender does not ask again. */
+  function remember(address: string, url: string | null): void {
     try {
       store.save(account, { address, url, state: url ? 'ready' : 'failed', fetched_at: clock() });
     } catch {
@@ -244,7 +212,7 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
       const key = address.trim().toLowerCase();
       if (!key) return undefined;
       const face = store.get(account, key);
-      if (stale(face, clock())) enqueue(key);
+      if (unseen(face)) enqueue(key);
       return face?.state === 'ready' && face.url ? face.url : undefined;
     },
   };

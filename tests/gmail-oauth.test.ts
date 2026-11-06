@@ -141,6 +141,35 @@ test('a rejected grant surfaces its status and provider reason and marks the rec
   assert.match(state.lastError?.message ?? '', /invalid_grant/);
 });
 
+test('a deleted client is not asked again until the record is replaced', async () => {
+  const dir = await tempDir();
+  const path = await seed(dir, { access_token: 'ya29.stale', expires_at: NOW - 1 });
+  const { fetch, calls } = fakeTokenEndpoint({
+    status: 401,
+    body: { error: 'deleted_client', error_description: 'The OAuth client was deleted.' },
+  });
+  const credentials = createGmailCredentials({ dir, fetch, now: () => NOW });
+
+  await assert.rejects(credentials.accessToken('gmail-personal'), (error: Error & { reason?: string }) => {
+    assert.equal(error.reason, 'deleted_client');
+    return true;
+  });
+  assert.equal(calls.length, 1);
+
+  await assert.rejects(credentials.accessToken('gmail-personal', { force: true }), (error: Error & { reason?: string }) => {
+    assert.equal(error.reason, 'deleted_client');
+    return true;
+  });
+  assert.equal(calls.length, 1, 'a dead client does not call Google again');
+
+  const stored = JSON.parse(await readFile(path, 'utf8')) as GmailCredentialRecord;
+  assert.equal(stored.lastError?.reason, 'deleted_client');
+
+  await credentials.write('gmail-personal', record({ access_token: 'ya29.replaced', expires_at: NOW + HOUR }));
+  assert.equal(await credentials.accessToken('gmail-personal'), 'ya29.replaced');
+  assert.equal(calls.length, 1, 'a replaced record is used without another refusal');
+});
+
 test('a missing record is a clear error, not ENOENT text', async () => {
   const dir = await tempDir();
   const { fetch, calls } = fakeTokenEndpoint();
