@@ -937,3 +937,158 @@ test('the card is polled only while a pairing is in progress', async () => {
   assert.equal(reads(), settled, 'a paired source changes only when the owner acts, so polling stops');
   assert.deepEqual(session.snapshot().pairing, { state: 'connected' });
 });
+
+test('a reply aimed at one message sends that id, and the next reply omits it', async () => {
+  const target = row({ unread: false });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: () => ({ status: 'Sent' }),
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+
+  session.aimReply('m1');
+  assert.equal(session.snapshot().replyMessageId, 'm1');
+  session.setDraft('ok');
+  const aimed = rpc.calls.length;
+  await session.submit();
+  assert.deepEqual(rpc.calls[aimed].input, {
+    account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'ok', allow: 'send', messageId: 'm1',
+  });
+  assert.equal(session.snapshot().replyMessageId, '', 'a send that worked drops the aim');
+  assert.equal(session.snapshot().text, '');
+
+  session.setDraft('later');
+  const again = rpc.calls.length;
+  await session.submit();
+  assert.deepEqual(rpc.calls[again].input, {
+    account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'later', allow: 'send',
+  }, 'the next send is a conversation reply');
+});
+
+test('clearing the aim, or a source that cannot quote, sends a conversation reply', async () => {
+  const target = row({ unread: false });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: () => ({ status: 'Sent' }),
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.aimReply('m1');
+  session.clearReply();
+  assert.equal(session.snapshot().replyMessageId, '');
+  session.setDraft('ok');
+  const cleared = rpc.calls.length;
+  await session.submit();
+  assert.deepEqual(rpc.calls[cleared].input, {
+    account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'ok', allow: 'send',
+  });
+
+  const quiet = fakeRpc({
+    capabilities: () => declarations({ quoteReply: false }),
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: () => ({ status: 'Sent' }),
+    sync: () => ({ items: [] }),
+  });
+  const plain = createInboxSession({ rpc: quiet, now: () => 10 });
+  plain.start();
+  await settle();
+  await plain.open(target);
+  plain.aimReply('m1');
+  assert.equal(plain.snapshot().replyMessageId, '', 'a source that cannot quote does not keep an aim');
+  plain.setDraft('ok');
+  const boundary = quiet.calls.length;
+  await plain.submit();
+  assert.deepEqual(quiet.calls[boundary].input, {
+    account: 'whatsapp', id: 'chat-1', action: 'reply', text: 'ok', allow: 'send',
+  });
+});
+
+test('a refused targeted reply keeps the draft and the aim, and is not sent again', async () => {
+  const target = row({ unread: false });
+  const refused = 'This source cannot reply to one message. Nothing was sent.';
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: () => { throw new Error(refused); },
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.aimReply('m1');
+  session.setDraft('ok');
+  await session.submit();
+  const replies = rpc.calls.filter(call => call.name === 'action' && (call.input as { action?: string }).action === 'reply');
+  assert.equal(replies.length, 1, 'a refusal does not fire a second reply');
+  assert.equal(session.snapshot().text, 'ok');
+  assert.equal(session.snapshot().replyMessageId, 'm1');
+  assert.equal(session.snapshot().status, refused);
+});
+
+test('a reaction is one action, and a refusal leaves the draft and is not sent again', async () => {
+  const target = row({ unread: false });
+  const refused = 'This source cannot react to one message. Nothing was sent.';
+  let fail = false;
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [cachedMessage] }),
+    open: () => ({ messages: [cachedMessage] }),
+    action: (input: { action?: string }) => {
+      if (input.action === 'react' && fail) throw new Error(refused);
+      return { status: 'Sent' };
+    },
+    sync: () => ({ items: [] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.setDraft('still here');
+
+  await session.react('m1', '👍');
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'action').at(-1)?.input, {
+    account: 'whatsapp', id: 'chat-1', action: 'react', messageId: 'm1', emoji: '👍', allow: 'send',
+  });
+  await session.react('m1', '❤️', true);
+  assert.deepEqual(rpc.calls.filter(call => call.name === 'action').at(-1)?.input, {
+    account: 'whatsapp', id: 'chat-1', action: 'react', messageId: 'm1', emoji: '❤️', allow: 'send', remove: true,
+  });
+  assert.equal(session.snapshot().text, 'still here', 'a reaction does not take the reply draft');
+
+  fail = true;
+  const before = rpc.calls.filter(call => call.name === 'action' && (call.input as { action?: string }).action === 'react').length;
+  await session.react('m1', '👍');
+  const after = rpc.calls.filter(call => call.name === 'action' && (call.input as { action?: string }).action === 'react').length;
+  assert.equal(after - before, 1, 'a refused reaction is not sent again');
+  assert.equal(session.snapshot().status, refused);
+  assert.equal(session.snapshot().text, 'still here');
+
+  const blocked = fakeRpc({
+    capabilities: () => declarations({ react: false }),
+    cached: () => ({ items: [target] }),
+    cached_open: () => ({ messages: [] }),
+    open: () => ({ messages: [] }),
+  });
+  const quiet = createInboxSession({ rpc: blocked, now: () => 0 });
+  quiet.start();
+  await settle();
+  await quiet.open(target);
+  const boundary = blocked.calls.length;
+  await quiet.react('m1', '👍');
+  assert.equal(blocked.calls.length, boundary, 'a source that cannot react is not asked');
+});
