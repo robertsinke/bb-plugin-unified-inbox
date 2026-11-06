@@ -140,6 +140,13 @@ export function fakeWhatsAppTransport(
     async sendText() {
       calls.push('whatsapp:sendText');
     },
+    async sendReaction() {
+      calls.push('whatsapp:sendReaction');
+    },
+    async storedEnvelope() {
+      calls.push('whatsapp:storedEnvelope');
+      return undefined;
+    },
     async status() {
       calls.push('whatsapp:status');
       return { connection: 'disconnected', paired: false };

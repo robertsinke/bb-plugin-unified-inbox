@@ -10,7 +10,7 @@
 // two inboxes, which is correct; the latch lives on the session.
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
 import { messagesAfterSend } from './sent-message.ts';
-import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
+import { canMarkRead, canQuoteReply, canReact, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
 import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
@@ -86,6 +86,8 @@ export interface InboxSnapshot {
   messages: Message[];
   status: string;
   text: string;
+  /** The message a Reply click aimed the composer at. Empty means today's conversation reply. */
+  replyMessageId: string;
   busy: boolean;
   opening: boolean;
   filter: InboxFilter;
@@ -153,6 +155,12 @@ export interface InboxSession {
   setFilter(f: InboxFilter): void;
   setQuery(q: string): void;
   setDraft(t: string): void;
+  /** Aim the open composer at one message. A source that cannot quote ignores it. */
+  aimReply(messageId: string): void;
+  /** Drop the aimed message. The draft stays. */
+  clearReply(): void;
+  /** One reaction on one message. `remove` is the caller's decision; this does not send a second time. */
+  react(messageId: string, emoji: string, remove?: boolean): Promise<void>;
   mark(item: InboxItem, action: 'read' | 'unread' | 'archive'): Promise<void>;
   answer(item: InboxItem, action: 'confirm' | 'reject'): Promise<void>;
   showAudit(): Promise<void>;
@@ -227,6 +235,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     messages: [],
     status: '',
     text: '',
+    replyMessageId: '',
     busy: false,
     opening: false,
     filter: 'all',
@@ -576,6 +585,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     const seq = ++request;
     state.selected = item;
     state.status = '';
+    state.replyMessageId = '';
     state.text = readComposerDraft(item.account, item.id);
     state.opening = true;
     watchDue = null;
@@ -630,6 +640,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     ++request;
     state.selected = null;
     state.status = '';
+    state.replyMessageId = '';
     state.opening = false;
     watchDue = null;
     notify();
@@ -728,6 +739,50 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     }
   }
 
+  function aimReply(messageId: string): void {
+    const selected = state.selected;
+    const id = messageId.trim();
+    if (!selected || !id || !canQuoteReply(state.capabilities, selected.account)) return;
+    if (state.replyMessageId === id) return;
+    state.replyMessageId = id;
+    notify();
+  }
+
+  function clearReply(): void {
+    if (!state.replyMessageId) return;
+    state.replyMessageId = '';
+    notify();
+  }
+
+  async function react(messageId: string, emoji: string, remove?: boolean): Promise<void> {
+    const selected = state.selected;
+    const id = messageId.trim();
+    if (!selected || state.busy || !id || !canReact(state.capabilities, selected.account)) return;
+    state.busy = true;
+    state.status = '';
+    notify();
+    try {
+      await deps.rpc.call('action', {
+        account: selected.account,
+        id: selected.id,
+        action: 'react',
+        messageId: id,
+        emoji,
+        allow: 'send',
+        ...(remove ? { remove: true } : {}),
+      });
+      state.status = '';
+      notify();
+    } catch (error) {
+      state.status = error instanceof Error ? error.message : 'The reaction was not sent.';
+      notify();
+    } finally {
+      void loadAudit();
+      state.busy = false;
+      notify();
+    }
+  }
+
   async function submit(): Promise<void> {
     const selected = state.selected;
     if (!selected || state.busy) return;
@@ -736,15 +791,24 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     if (!canSend(state.capabilities, selected.account) || !draft) return;
     const account = selected.account;
     const id = selected.id;
+    const messageId = canQuoteReply(state.capabilities, account) ? state.replyMessageId : '';
     state.busy = true;
     state.status = '';
     notify();
     try {
       // The owner pressing Send is the statement the transport can carry: the gate refuses and
-      // records a reply that arrives without it.
-      await deps.rpc.call('action', { account, id, action: 'reply', text: draft, allow: 'send' });
+      // records a reply that arrives without it. A message id is present only while Reply is aimed.
+      await deps.rpc.call('action', {
+        account,
+        id,
+        action: 'reply',
+        text: draft,
+        allow: 'send',
+        ...(messageId ? { messageId } : {}),
+      });
       clearComposerDraft(account, id);
       state.text = '';
+      state.replyMessageId = '';
       const sentAt = clock();
       state.messages = messagesAfterSend(state.messages, draft, sentAt);
       // A send that worked says nothing: the bubble in the thread is the receipt. Only a failure or an
@@ -996,6 +1060,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       searchDue = clock() + SEARCH_DEBOUNCE_MS;
       notify();
     },
+    aimReply,
+    clearReply,
+    react,
     setDraft(text) {
       const selected = state.selected;
       if (!selected) return;

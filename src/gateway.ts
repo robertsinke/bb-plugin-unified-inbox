@@ -17,6 +17,7 @@ import { conversationKeyOf, describeControlExpression, pageTextExpression, sendC
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
 import { createInboxRefresh } from './inbox-refresh.ts';
+import { isReactionEmoji } from './reaction-set.ts';
 import { message, rpcContract } from './rpc-contract.ts';
 import type { WhatsAppPairingRequest, WhatsAppPairingSnapshot } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
@@ -270,7 +271,23 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async media({ account: source, ...request }) {
       return registry[source].media(request);
     },
-    async action({ account: source, id, action, text, allow }) {
+    async action({ account: source, id, action, text, allow, messageId, emoji, remove }) {
+      const caps = registry[source].capabilities();
+      // These refusals sit before the gate, so they write no audit row and never call the adapter.
+      if (action === 'react') {
+        if (!caps.react) throw new Error('This source cannot react to one message. Nothing was sent.');
+        if (!messageId) throw new Error('A reaction needs the message it reacts to. Nothing was sent.');
+        if (!isReactionEmoji(emoji)) throw new Error('That emoji is not one of the four reactions. Nothing was sent.');
+        if (remove === true && !caps.reactRemove) throw new Error('This source cannot remove a reaction. Nothing was sent.');
+        return gate(
+          { account: source, conversationId: id, text: text ?? '' },
+          approvalFor(allow, id, now()),
+          () => registry[source].action(action, id, { text, messageId, emoji, remove }),
+        );
+      }
+      if (action === 'reply' && messageId && !caps.quoteReply) {
+        throw new Error('This source cannot reply to one message. Nothing was sent.');
+      }
       if (action !== 'reply') return registry[source].action(action, id, { text });
       // A send is the gate's call: it refuses before the adapter, records either way, and
       // hands delivery back so the adapter still validates the send it was given. The approval
@@ -278,7 +295,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       return gate(
         { account: source, conversationId: id, text: text ?? '' },
         approvalFor(allow, id, now()),
-        () => registry[source].action(action, id, { text }),
+        () => registry[source].action(action, id, messageId ? { text, messageId } : { text }),
       );
     },
     // No argument reads the default page: the panel and the CLI both ask with nothing.

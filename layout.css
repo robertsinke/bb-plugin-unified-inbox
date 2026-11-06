@@ -11,6 +11,10 @@
 .ui-conversation-line>.ui-chip{flex:none}
 .ui-inbox button:focus-visible, .ui-inbox a:focus-visible{outline:2px solid color-mix(in srgb, currentColor 55%, transparent);outline-offset:2px}
 .ui-chat-composer{padding:10px 12px 12px;background:transparent}
+.ui-composer-quote{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:6px 4px 6px 10px;border-left:2px solid color-mix(in srgb,currentColor 55%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 6%,transparent)}
+.ui-composer-quote .ui-quote-body{min-width:0;flex:1}
+.ui-composer-quote .ui-quote-sender{display:block;font-size:11px;font-weight:650}
+.ui-composer-quote .ui-quote-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;opacity:.8}
 .ui-promptbox{position:relative;width:100%;border:1px solid var(--border, color-mix(in srgb, currentColor 16%, transparent));border-radius:12px;background:var(--background, transparent);box-shadow:var(--shadow-lift, 0 1px 2px color-mix(in srgb, currentColor 8%, transparent))}
 .ui-promptbox textarea{display:block;width:100%;min-height:72px;max-height:180px;margin:0;padding:12px 52px 8px 16px;border:0;border-radius:12px;background:transparent;color:inherit;resize:none;font:inherit;font-size:13px;line-height:1.7}
 .ui-promptbox textarea:focus,.ui-promptbox textarea:focus-visible{outline:none}

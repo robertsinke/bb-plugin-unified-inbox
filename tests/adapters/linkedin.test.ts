@@ -44,7 +44,7 @@ test('LinkedIn: declared capabilities match what action and media accept', async
   const h = harness();
   try {
     const adapter = h.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false });
 
     // send: true through the reply action — there is still no generic send method, because a
     // LinkedIn reply needs its conversation.
@@ -76,6 +76,32 @@ test('LinkedIn: declared capabilities match what action and media accept', async
       await refused(h.calls, () => adapter.action('read', id), /cannot be marked/);
       await refused(h.calls, () => adapter.action('archive', id), REFUSAL);
     }
+  } finally { h.close(); }
+});
+
+test('LinkedIn: a thread read keeps the parsed message id, and a reaction or targeted reply builds no request', async () => {
+  const h = harness({
+    linkedInThread: async () => ({
+      messages: [
+        { id: TEXT_URN, sender: 'Ada', text: 'Hello', date: 1, fromMe: false },
+        { sender: 'Ada', text: 'No id', date: 2, fromMe: false },
+      ],
+    }),
+  });
+  try {
+    const opened = await h.registry.linkedin.open(CONVERSATION);
+    assert.equal(opened.messages[0].messageId, TEXT_URN);
+    assert.equal(Object.hasOwn(opened.messages[0], 'reactions'), false);
+    assert.equal(Object.hasOwn(opened.messages[1], 'messageId'), false);
+    assert.equal(Object.hasOwn(opened.messages[1], 'reactions'), false);
+    const caps = h.registry.linkedin.capabilities();
+    assert.equal(caps.react, false);
+    assert.equal(caps.reactRemove, false);
+    assert.equal(caps.quoteReply, false);
+    h.calls.length = 0;
+    await refused(h.calls, () => h.registry.linkedin.action('react', CONVERSATION, { messageId: TEXT_URN, emoji: '👍' }), /cannot react to one message/);
+    await refused(h.calls, () => h.registry.linkedin.action('react', CONVERSATION, { messageId: TEXT_URN, emoji: '👍', remove: true }), /cannot react to one message/);
+    await refused(h.calls, () => h.registry.linkedin.action('reply', CONVERSATION, { text: 'hi', messageId: TEXT_URN }), /cannot reply to one message/);
   } finally { h.close(); }
 });
 

@@ -24,6 +24,21 @@ export function canSend(capabilities: CapabilityMap | null, account: Account): b
   return declared(capabilities, account).send;
 }
 
+/** The four reaction buttons, on a message that has a stable id. */
+export function canReact(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).react;
+}
+
+/** Tapping the owner's own reaction removes it. */
+export function canReactRemove(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).reactRemove;
+}
+
+/** Aiming a reply at one message. A conversation reply does not need this. */
+export function canQuoteReply(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).quoteReply;
+}
+
 /** The read/unread toggle, and the read the inbox marks when a conversation is opened. */
 export function canMarkRead(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).markRead;

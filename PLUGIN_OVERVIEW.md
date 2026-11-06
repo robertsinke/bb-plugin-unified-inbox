@@ -35,12 +35,16 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   Needed, None, or Unclear. The ask is the list snippet plus at most the last 32
   stored lines, and a line that already has a score is not asked again. A LinkedIn invitation is not asked. The conversations already in
   the inbox are judged once.
+- An open chat message shows reactions and quote text when the source returned
+  them. Heart, like, dislike, and laugh are the reactions where the source can
+  set one. A reply can target that one message where the source can. Gmail
+  keeps its mail composer.
 
 ## How it works
 
 Each source is one adapter under `src/adapters/`, and each declares what it can
 do — `send`, `markRead`, `archive`, `invitations`, `media`, `attachments`,
-`threads`, `followsList`. The panel reads those declarations instead of asking
+`threads`, `followsList`, `react`, `reactRemove`, `quoteReply`. The panel reads those declarations instead of asking
 which account it is looking at, so a control appears only where the source
 supports it.
 
@@ -127,13 +131,15 @@ only to stop a runaway download, not to decide what the owner may receive.
 
 ## For agents
 
-BB registers five read-only tools on the same gateway the panel uses: `inbox_list` browses the cached
+BB registers five read tools and two send tools on the same gateway the panel uses. `inbox_list` browses the cached
 conversation list, `inbox_search` requires a query and returns ranked cached excerpts, `inbox_refresh`
 updates one source's newest page, `inbox_read` returns messages and media references, and
 `inbox_view_attachment` returns one file from that conversation plus its type. A picture comes back as
 an image. Any other file comes back inline up to 5 MiB; a larger one comes back as its type, name and
-size, without the bytes.
-Stored Gmail account ids are `gmail-personal` and `gmail-business`. These tools do not send.
+size, without the bytes. The read tools do not send. `inbox_react` sets or removes one reaction
+(heart, like, dislike, or laugh) on one message. `inbox_reply` replies to that one message when the
+source can target it. Both send through the same action gate as the panel.
+Stored Gmail account ids are `gmail-personal` and `gmail-business`.
 
 One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeated here, so it cannot fall
 behind): reads and the cache, search, `media`, `capabilities` and `sources`, the `action`/`send_gmail` writes,

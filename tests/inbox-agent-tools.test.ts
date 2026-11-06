@@ -2,19 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-bb/plugin-sdk/testing';
 import { registerInboxAgentTools } from '../src/inbox-agent-tools.ts';
-import type { MessageMedia } from '../src/adapters/types.ts';
+import { NO_CAPABILITIES } from '../src/adapters/capability.ts';
+import type { Account, Capabilities, MessageMedia } from '../src/adapters/types.ts';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG3sAAAAASUVORK5CYII=';
 
+function declared(quoteReply: boolean): Capabilities {
+  return { ...NO_CAPABILITIES, send: true, react: quoteReply, reactRemove: quoteReply, quoteReply };
+}
+
 function fixture() {
   const { bb, harness } = createFakePluginHost({ pluginId: 'unified-inbox' });
-  const messages: Array<{ sender: string; text: string; date: number; media?: MessageMedia; html?: string; gmailId?: string; attachments?: string[]; imsgId?: string; imsgAttachments?: { index: number; name: string; available: boolean }[] }> = [
+  const messages: Array<{ sender: string; text: string; date: number; messageId?: string; reactions?: { sender: string; label: string }[]; quote?: { targetId?: string; sender?: string; text?: string }; media?: MessageMedia; html?: string; gmailId?: string; attachments?: string[]; imsgId?: string; imsgAttachments?: { index: number; name: string; available: boolean }[] }> = [
     { sender: 'Contact', text: 'Pickup information', date: 100, media: { kind: 'image', messageId: 'photo-1', available: true, cached: true } as MessageMedia },
     { sender: 'Contact', text: 'x'.repeat(21_000), date: 200, html: '<p>private HTML</p>', gmailId: 'mail-1', attachments: ['photo.png'] },
     { sender: 'Contact', text: '', date: 300, imsgId: '42', imsgAttachments: [{ index: 0, name: 'photo.png', available: true }] },
   ];
   let loads = 0;
   let opens = 0;
+  const actions: unknown[] = [];
+  let actionError: Error | null = null;
+  const quoteReply: Record<Account, boolean> = { whatsapp: true, imessage: true, linkedin: false, 'gmail-personal': false, 'gmail-business': false };
   let payload: { dataUrl?: string; mime: string; filename?: string; size?: number; savedPath?: string; url?: string } = { dataUrl: `data:image/png;base64,${png}`, mime: 'image/png' };
   const fresh = { lastAttemptAt: 100, lastSuccessAt: 100, lastError: null, cacheFallback: false };
   const gateway = {
@@ -41,9 +49,15 @@ function fixture() {
     open: async (_input: unknown) => { opens++; return { messages, updatedAt: 100, cacheFallback: false }; },
     cached_open: async (_input: unknown) => ({ messages, updatedAt: 90, cacheFallback: true }),
     media: async (_input: unknown) => { loads++; return payload; },
+    capabilities: () => Object.fromEntries((Object.keys(quoteReply) as Account[]).map(name => [name, declared(quoteReply[name])])) as Record<Account, Capabilities>,
+    action: async (input: unknown) => {
+      actions.push(input);
+      if (actionError) throw actionError;
+      return { status: 'sent' };
+    },
   };
   registerInboxAgentTools(bb, gateway);
-  return { harness, messages, get loads() { return loads; }, get opens() { return opens; }, setPayload(value: typeof payload) { payload = value; } };
+  return { harness, messages, actions, get loads() { return loads; }, get opens() { return opens; }, setPayload(value: typeof payload) { payload = value; }, failAction(error: Error) { actionError = error; } };
 }
 
 function json(result: unknown): any {
@@ -51,12 +65,15 @@ function json(result: unknown): any {
   return JSON.parse(result as string);
 }
 
-test('native tools are selected and expose only read operations', async t => {
+test('native tools include the five read tools and the two send tools', async t => {
   const f = fixture();
   t.after(() => f.harness.lifecycle.dispose());
   const config = await f.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-  assert.deepEqual(config.tools.map(tool => tool.name), ['inbox_list', 'inbox_search', 'inbox_refresh', 'inbox_read', 'inbox_view_attachment']);
+  assert.deepEqual(config.tools.map(tool => tool.name), ['inbox_list', 'inbox_search', 'inbox_refresh', 'inbox_read', 'inbox_view_attachment', 'inbox_react', 'inbox_reply']);
   assert.deepEqual(config.skills, []);
+  const list = config.tools.find(tool => tool.name === 'inbox_list');
+  assert.match(list?.instructions ?? '', /inbox_react and inbox_reply send, and the read tools still do not/);
+  assert.match(list?.instructions ?? '', /These tools do not authorize sending/);
 });
 
 test('list pages the cache and search returns the matching excerpt', async t => {
@@ -189,6 +206,48 @@ test('cancelled calls stop before any adapter reads or media loads', async t => 
   }
   assert.equal(f.opens, 0);
   assert.equal(f.loads, 0);
+});
+
+test('react and reply call action once, and a targeted reply cannot become a conversation reply', async t => {
+  const f = fixture();
+  t.after(() => f.harness.lifecycle.dispose());
+  f.messages.push({
+    sender: 'Ada',
+    text: 'See you there',
+    date: 400,
+    messageId: 'li-msg-1',
+    reactions: [{ sender: 'Ada', label: '👍' }],
+    quote: { targetId: 'earlier', sender: 'Bob', text: 'hello' },
+  });
+  const read = json(await f.harness.behavior.callAgentTool('inbox_read', { account: 'linkedin', id: 'chat-1' }));
+  const row = read.messages.find((message: { messageId?: string }) => message.messageId === 'li-msg-1');
+  assert.deepEqual(row.reactions, [{ sender: 'Ada', label: '👍' }]);
+  assert.deepEqual(row.quote, { targetId: 'earlier', sender: 'Bob', text: 'hello' });
+  assert.equal(row.messageId, 'li-msg-1');
+
+  const reacted = json(await f.harness.behavior.callAgentTool('inbox_react', { account: 'whatsapp', id: 'chat-1', messageId: row.messageId, emoji: '👍' }));
+  assert.equal(reacted.status, 'sent');
+  const removed = json(await f.harness.behavior.callAgentTool('inbox_react', { account: 'whatsapp', id: 'chat-1', messageId: row.messageId, emoji: '😂', remove: true }));
+  assert.equal(removed.status, 'sent');
+  const replied = json(await f.harness.behavior.callAgentTool('inbox_reply', { account: 'imessage', id: 'chat-1', messageId: row.messageId, text: 'ok' }));
+  assert.equal(replied.status, 'sent');
+  assert.deepEqual(f.actions, [
+    { account: 'whatsapp', id: 'chat-1', action: 'react', messageId: 'li-msg-1', emoji: '👍', allow: 'send' },
+    { account: 'whatsapp', id: 'chat-1', action: 'react', messageId: 'li-msg-1', emoji: '😂', remove: true, allow: 'send' },
+    { account: 'imessage', id: 'chat-1', action: 'reply', text: 'ok', messageId: 'li-msg-1', allow: 'send' },
+  ]);
+
+  for (const emoji of ['‼️', '❓']) {
+    await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_react', { account: 'whatsapp', id: 'chat-1', messageId: 'li-msg-1', emoji }), /four|heart|emoji/i);
+  }
+  for (const account of ['linkedin', 'gmail-personal', 'gmail-business'] as const) {
+    await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_reply', { account, id: 'chat-1', messageId: 'li-msg-1', text: 'ok' }), /cannot reply to one message/);
+  }
+  assert.equal(f.actions.length, 3);
+
+  f.failAction(new Error('This source refused the send.'));
+  await assert.rejects(() => f.harness.behavior.callAgentTool('inbox_react', { account: 'whatsapp', id: 'chat-1', messageId: 'li-msg-1', emoji: '❤️' }), /refused the send/);
+  assert.equal(f.actions.length, 4);
 });
 
 test('tool schemas reject arbitrary URLs, unknown accounts and unbounded pages', async t => {

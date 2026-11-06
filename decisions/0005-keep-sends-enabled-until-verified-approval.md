@@ -13,6 +13,10 @@ status: accepted
 - **Verified against the code:** 2026-11-03 — gateway registration, send gate, mention instructions, audit storage, and project automations checked; a harmless CLI call reached the LinkedIn UI handler without sending
 - **Tags:** security, sending, approval, agents
 
+> **Current state (2026-11-06): `inbox_react` and `inbox_reply` send under the existing gate.**
+> An explicit agent request uses those tools. Each calls `action` with `allow: 'send'`.
+> Mentions remain draft-first and do not authorize sending.
+
 ## Context
 
 The panel and agents reach the same [RPC handlers](../src/gateway.ts), registered in
