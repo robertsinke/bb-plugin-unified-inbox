@@ -1,7 +1,7 @@
 ---
 title: "feat: React and reply to one message"
 type: feat
-status: active
+status: completed
 date: 2026-11-06
 deepened: 2026-11-06
 ---
