@@ -107,7 +107,7 @@ test('a read answers with no socket at all: chats newest first, with previews th
       kind: '1:1',
       lastMsgAt: 1_700_000_000_000,
       unread: 0,
-      preview: { text: 'See you', fromMe: false, sender: '' },
+      preview: { text: 'See you', fromMe: false, sender: '+15551234567' },
     });
     assert.deepEqual(page.chats[1].preview, { text: 'Ship it', fromMe: false, sender: 'Grace' }, 'a group preview names the sender from the stored contact');
     assert.equal(page.chats[2].preview, undefined, 'a chat with no stored message has no preview to give');
@@ -167,6 +167,22 @@ test('unread counts only messages newer than the read cursor, and history sync i
     store.upsertMessage(message({ id: 'm4', chat_jid: DM, ts: 4_000, from_me: true, text: 'mine' }));
     assert.equal(await unread(), 0);
     assert.equal(store.newestMessageId(DM), 'm4');
+  } finally {
+    db.close();
+  }
+});
+
+test('a 1:1 row stored with a blank sender is still the other person', async () => {
+  const { db, store } = fixture();
+  try {
+    // Rows already on disk from before a blank participant was ignored. The address book has the
+    // person; the bubble must not say Unknown just because the sender column is empty.
+    store.upsertChat({ jid: DM, name: null, kind: '1:1', last_msg_at: 1_000 });
+    store.upsertContact({ jid: DM, name: '+31∙∙∙∙∙∙∙44', push_name: 'Jan' });
+    store.upsertMessage(message({ id: 'm1', chat_jid: DM, ts: 1_000, sender: '', text: 'hello there' }));
+    const transport = createWhatsAppTransport({ store, ...down });
+    const [row] = await transport.openChat({ id: DM, limit: 10 });
+    assert.equal(row?.sender, 'Jan');
   } finally {
     db.close();
   }

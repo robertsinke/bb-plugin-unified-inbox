@@ -196,6 +196,33 @@ test('a late LID mapping merges the two chat rows and the messages move with it'
   }
 });
 
+test('a 1:1 message whose participant is blank is the other person, and their push name is kept', () => {
+  const { db, store } = fixture();
+  try {
+    const lidJid = '100000000000001@lid';
+    const phoneJid = '31600000044@s.whatsapp.net';
+    // What a live one-to-one looks like now: the chat key is a LID plus the phone, and `participant`
+    // is an empty string rather than absent. An empty string must not win over the chat.
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [
+        message({
+          key: { id: 'live-1', remoteJid: lidJid, remoteJidAlt: phoneJid, fromMe: false, participant: '' },
+          pushName: 'Jan',
+          messageTimestamp: 100,
+          message: { conversation: 'hello there' },
+        }),
+      ],
+    });
+    const row = store.getMessage('live-1');
+    assert.equal(row?.chat_jid, phoneJid, 'the phone is the chat; the LID is only an alias');
+    assert.equal(row?.sender, phoneJid, 'a blank participant is not a sender');
+    assert.equal(store.getContact(phoneJid)?.push_name, 'Jan', 'the name on the envelope is recorded against that person');
+  } finally {
+    db.close();
+  }
+});
+
 test('a phone-shaped chat name is stored as no name and a group is a group', () => {
   const { db, store } = fixture();
   try {
