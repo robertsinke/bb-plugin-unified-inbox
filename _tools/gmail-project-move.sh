@@ -198,7 +198,10 @@ finish() {
 CONFIG_DIR="$HOME/.config/gws"
 STAMP=$(date +%Y%m%dT%H%M%S)
 BACKUP_DIR="$CONFIG_DIR/backup-$STAMP"
-PROJECT_NAME="bb-inbox-personal"
+# Deliberately not the name of the project this account is on today: a console that offers the
+# existing name back is how the first attempt created a fresh client inside the old project, which
+# shares the quota it was meant to escape.
+PROJECT_NAME="bb-inbox-mailbox"
 
 # installed_client FILE prints the project id of an OAuth client json, or nothing.
 installed_client() {
@@ -220,9 +223,9 @@ banner "Move the personal Gmail client to its own Cloud project"
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage "Back up the client this account uses now"
-say "The personal Gmail grant was issued by a Cloud project that also serves"
-say "other work (the console calls it 'executor-mcp-gateway'). Moving it means a"
-say "new project, a new OAuth client, and a fresh consent — which you need anyway."
+say "This account's grant was issued by a Cloud project that also serves other"
+say "mail tools, because both draw from one project's per-user quota. Moving it"
+say "means a new project, a new OAuth client, and a fresh consent."
 say ""
 say "Nothing is deleted. These files move into a timestamped backup first:"
 note "$CONFIG_DIR/client_secret.json     the client that issues the grant"
@@ -249,10 +252,22 @@ step "When it lands, copy the project ID from the project picker — not the nam
 say ""
 note "A generated id such as bb-inbox-personal-481203 is normal: ids are unique and"
 note "cannot be chosen freely. Ids are also permanent, so an id never needs renaming."
+current_project=$(node -e 'try{const c=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));const i=c.installed||c.web||c;process.stdout.write(String(i.project_id||""))}catch{}' "$CONFIG_DIR/client_secret.json" 2>/dev/null)
 while true; do
   ask GCP_PROJECT_ID "Paste the new project ID:"
-  if [[ "$GCP_PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then break; fi
-  warn "That does not look like a project id (lowercase letters, digits, hyphens)."
+  if ! [[ "$GCP_PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
+    warn "That does not look like a project id (lowercase letters, digits, hyphens)."
+    continue
+  fi
+  # A pasted id that names the project the account is already on puts a new client in the old
+  # project: same quota pool, same 403, and every stage after this one would still succeed.
+  if [[ -n "$current_project" && "$GCP_PROJECT_ID" == "$current_project" ]]; then
+    warn "$GCP_PROJECT_ID is the project this account is on now. A new client inside it shares the"
+    warn "same quota, which is the problem being fixed. Create a project with a name the console"
+    warn "has not used ($PROJECT_NAME), and paste the id it generates."
+    continue
+  fi
+  break
 done
 say ""
 say "Using project: $GCP_PROJECT_ID"
