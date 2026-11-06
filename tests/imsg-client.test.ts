@@ -40,6 +40,43 @@ test('rejects malformed output and can start a new child', async () => {
   } finally { client.dispose(); await f.cleanup(); }
 });
 
+test('permits send and tapback, and rejects every other mutation', async () => {
+  const f = await fixture(`
+    const rl = require('node:readline').createInterface({ input: process.stdin });
+    rl.on('line', line => {
+      const r = JSON.parse(line);
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0', id:r.id, result:r.method}) + '\\n');
+    });
+  `);
+  const client = new ImsgClient(f.path);
+  try {
+    assert.equal(await client.request('send', { chat_id: 1, text: 'hi' }), 'send');
+    assert.equal(await client.request('tapback', { message_guid: 'g', kind: 'like' }), 'tapback');
+    await assert.rejects(client.request('react', { message_guid: 'g' }), /not permitted/);
+    await assert.rejects(client.request('send.rich', { chat_id: 1, text: 'hi' }), /not permitted/);
+    await assert.rejects(client.request('messages.delete', { id: '1' }), /not permitted/);
+  } finally { client.dispose(); await f.cleanup(); }
+});
+
+test('a bridge failure keeps the word bridge and drops the rest of the message', async () => {
+  const f = await fixture(`
+    const rl = require('node:readline').createInterface({ input: process.stdin });
+    rl.on('line', line => {
+      const r = JSON.parse(line);
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0', id:r.id, error:{code:-32603, message:'The bridge is required at /Users/secret/chat.db'}}) + '\\n');
+    });
+  `);
+  const client = new ImsgClient(f.path);
+  try {
+    await assert.rejects(client.request('tapback', { message_guid: 'g', kind: 'like' }), /bridge is required/);
+    await assert.rejects(client.request('send', { chat_id: 1, text: 'hi' }), (error: Error) => {
+      assert.match(error.message, /bridge is required/);
+      assert.equal(error.message.includes('/Users/secret'), false);
+      return true;
+    });
+  } finally { client.dispose(); await f.cleanup(); }
+});
+
 test('reports missing executable without exposing diagnostics', async () => {
   const client = new ImsgClient('/nonexistent/imsg');
   try { await assert.rejects(client.request('status'), /backend unavailable/); }

@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
-// Reads stay the default; `send` is the one mutation this adapter exposes, added at the
-// owner's explicit request. Every other write method is still refused here.
+// Reads stay the default. `send` and `tapback` are the mutations this adapter exposes.
+// `react` targets the last message, and `send.rich` is a different bridge method.
+// Every other write method is still refused here.
 const READ_METHODS = new Set(['initialize', 'status', 'chats.list', 'messages.history']);
-const MUTATION_METHODS = new Set(['send']);
+const MUTATION_METHODS = new Set(['send', 'tapback']);
 const MAX_FRAME = 8 * 1024 * 1024;
 const MAX_PENDING = 64;
 
@@ -52,7 +53,15 @@ export class ImsgClient {
         if (!pending) continue;
         this.pending.delete(record.id);
         clearTimeout(pending.timer);
-        if (record.error) pending.reject(new Error(`Messages request failed (code ${Number.isInteger(record.error.code) ? record.error.code : 'unknown'})`));
+        if (record.error) {
+          const code = Number.isInteger(record.error.code) ? record.error.code : 'unknown';
+          const detail = typeof record.error.message === 'string' ? record.error.message : '';
+          // Keep the word the adapter matches, and drop the rest: a bridge error can name a path.
+          const bridge = code === -32003 || /bridge/i.test(detail);
+          pending.reject(new Error(bridge
+            ? `Messages request failed (code ${code}): the bridge is required`
+            : `Messages request failed (code ${code})`));
+        }
         else if ('result' in record) pending.resolve(record.result);
         else pending.reject(new Error('Invalid Messages response'));
       }

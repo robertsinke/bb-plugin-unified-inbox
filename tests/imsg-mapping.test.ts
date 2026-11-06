@@ -56,10 +56,22 @@ test('maps current edits, unsends and reply context without retaining retracted 
   assert.equal(messages[0].sender, 'Alice');
   assert.equal(messages[0].edited, true);
   assert.equal(messages[0].replyContext, true);
+  assert.equal('quote' in messages[0], false);
   assert.equal(messages[1].text, 'Message unsent');
   assert.deepEqual(messages[1].imsgAttachments, []);
   assert.deepEqual(messages[1].reactions, []);
   assert.throws(() => findImsgAttachment({ messages: [{ id: 2, unsent_at: '2026-01-01', attachments: [{ filename: '/secret', mime_type: 'image/png' }] }] }, '2', 0));
+});
+
+test('an arrived emphasis tapback stays a display label', () => {
+  const [row] = mapImsgHistory({ messages: [{ id: 1, sender: 'Ada', text: 'hi', reactions: [{ sender: 'Ada', emoji: '‼️' }] }] });
+  assert.deepEqual(row.reactions, [{ sender: 'Ada', label: '‼️' }]);
+});
+
+test('a history row with only a reply guid sets the marker and omits quote text', () => {
+  const [row] = mapImsgHistory({ messages: [{ id: 1, text: 'new', reply_to_guid: 'parent' }] });
+  assert.equal(row.replyContext, true);
+  assert.equal('quote' in row, false);
 });
 
 test('chat selector must be an unambiguous safe positive integer', () => {
