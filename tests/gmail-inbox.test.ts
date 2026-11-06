@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { latestReceivedMessage } from '../src/gmail-inbox.ts';
+import { latestReceivedMessage, sentReplySnippet } from '../src/gmail-inbox.ts';
 
 test('inbox summary uses the newest received message instead of a later sent reply', () => {
   const received = { id: 'received-new', internalDate: '200', labelIds: ['INBOX'], from: 'Ada <ada@example.test>', snippet: 'Latest incoming' };
@@ -30,6 +30,18 @@ test('inbox summary keeps the latest received message when thread messages are n
     { id: 'sent-later', internalDate: '700', labelIds: ['SENT'] },
     { id: 'received-old', internalDate: '200', labelIds: ['INBOX'] },
   ]), newest);
+});
+
+test('a sent reply newer than the inbox message is visible to classification', () => {
+  const messages = [
+    { internalDate: '200', labelIds: ['INBOX'], snippet: 'Can you review this?' },
+    { internalDate: '300', labelIds: ['SENT'], snippet: 'On my way' },
+  ];
+  assert.equal(sentReplySnippet(messages), 'On my way');
+  assert.equal(sentReplySnippet([
+    { internalDate: '400', labelIds: ['INBOX'], snippet: 'Thanks' },
+    { internalDate: '300', labelIds: ['SENT'], snippet: 'On my way' },
+  ]), undefined);
 });
 
 test('inbox summary falls back to the final message only when a thread has no received messages', () => {

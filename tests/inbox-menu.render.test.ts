@@ -61,10 +61,10 @@ function mount({
 const entries = (document: Document) => [...document.querySelectorAll('[role="menuitem"]')].map(entry => entry.textContent?.trim());
 const click = (document: Document, element: any) => element.dispatchEvent(new (document.defaultView as any).MouseEvent('click', { bubbles: true }));
 
-test('the filter is the menu’s first group: five entries, then a rule, then the actions', () => {
+test('the filter is the menu’s first group: the sources, the attention labels, then the actions', () => {
   const { document, done } = mount();
   try {
-    assert.deepEqual(entries(document), ['All', 'Unread', 'WhatsApp', 'Personal Gmail', 'Inhouse Gmail', 'Messages', 'LinkedIn', 'New', 'Refresh'], 'the filter entries lead, then the actions, in one list');
+    assert.deepEqual(entries(document), ['All', 'Unread', 'Needed', 'None', 'Unclear', 'WhatsApp', 'Personal Gmail', 'Inhouse Gmail', 'Messages', 'LinkedIn', 'New', 'Refresh'], 'the filter entries lead, then the actions, in one list');
     const menu = document.querySelector('[role="menu"]')!;
     assert.deepEqual([...menu.children].map(child => child.className || child.getAttribute('role') || child.tagName), ['ui-menu-group', 'ui-menu-sep', 'ui-menu-item', 'ui-menu-item'], 'a group the owner can tell apart from the actions below it');
     assert.equal(menu.querySelector('[role="group"]')?.getAttribute('aria-label'), 'Filter');

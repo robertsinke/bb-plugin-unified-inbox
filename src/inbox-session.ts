@@ -11,6 +11,7 @@
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
 import { messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
+import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
 import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
 // The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
@@ -23,8 +24,8 @@ import type { rpcContract, WhatsAppPairingRequest, WhatsAppPairingSnapshot } fro
 /** One row of the list, as `cached` and `sync` return it. */
 export type InboxItem = Conversation;
 
-/** The list is shown whole, unread only, or narrowed to one source. */
-export type InboxFilter = 'all' | 'unread' | Account;
+/** The list is shown whole, unread only, by attention label, or narrowed to one source. */
+export type InboxFilter = 'all' | 'unread' | AttentionVerdict | Account;
 
 /** A Gmail draft. Kept in memory only: mail drafts are deliberately not persisted. */
 /** A file the owner attached to a draft. `data` is base64 with no data-url prefix. */
@@ -142,8 +143,12 @@ export interface InboxSession {
   flush(): void;
   open(item: InboxItem): Promise<void>;
   back(): void;
+  /** Mark a Needed conversation None, and keep the previous score so it can be put back. */
+  clearAttention(item: InboxItem): Promise<void>;
+  /** Undo the last clear and restore the score it held. */
+  restoreAttention(item: InboxItem): Promise<void>;
   refresh(sources?: Account[]): Promise<void>;
-  /** The one control that extends the list: the next older page from every source that has one. */
+  /** The next older page from every source that still has one. The list calls this as it scrolls. */
   more(): Promise<void>;
   setFilter(f: InboxFilter): void;
   setQuery(q: string): void;
@@ -329,17 +334,21 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
 
   /**
    * The component's `items` effect: when a refresh changes the row behind the
-   * open thread, the row on screen follows it. A source that declares it does
-   * not follow the list keeps the thread it already showed.
+   * open thread, the row on screen follows it. A label change updates the
+   * header chip and does not open the thread again. A source that declares it
+   * does not follow the list keeps the thread it already showed.
    */
   function reconcileSelected(): void {
     const selected = state.selected;
     if (!selected) return;
     const current = state.items.find(item => item.account === selected.account && item.id === selected.id);
-    if (!current || (current.date === selected.date && current.preview === selected.preview)) return;
-    const seq = ++request;
+    if (!current) return;
+    const rowChanged = current.date !== selected.date || current.preview !== selected.preview;
+    const labelChanged = current.needsAttention !== selected.needsAttention || current.attentionDismissed !== selected.attentionDismissed;
+    if (!rowChanged && !labelChanged) return;
     state.selected = current;
-    if (!followsList(state.capabilities, current.account)) return;
+    if (!rowChanged || !followsList(state.capabilities, current.account)) return;
+    const seq = ++request;
     void deps.rpc.call('open', { account: current.account, id: current.id })
       .then(result => {
         if (seq !== request) return;
@@ -624,6 +633,50 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     state.opening = false;
     watchDue = null;
     notify();
+  }
+
+  function paintAttention(rows: InboxItem[], account: Account, id: string, patch: Pick<InboxItem, 'needsAttention' | 'attentionDismissed'>): InboxItem[] {
+    return rows.map(row => row.account === account && row.id === id ? { ...row, ...patch } : row);
+  }
+
+  async function clearAttention(item: InboxItem): Promise<void> {
+    if (item.needsAttention !== 'yes') return;
+    const previousItems = state.items;
+    const previousHits = state.hits;
+    const previousSelected = state.selected;
+    const patch = { needsAttention: 'no' as const, attentionDismissed: true };
+    state.items = paintAttention(state.items, item.account, item.id, patch);
+    if (state.hits) state.hits = paintAttention(state.hits, item.account, item.id, patch);
+    if (state.selected?.account === item.account && state.selected.id === item.id) state.selected = { ...state.selected, ...patch };
+    notify();
+    try {
+      await deps.rpc.call('clear_attention', { account: item.account, id: item.id });
+    } catch {
+      state.items = previousItems;
+      state.hits = previousHits;
+      state.selected = previousSelected;
+      notify();
+    }
+  }
+
+  async function restoreAttention(item: InboxItem): Promise<void> {
+    if (item.attentionDismissed !== true) return;
+    const previousItems = state.items;
+    const previousHits = state.hits;
+    const previousSelected = state.selected;
+    const patch = { needsAttention: 'yes' as const, attentionDismissed: false };
+    state.items = paintAttention(state.items, item.account, item.id, patch);
+    if (state.hits) state.hits = paintAttention(state.hits, item.account, item.id, patch);
+    if (state.selected?.account === item.account && state.selected.id === item.id) state.selected = { ...state.selected, ...patch };
+    notify();
+    try {
+      await deps.rpc.call('restore_attention', { account: item.account, id: item.id });
+    } catch {
+      state.items = previousItems;
+      state.hits = previousHits;
+      state.selected = previousSelected;
+      notify();
+    }
   }
 
   async function mark(item: InboxItem, action: 'read' | 'unread' | 'archive'): Promise<void> {
@@ -921,6 +974,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     hideAudit,
     open,
     back,
+    clearAttention,
+    restoreAttention,
     refresh,
     more,
     setFilter(f) {

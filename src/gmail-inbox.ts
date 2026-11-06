@@ -15,3 +15,25 @@ export function latestReceivedMessage<T extends GmailMessageDate>(messages: read
   }
   return latest ?? messages.at(-1);
 }
+
+/** The snippet of a sent message that is newer than every received one. The row still shows the received message. */
+export function sentReplySnippet<T extends GmailMessageDate & { snippet?: string | null }>(messages: readonly T[]): string | undefined {
+  let sent: T | undefined;
+  let sentAt = Number.NEGATIVE_INFINITY;
+  let receivedAt = Number.NEGATIVE_INFINITY;
+  for (const message of messages) {
+    const date = Number(message.internalDate);
+    const timestamp = Number.isFinite(date) ? date : Number.NEGATIVE_INFINITY;
+    if (message.labelIds?.includes('SENT')) {
+      if (!sent || timestamp >= sentAt) {
+        sent = message;
+        sentAt = timestamp;
+      }
+    } else if (timestamp >= receivedAt) {
+      receivedAt = timestamp;
+    }
+  }
+  if (!sent || sentAt < receivedAt) return undefined;
+  const snippet = typeof sent.snippet === 'string' ? sent.snippet.trim() : '';
+  return snippet || undefined;
+}

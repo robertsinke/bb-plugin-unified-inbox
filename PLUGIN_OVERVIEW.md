@@ -30,6 +30,11 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   attachments, and a reply into an open conversation.
 - LinkedIn: DMs, InMail and pending invitations, with reply, read mark, and
   invitation accept or ignore.
+- A new message asks the Decisions plugin one yes/no per recent line, then
+  keeps the highest score: does that conversation need attention? The row shows
+  Needed, None, or Unclear. The ask is the list snippet plus at most the last 32
+  stored lines, and a line that already has a score is not asked again. A LinkedIn invitation is not asked. The conversations already in
+  the inbox are judged once.
 
 ## How it works
 

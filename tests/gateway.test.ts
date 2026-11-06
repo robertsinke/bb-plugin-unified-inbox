@@ -68,6 +68,7 @@ function fixture(options: FixtureOptions = {}) {
     list: () => cacheRows,
     readThread: () => null,
     clear: () => { cacheRows.length = 0; },
+    setSentSnippet: () => {},
   };
   const search: GatewayDeps['search'] = {
     search: async () => options.ranked ?? [],

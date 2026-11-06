@@ -5,7 +5,7 @@
 // further.
 import { buildGmailMime } from '../gmail-mime.ts';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
-import { latestReceivedMessage } from '../gmail-inbox.ts';
+import { latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor } from '../sync-plan.ts';
 import { mailSenderAddress, mailSenderName, replyRecipients } from '../recipients.ts';
 import { sourceAvatarUrl } from '../avatar-url.ts';
@@ -142,6 +142,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // The address is carried on the row because a face is keyed by it: the display name alone could
     // never be turned into a picture afterwards, and the cache is what survives a restart.
     const from = String(head.from || '');
+    const reply = sentReplySnippet(ms);
     return {
       account,
       id: String(t.id),
@@ -151,6 +152,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       recipients,
       ...(attachments ? { attachments } : {}),
       preview: String(last.snippet || ''),
+      ...(reply ? { sentSnippet: reply } : {}),
       date: Number(last.internalDate || 0),
       unread: ms.some((m: any) => m.labelIds?.includes('UNREAD')),
     };

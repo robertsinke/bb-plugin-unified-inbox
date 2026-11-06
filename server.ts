@@ -33,6 +33,7 @@ import { importGwsAccount } from './src/account-import';
 import { runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
 import { parseMailKeyIds, type MailMode } from './src/mail-approval';
+import { createAttentionStore, watchNewConversations } from './src/attention';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
 // the gateway (src/gateway.ts) as one plain object, and registers the result with the host. The
@@ -49,6 +50,34 @@ export default function plugin(bb: BbPluginApi) {
   // A clear covers what this plugin stored for WhatsApp: the rows and the media bytes they name.
   // The account state is not here and is not touched — forgetting it is a re-pair.
   const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir()), () => gmailFaceStore.clear()] });
+  const attention = createAttentionStore(db);
+  const attentionWatch = watchNewConversations({
+    cache,
+    store: attention,
+    log: line => bb.log.warn(line),
+    ask: input => bb.sdk.plugins.callRpc({
+      pluginId: 'decisions',
+      method: 'ask',
+      input: JSON.parse(JSON.stringify(input)),
+      outputSchema: z.object({
+        model: z.string(),
+        answers: z.record(z.string(), z.unknown()),
+        usage: z.object({
+          input_tokens: z.number().nullable(),
+          output_tokens: z.number().nullable(),
+        }).strict(),
+      }).strict(),
+    }),
+    recentLines: (account, id) => {
+      if (account !== 'whatsapp') return null;
+      return whatsappStore.listRecentMessages(id, 64).flatMap(message => {
+        const text = message.text?.trim() ?? '';
+        if (!text) return [];
+        return [{ sender: message.from_me ? 'You' : (message.sender ?? ''), text, fromMe: message.from_me }];
+      });
+    },
+  });
+  bb.onDispose(() => attentionWatch.stop());
   // The plugin's own WhatsApp socket, when one is open. Absent is the normal state for a stranger —
   // and reads still answer, because the store holds what already arrived. The lifecycle, not this
   // module, decides when that is and why a start failed; `src/whatsapp/lifecycle.ts` says how.
@@ -59,7 +88,13 @@ export default function plugin(bb: BbPluginApi) {
       const { WhatsAppConnection } = await import('./src/whatsapp/connection');
       return new WhatsAppConnection({
         getMessage: whatsappStore.storedMessageLoader(),
-        bindSocket: socket => attachIngest(socket.ev, whatsappStore),
+        bindSocket: socket => attachIngest(socket.ev, whatsappStore, {
+          onMessageIngested: message => attentionWatch.arrived('whatsapp', message.chat_jid, {
+            sender: message.sender ?? '',
+            text: message.text ?? '',
+            fromMe: message.from_me,
+          }),
+        }),
       });
     },
     // One line per socket opened, closed or refused: a dead source is otherwise only visible as a
@@ -161,6 +196,10 @@ export default function plugin(bb: BbPluginApi) {
     // A source that fails says "check its connection" to the owner and its real cause here: one is
     // the act they can take, the other is what a repeat is diagnosed from.
     note: (level, line) => bb.log[level](line),
+    attentionOf: (account, id) => attention.get(account, id)?.verdict ?? null,
+    attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
+    clearAttention: (account, id) => { attention.dismiss(account, id); },
+    restoreAttention: (account, id) => attention.restore(account, id),
     driver: {
       openInLinkedInProfile,
       inspectLinkedInPage,

@@ -5,12 +5,14 @@
 // and nothing runs at import time.
 import type { PluginRpcHandlers } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import type { AttentionVerdict } from './attention.ts';
 import type { InboxCache } from './adapters/deps.ts';
 import { registryCapabilities, registrySources } from './adapters/index.ts';
 import { approvalFor, type SendGate } from './adapters/policy.ts';
 import { accounts } from './adapters/types.ts';
 import type { Account, Adapter, Conversation } from './adapters/types.ts';
 import { isSourceAccount } from './inbox-mention.ts';
+import { isInvitationId } from './linkedin-inbox.ts';
 import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord } from './linkedin-ui.ts';
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
@@ -67,7 +69,7 @@ export interface GatewayDriver {
 export type Note = (level: 'info' | 'warn', line: string) => void;
 
 export interface GatewayDeps {
-  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt'>;
+  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm' | 'row'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
@@ -79,6 +81,14 @@ export interface GatewayDeps {
    * so the socket — 7.9 MB of client and a lazy import — is only loaded when someone pairs.
    */
   pairing: (request: WhatsAppPairingRequest) => Promise<WhatsAppPairingSnapshot>;
+  /** The stored yes/no for a conversation, written when a new message arrives. */
+  attentionOf?: (account: Account, id: string) => AttentionVerdict | null;
+  /** True when the owner cleared Needed and that clear can still be undone. */
+  attentionDismissed?: (account: Account, id: string) => boolean;
+  /** The owner marked a Needed conversation None. */
+  clearAttention?: (account: Account, id: string) => void;
+  /** Put back the Needed label from the clear just made. */
+  restoreAttention?: (account: Account, id: string) => boolean;
   note?: Note;
 }
 
@@ -89,7 +99,7 @@ export interface GatewayDeps {
  * (src/adapters/policy.ts), so the refusal and the audit record are owned in one place. How a
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, note }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -103,7 +113,13 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   const cachedRows = () => cache.list().filter(row => isSourceAccount(row.account)) as Conversation[];
 
   /** A source's cache-only decoration (WhatsApp group participants) is applied wherever rows leave the gateway. */
-  const decorated = (rows: Conversation[]) => rows.map(row => registry[row.account].decorate?.(row) ?? row);
+  const decorated = (rows: Conversation[]) => rows.map(row => {
+    const decoratedRow = registry[row.account].decorate?.(row) ?? row;
+    if (decoratedRow.account === 'linkedin' && isInvitationId(decoratedRow.id)) return decoratedRow;
+    const needsAttention = attentionOf?.(decoratedRow.account, decoratedRow.id);
+    const dismissed = attentionDismissed?.(decoratedRow.account, decoratedRow.id) === true;
+    return needsAttention ? { ...decoratedRow, needsAttention, ...(dismissed ? { attentionDismissed: true } : {}) } : decoratedRow;
+  });
 
   /**
    * Where each source's next older page begins: Gmail's own page token, the WhatsApp store's row offset,
@@ -160,6 +176,14 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       return { messages: repair ? await repair(id, parsed.data) : parsed.data, cacheFallback: true, updatedAt: cache.threadUpdatedAt(account, id) };
     },
     clear_cache() { cache.clear(); return { cleared: true }; },
+    clear_attention({ account, id }) {
+      clearAttention?.(account, id);
+      return { needsAttention: 'no' as const };
+    },
+    restore_attention({ account, id }) {
+      if (!restoreAttention?.(account, id)) throw new Error('This label can no longer be restored.');
+      return { needsAttention: 'yes' as const };
+    },
     async sync({ account, limit }) {
       const { cursor, ...result } = await refresh.refresh(account, limit);
       // The newest page is what seeds the walk; once `older` has advanced it, a refresh leaves it
@@ -266,7 +290,9 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async send_gmail(input) {
       const deliver = registry[input.account].send;
       if (!deliver) throw new Error('This source cannot send from the inbox.');
-      return gate.mail(input, mail => deliver({ kind: 'gmail', ...mail }, {}));
+      const result = await gate.mail(input, mail => deliver({ kind: 'gmail', ...mail }, {}));
+      if (input.threadId) cache.setSentSnippet(input.account, input.threadId, input.text);
+      return result;
     },
     async list(options) {
       const older = options?.older === true;

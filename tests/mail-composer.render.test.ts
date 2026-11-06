@@ -129,8 +129,7 @@ test('a file already in the conversation is offered, and taking it is the media 
 test('submitting and discarding are the panel’s decisions, and the form only reports them', () => {
   const { document, calls, done } = mount({ to: 'a@example.com', text: 'Hello' });
   try {
-    const buttons = [...document.querySelectorAll('.ui-mail-actions .ui-text-button')] as any[];
-    const discard = buttons.find(button => button.textContent?.trim() === 'Discard')!;
+    const discard = document.querySelector('.ui-mail-actions [aria-label="Discard"]') as any;
     discard.dispatchEvent(new (document.defaultView as any).MouseEvent('click', { bubbles: true }));
     assert.equal(calls.discarded, 1, 'the form does not confirm by itself; the panel owns that question');
 
@@ -240,11 +239,23 @@ test('a drag over the form claims it, and the tint says so until the pointer lea
 /** The sentence a send whose outcome nobody knows comes back with: the form repeats it, it does not rewrite it. */
 const UNKNOWN = 'Send failed or its outcome is unknown. Check Gmail Sent before trying again.';
 
-test('the draft hints at files in a line, and only a send result takes the notice card', () => {
+test('opening a draft puts the cursor in the message', () => {
+  const { document, done } = mount({ text: '\n\n---------- Forwarded message ----------\nHello' });
+  try {
+    const body = document.querySelector('.ui-mail-body') as HTMLTextAreaElement;
+    assert.equal(document.activeElement, body, 'reply, reply-all and forward land in the message');
+    assert.equal(body.selectionStart, 0, 'the cursor sits above any quoted text');
+    assert.equal(body.selectionEnd, 0);
+  } finally {
+    done();
+  }
+});
+
+test('a draft has no file hint, and only a send result takes the notice', () => {
   const drafting = mount({});
   try {
     assert.equal(drafting.document.querySelector('.ui-notice'), null, 'nothing has been sent, so nothing is reported');
-    assert.match(drafting.document.querySelector('.ui-composer-hint')?.textContent ?? '', /Drop files here/, 'what the box is for is a line under the controls, not a card');
+    assert.equal(drafting.document.querySelector('.ui-composer-hint'), null, 'the draft does not explain itself under the controls');
   } finally {
     drafting.done();
   }
