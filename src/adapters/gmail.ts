@@ -87,14 +87,23 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     return avatarUrl ? { ...rest, avatarUrl } : rest;
   };
 
+  /** Gmail's own rate-limit reason, including a local pause the client raises before it sends. */
+  const quotaStop = (cause: unknown): boolean =>
+    typeof cause === 'object' && cause !== null && (cause as { reason?: unknown }).reason === 'rateLimitExceeded';
+
   /** Every transport failure becomes one scrubbed ProviderError message, at the source boundary. */
   const gmail = async <T>(call: () => Promise<T>): Promise<T> => {
     try {
       return await call();
     } catch (cause) {
+      if (quotaStop(cause)) throw cause;
       throw new Error(deps.providerError(account, 'gmail', cause).message);
     }
   };
+
+  function scrub(cause: unknown): Error {
+    return new Error(deps.providerError(account, 'gmail', cause).message);
+  }
 
   const stored = () => (cache.list() as Conversation[]).filter(item => item.account === account);
 
@@ -107,7 +116,10 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       try {
         const bytes = await gmail(() => mail.attachmentGet({ messageId, id: htmlAttachmentId }));
         html = Buffer.from(bytes).toString('utf8');
-      } catch { html = ''; }
+      } catch (cause) {
+        if (quotaStop(cause)) throw cause;
+        html = '';
+      }
     }
     if (!html || html.length > HTML_LIMIT) return undefined;
     return html;
@@ -152,12 +164,23 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       ...(attachments ? { attachments } : {}),
       preview: String(last.snippet || ''),
       date: Number(last.internalDate || 0),
-      unread: ms.some((m: any) => m.labelIds?.includes('UNREAD')),
+      unread: cache.heldRead(account, String(t.id)) ? false : ms.some((m: any) => m.labelIds?.includes('UNREAD')),
     };
   }
 
   async function listThreads(limit: number, cursor?: string): Promise<{ items: Conversation[]; cursor?: string }> {
     const storedItems = stored();
+    try {
+      return await readThreads(limit, cursor, storedItems);
+    } catch (cause) {
+      // A pause keeps the page the owner already has. An empty cache still says why the read failed.
+      if (quotaStop(cause) && !cursor && storedItems.length) return { items: storedItems.slice(0, limit).map(withFace) };
+      if (quotaStop(cause)) throw scrub(cause);
+      throw cause;
+    }
+  }
+
+  async function readThreads(limit: number, cursor: string | undefined, storedItems: Conversation[]): Promise<{ items: Conversation[]; cursor?: string }> {
     const previous = new Map(storedItems.map(item => [item.id, item]));
     // An older page is a read only. The cache holds "the newest rows as of the last full
     // refresh", so writing a second page into it would make the next refresh look like the
@@ -176,6 +199,15 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       }));
       return { items: items.map(withFace), ...nextCursor(page) };
     }
+    for (const id of cache.heldReads(account)) {
+      try {
+        await gmail(() => mail.threadsModify({ id, removeLabelIds: ['UNREAD'] }));
+        cache.releaseRead(account, id);
+      } catch (cause) {
+        if (quotaStop(cause)) break;
+        throw cause;
+      }
+    }
     const profile = await gmail(() => mail.profile());
     const historyId = String(profile.historyId ?? '');
     // The listing runs even when the cached rows are still current, because it is what says
@@ -191,7 +223,13 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       if (known && (!known.sender || known.recipients === undefined || known.attachments === undefined || known.senderAddress === undefined)) changed.add(entry.id);
     }
     const fetched = new Map<string, Conversation>();
-    for (const id of changed) fetched.set(id, row(await thread(id)));
+    for (const id of changed) {
+      const known = previous.get(id);
+      // shortcut: metadata keeps stored attachment names; a new file on a known thread stays unnamed until a full read, upgrade when list search must see it
+      const summary = known?.attachments !== undefined;
+      const read = row(await thread(id, summary ? 'metadata' : 'full'), summary);
+      fetched.set(id, summary ? { ...read, attachments: known?.attachments } : read);
+    }
     const items = listed.flatMap((entry: { id: string }) => {
       const found = fetched.get(entry.id) ?? previous.get(entry.id);
       return found ? [found] : [];
@@ -211,24 +249,33 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     const cachedMessages: Message[] = parsed?.success ? parsed.data as Message[] : [];
     // A list's mailbox cursor cannot validate an independently cached conversation body.
     let t: any;
-    try { t = await thread(id); }
-    catch (error) {
-      if (cachedMessages.length) return { messages: cachedMessages, cacheFallback: true };
+    try {
+      t = await thread(id);
+    } catch (error) {
+      if (cachedMessages.length) return { messages: cachedMessages, ...(quotaStop(error) ? {} : { cacheFallback: true }) };
+      if (quotaStop(error)) throw scrub(error);
       throw error;
     }
-    const messages: Message[] = await Promise.all((t.messages ?? []).map(async (m: any) => {
-      const h = headers(m);
-      const sender = String(h.from || ''), to = String(h.to || ''), cc = String(h.cc || ''), replyTo = String(h['reply-to'] || '');
-      const suggested = replyRecipients({ from: sender, to, cc, replyTo, self: SELF[account] });
-      const html = await messageHtml(String(m.id), m.payload);
-      const attachments = pickGmailAttachments(m.payload);
-      return {
-        sender, text: plain(m.payload) || String(m.snippet || ''), date: Number(m.internalDate || 0),
-        ...(html ? { html } : {}),
-        to, cc, replyTo, subject: String(h.subject || ''), messageId: String(h['message-id'] || ''), references: String(h.references || ''),
-        suggestedTo: suggested.to, suggestedCc: suggested.cc, attachments, gmailId: String(m.id),
-      };
-    }));
+    let messages: Message[];
+    try {
+      messages = await Promise.all((t.messages ?? []).map(async (m: any) => {
+        const h = headers(m);
+        const sender = String(h.from || ''), to = String(h.to || ''), cc = String(h.cc || ''), replyTo = String(h['reply-to'] || '');
+        const suggested = replyRecipients({ from: sender, to, cc, replyTo, self: SELF[account] });
+        const html = await messageHtml(String(m.id), m.payload);
+        const attachments = pickGmailAttachments(m.payload);
+        return {
+          sender, text: plain(m.payload) || String(m.snippet || ''), date: Number(m.internalDate || 0),
+          ...(html ? { html } : {}),
+          to, cc, replyTo, subject: String(h.subject || ''), messageId: String(h['message-id'] || ''), references: String(h.references || ''),
+          suggestedTo: suggested.to, suggestedCc: suggested.cc, attachments, gmailId: String(m.id),
+        };
+      }));
+    } catch (error) {
+      if (quotaStop(error) && cachedMessages.length) return { messages: cachedMessages };
+      if (quotaStop(error)) throw scrub(error);
+      throw error;
+    }
     cache.saveThread(account, id, messages);
     return { messages };
   }
@@ -261,8 +308,19 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
 
     async action(kind: ActionKind, id: string, _opts?: ActionOptions): Promise<ActionResult> {
       if (canChange(CAPABILITIES, kind)) {
+        if (kind !== 'read') cache.releaseRead(account, id);
         const body = kind === 'archive' ? { removeLabelIds: ['INBOX'] } : kind === 'read' ? { removeLabelIds: ['UNREAD'] } : { addLabelIds: ['UNREAD'] };
-        await gmail(() => mail.threadsModify({ id, ...body }));
+        try {
+          await gmail(() => mail.threadsModify({ id, ...body }));
+        } catch (cause) {
+          // The row is already read here. Gmail learns it on a later sync, when the minute allows.
+          if (kind === 'read' && quotaStop(cause)) {
+            cache.holdRead(account, id);
+            return { status: 'Updated.' };
+          }
+          throw cause;
+        }
+        if (kind === 'read') cache.releaseRead(account, id);
         return { status: kind === 'archive' ? 'Archived.' : 'Updated.' };
       }
       throw new Error('This action is not supported.');
