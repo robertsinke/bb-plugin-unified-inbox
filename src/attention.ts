@@ -212,6 +212,7 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
   const write = db.prepare('INSERT INTO inbox_attention (account, id, verdict, noul, state_hash, lines) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(account, id) DO UPDATE SET verdict = excluded.verdict, noul = excluded.noul, state_hash = excluded.state_hash, lines = excluded.lines');
   return {
     get(account, id) {
+      if (account === 'linkedin' && isInvitationId(id)) return null;
       const row = read.get(account, id) as { verdict: AttentionVerdict; noul: number; stateHash: string; lines: string | null } | undefined;
       if (!row || (row.verdict !== 'yes' && row.verdict !== 'no' && row.verdict !== 'unsettled')) return null;
       const parsed = parseLines(row.lines);

@@ -12,7 +12,6 @@ import { approvalFor, type SendGate } from './adapters/policy.ts';
 import { accounts } from './adapters/types.ts';
 import type { Account, Adapter, Conversation } from './adapters/types.ts';
 import { isSourceAccount } from './inbox-mention.ts';
-import { isInvitationId } from './linkedin-inbox.ts';
 import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord } from './linkedin-ui.ts';
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
@@ -116,7 +115,6 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
   /** A source's cache-only decoration (WhatsApp group participants) is applied wherever rows leave the gateway. */
   const decorated = (rows: Conversation[]) => rows.map(row => {
     const decoratedRow = registry[row.account].decorate?.(row) ?? row;
-    if (decoratedRow.account === 'linkedin' && isInvitationId(decoratedRow.id)) return decoratedRow;
     const needsAttention = attentionOf?.(decoratedRow.account, decoratedRow.id);
     const dismissed = attentionDismissed?.(decoratedRow.account, decoratedRow.id) === true;
     return needsAttention ? { ...decoratedRow, needsAttention, ...(dismissed ? { attentionDismissed: true } : {}) } : decoratedRow;
