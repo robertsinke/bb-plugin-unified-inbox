@@ -2,10 +2,9 @@
 //
 // A picture is the one fact about a chat that the store cannot already hold: it has to be asked for,
 // and asking is a network call. So the read is split in two. `url(jid)` answers what the store knows,
-// synchronously and without a socket; a jid the store does not know — or knows from longer ago than
-// `AVATAR_TTL_MS` — is queued and asked in the background, so a row draws initials on the draw it
-// first appears and its picture on the next one. That is the same bargain `src/whatsapp/media.ts`
-// makes with its state machine, and it is why no list call waits on WhatsApp.
+// synchronously and without a socket; a jid the store does not know is queued and asked in the
+// background, so a row draws initials on the draw it first appears and its picture on the next one.
+// A URL the store already has is not asked again: the ask is what deleted a working picture.
 //
 // Four rules live here and nowhere else:
 //   - only an open socket is asked. `ensure()` is deliberately not called: a picture is not worth a
@@ -15,14 +14,11 @@
 //     blipped must not hide a face all day.
 //   - one ask per jid, and one jid at a time. The panel draws a page of rows at once, and a burst of
 //     IQs is what gets an account throttled; the queue costs nothing because nothing waits on it.
-//   - a stored URL is answered even past its TTL. It usually still loads, and the panel's own
-//     `onError` turns a dead one back into initials (`app.tsx`), so blanking a picture to refresh it
-//     is strictly worse than showing a stale one.
+//   - a stored URL is the picture. It is not refreshed on a timer. The panel's `onError` turns a
+//     dead link back into initials (`app.tsx`).
 import type { Avatar, AvatarState, WhatsAppStore } from './store.ts';
 import type { WhatsAppAvatarSocket } from './connection.ts';
 
-/** How long a picture URL is trusted before it is asked for again — WhatsApp's links expire in days. */
-export const AVATAR_TTL_MS = 24 * 60 * 60 * 1000;
 /** How long "there is no picture" is trusted, so a redraw of the same page is not a burst of asks. */
 export const AVATAR_RETRY_MS = 60 * 60 * 1000;
 /** A single ask's ceiling: a wedged IQ must not hold the queue behind it. */
@@ -56,9 +52,9 @@ export function createWhatsAppAvatars(options: WhatsAppAvatarsOptions) {
 
   /** Whether what the store holds is older than this answer can be trusted. */
   const stale = (avatar: Avatar | undefined, now: number): boolean => {
+    if (avatar?.state === 'ready' && avatar.url) return false;
     if (!avatar || avatar.fetched_at === null) return true;
-    const age = now - avatar.fetched_at;
-    return avatar.state === 'ready' ? age > AVATAR_TTL_MS : age > AVATAR_RETRY_MS;
+    return now - avatar.fetched_at > AVATAR_RETRY_MS;
   };
 
   /**
@@ -88,27 +84,16 @@ export function createWhatsAppAvatars(options: WhatsAppAvatarsOptions) {
         let state: AvatarState = 'failed';
         let url: string | null = null;
         let reason: string | null = null;
-        let refused = false;
         try {
           url = (await socket.profilePictureUrl(jid, 'preview', AVATAR_ASK_TIMEOUT_MS)) || null;
           state = url ? 'ready' : 'failed';
         } catch (error) {
-          // A refusal is not a picture. The first one is stored as `failed` and asked again after
-          // the retry window. A chat that already has a URL keeps it: this ask failed, and blanking
-          // the face is worse than showing the URL the panel can still load.
-          refused = true;
+          // A refusal is not a picture. It is stored as `failed` and asked again after the retry
+          // window. This path only runs when the store has no URL: a stored one is never re-asked.
           reason = reasonOf(error);
         }
-        const previous = refused ? store.getAvatar(jid) : undefined;
-        const kept = previous?.state === 'ready' && previous.url ? previous.url : null;
         try {
-          store.setAvatar({
-            jid,
-            url: kept ?? url,
-            state: kept ? 'ready' : state,
-            fetched_at: clock(),
-            reason: kept ? null : reason,
-          });
+          store.setAvatar({ jid, url, state, fetched_at: clock(), reason });
         } catch {
           /* a picture must never break the read that asked for it */
         }
