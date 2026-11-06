@@ -88,18 +88,27 @@ export function createWhatsAppAvatars(options: WhatsAppAvatarsOptions) {
         let state: AvatarState = 'failed';
         let url: string | null = null;
         let reason: string | null = null;
+        let refused = false;
         try {
           url = (await socket.profilePictureUrl(jid, 'preview', AVATAR_ASK_TIMEOUT_MS)) || null;
           state = url ? 'ready' : 'failed';
         } catch (error) {
-          // WhatsApp answers a picture it will not hand out — a privacy setting, a stranger — by
-          // refusing, and a socket blip refuses the same way. Both are a face it does not have yet:
-          // the row records `failed`, nothing is thrown, and it is asked again after the retry window.
-          // The reason is kept because the three read identically in the row otherwise.
+          // A refusal is not a picture. The first one is stored as `failed` and asked again after
+          // the retry window. A chat that already has a URL keeps it: this ask failed, and blanking
+          // the face is worse than showing the URL the panel can still load.
+          refused = true;
           reason = reasonOf(error);
         }
+        const previous = refused ? store.getAvatar(jid) : undefined;
+        const kept = previous?.state === 'ready' && previous.url ? previous.url : null;
         try {
-          store.setAvatar({ jid, url, state, fetched_at: clock(), reason });
+          store.setAvatar({
+            jid,
+            url: kept ?? url,
+            state: kept ? 'ready' : state,
+            fetched_at: clock(),
+            reason: kept ? null : reason,
+          });
         } catch {
           /* a picture must never break the read that asked for it */
         }
