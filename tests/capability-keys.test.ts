@@ -29,9 +29,10 @@ test('every source declares every capability, so a new one cannot be forgotten i
       for (const key of CAPABILITY_KEYS) {
         assert.equal(typeof declared[key], 'boolean', `${account} declares ${key}`);
       }
-      assert.equal(declared.react, false, `${account} does not react yet`);
-      assert.equal(declared.reactRemove, false, `${account} does not remove a reaction yet`);
-      assert.equal(declared.quoteReply, false, `${account} does not reply to one message yet`);
+      const reacts = account === 'imessage';
+      assert.equal(declared.react, reacts, `${account} react`);
+      assert.equal(declared.reactRemove, reacts, `${account} reactRemove`);
+      assert.equal(declared.quoteReply, reacts, `${account} quoteReply`);
       const undeclared = Object.keys(declared).filter(key => !CAPABILITY_KEYS.includes(key as never) && key !== 'search');
       assert.deepEqual(undeclared, [], `${account} declares nothing outside the list`);
     }

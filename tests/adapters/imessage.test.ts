@@ -2,11 +2,38 @@
 // and attachments open through the Messages-specific entry point. The imsg
 // client is stubbed and the attachment is a temporary file, never a real one.
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { createIMessageAdapter } from '../../src/adapters/imessage.ts';
+import type { RegistryDeps } from '../../src/adapters/deps.ts';
+import { createInboxCache } from '../../src/inbox-cache.ts';
 import { harness, refused, IMSG_ID, WHATSAPP_ID } from './harness.ts';
+
+/** One Messages adapter over a fake history. `fail` makes the next mutation refuse or time out. */
+function targeted(fail?: 'bridge' | 'timeout') {
+  const db = new Database(':memory:');
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const history = {
+    messages: [{ id: 1, guid: 'g-1', sender: 'Ada', text: 'Hello', created_at: '2024-01-01T00:00:00Z', is_from_me: false }],
+  };
+  const adapter = createIMessageAdapter({
+    cache: createInboxCache(db),
+    imsg: {
+      request: async (method: string, params?: Record<string, unknown>) => {
+        calls.push({ method, params });
+        if (method === 'messages.history') return history;
+        if (fail === 'bridge') throw new Error('Messages request failed (code -32603): the bridge is required');
+        if (fail === 'timeout') throw new Error('Messages request timed out');
+        if (method === 'tapback' || method === 'send') return { ok: true, guid: 'g-sent', message_id: 2 };
+        throw new Error(`unexpected Messages call: ${method}`);
+      },
+    },
+  } as RegistryDeps);
+  return { adapter, calls, history, close: () => db.close() };
+}
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3Q6wAAAABJRU5ErkJggg==', 'base64');
 
@@ -31,7 +58,7 @@ test('Messages: declared capabilities match what action and its attachment entry
   try {
     const adapter = h.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: false, reactRemove: false, quoteReply: false });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
 
     // send: true — a reply reaches the stubbed imsg send method.
     h.calls.length = 0;
@@ -141,6 +168,51 @@ test('Messages: a short chat database offers no cursor, so nothing invents a pag
   } finally {
     h.close();
   }
+});
+
+test('Messages: a reaction and a targeted reply each call the client once', async () => {
+  const f = targeted();
+  try {
+    assert.deepEqual(await f.adapter.action('react', IMSG_ID, { messageId: 'g-1', emoji: '👍' }), { status: 'Sent.' });
+    assert.deepEqual(f.calls, [{ method: 'tapback', params: { message_guid: 'g-1', kind: 'like' } }]);
+
+    f.calls.length = 0;
+    assert.deepEqual(await f.adapter.action('reply', IMSG_ID, { text: '  On my way  ', messageId: 'g-1' }), { status: 'Sent.' });
+    assert.equal(f.calls.length, 1);
+    assert.deepEqual(f.calls[0], { method: 'send', params: { chat_id: 50, text: 'On my way', reply_to: 'g-1' } });
+    assert.notDeepEqual(f.calls[0].params, { chat_id: 50, text: 'On my way' });
+
+    f.calls.length = 0;
+    await assert.rejects(f.adapter.action('react', IMSG_ID, { messageId: 'g-1', emoji: '‼️' }), /four reactions/);
+    assert.deepEqual(f.calls, []);
+  } finally { f.close(); }
+});
+
+test('Messages: a bridge refusal sends nothing and leaves the history unchanged', async () => {
+  const f = targeted('bridge');
+  try {
+    const before = (await f.adapter.open(IMSG_ID)).messages.at(-1);
+    f.calls.length = 0;
+    await assert.rejects(f.adapter.action('react', IMSG_ID, { messageId: 'g-1', emoji: '😂', remove: true }), /bridge/);
+    assert.deepEqual(f.calls.map(call => call.method), ['tapback']);
+    assert.deepEqual(f.calls[0].params, { message_guid: 'g-1', kind: 'laugh', remove: true });
+
+    f.calls.length = 0;
+    await assert.rejects(f.adapter.action('reply', IMSG_ID, { text: 'hello', messageId: 'g-1' }), /bridge/);
+    assert.deepEqual(f.calls, [{ method: 'send', params: { chat_id: 50, text: 'hello', reply_to: 'g-1' } }]);
+
+    const after = (await f.adapter.open(IMSG_ID)).messages.at(-1);
+    assert.equal(after?.text, before?.text);
+    assert.equal(f.history.messages.length, 1);
+  } finally { f.close(); }
+});
+
+test('Messages: a tapback timeout is unknown and is not sent again', async () => {
+  const f = targeted('timeout');
+  try {
+    await assert.rejects(f.adapter.action('react', IMSG_ID, { messageId: 'g-1', emoji: '👍' }), /unknown/);
+    assert.deepEqual(f.calls.map(call => call.method), ['tapback']);
+  } finally { f.close(); }
 });
 
 test('Messages: a chat outside the newest page is found by search', async () => {
