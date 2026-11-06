@@ -181,6 +181,29 @@ test('a fresh URL is answered without asking, and a stale one is answered while 
   }
 });
 
+test('a refresh that fails keeps the picture the chat already had', async () => {
+  const { store, close } = fixture();
+  try {
+    const fake = fakeSocket(() => new Error('item-not-found'));
+    const clock = { now: 1_700_000_000_000 };
+    store.setAvatar({ jid: ADA, url: PICTURE, state: 'ready', fetched_at: clock.now });
+    const pictures = avatars(store, fake.socket, clock);
+
+    clock.now += AVATAR_TTL_MS + 1;
+    assert.equal(pictures.url(ADA), PICTURE);
+    await settle();
+    assert.equal(fake.asks.length, 1, 'a stale picture is asked again');
+    assert.equal(pictures.url(ADA), PICTURE, 'a failed refresh does not blank a picture that already loaded');
+    assert.equal(store.getAvatar(ADA)?.url, PICTURE);
+    assert.equal(store.getAvatar(ADA)?.state, 'ready');
+    assert.equal(pictures.url(ADA), PICTURE);
+    await settle();
+    assert.equal(fake.asks.length, 1, 'the kept picture is not asked again on the next draw');
+  } finally {
+    close();
+  }
+});
+
 test('two draws of one page ask once, and a page of rows is asked one at a time', async () => {
   const { store, close } = fixture();
   try {
