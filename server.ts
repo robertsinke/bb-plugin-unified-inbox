@@ -68,6 +68,16 @@ export default function plugin(bb: BbPluginApi) {
         }).strict(),
       }).strict(),
     }),
+    wording: () => bb.sdk.plugins.callRpc({
+      pluginId: 'decisions',
+      method: 'wording',
+      input: null,
+      outputSchema: z.object({
+        question: z.string(),
+        yes: z.string(),
+        no: z.string(),
+      }).strict(),
+    }),
     recentLines: (account, id) => {
       if (account !== 'whatsapp') return null;
       return whatsappStore.listRecentMessages(id, 64).flatMap(message => {
