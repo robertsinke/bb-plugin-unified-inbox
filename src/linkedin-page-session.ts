@@ -98,9 +98,13 @@ export function linkedinReadResult(value: unknown): unknown {
   const result = value as { ok?: unknown; payload?: unknown; error?: unknown };
   if (result.ok === true) return result.payload;
   const reason = typeof result.error === 'string' ? result.error.slice(0, 200) : '';
+  // The refresh worker matches this sentence and retries within seconds. A 401 still asks for sign-in.
+  if (/\b(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_|NetworkError|Failed to fetch|fetch failed|Load failed)\b/.test(reason)) {
+    throw new Error('LinkedIn could not reach the network.');
+  }
   if (/LinkedIn (401|403)/.test(reason) || /not signed in/i.test(reason)) throw new Error(`LinkedIn needs you to sign in again. ${SIGN_IN_HINT}`);
   if (/LinkedIn \d+/.test(reason)) throw new Error(reason);
-  throw new Error(`LinkedIn is unavailable in its browser. ${SIGN_IN_HINT}`);
+  throw new Error('LinkedIn is unavailable in its browser.');
 }
 
 /** The payload behind a successful envelope, refused when it is not an object. */

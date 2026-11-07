@@ -50,15 +50,44 @@ export function createInboxRefresh(deps: {
  */
 const FAILURE_BACKOFF_CEILING = 4;
 
-/** Host-owned lifetime; failures back off near the source's own cadence, success restores it. */
+/**
+ * A wake tries to refresh before DNS answers. That miss retries on its own ladder, from 5 seconds
+ * up to one poll, so the line clears when the network returns. The sentence is the one
+ * `linkedinReadResult` throws; the codes are the ones `toProviderError` copies off `error.cause`.
+ */
+const NETWORK_RETRY_MS = 5_000;
+const NETWORK_FAILURE = /\b(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_|NetworkError|Failed to fetch|fetch failed|Load failed|could not reach the network)\b/;
+
+function networkFailure(cause: unknown): boolean {
+  return NETWORK_FAILURE.test(cause instanceof Error ? cause.message : '');
+}
+
+/** Host-owned lifetime. A network miss retries within seconds; any other failure backs off near the source cadence. */
 export async function runInboxRefresh(
   refresh: () => Promise<unknown>, intervalMs: number, signal: AbortSignal,
   wait: (ms: number, signal: AbortSignal) => Promise<unknown> = (ms, signal) => sleep(ms, undefined, { signal }),
 ): Promise<void> {
   let delay = intervalMs;
+  let steady = intervalMs;
+  let networkDelay = NETWORK_RETRY_MS;
   while (!signal.aborted) {
-    try { await refresh(); delay = intervalMs; }
-    catch { delay = Math.min(delay * 2, intervalMs * FAILURE_BACKOFF_CEILING); } // refresh persisted the failure
+    try {
+      await refresh();
+      delay = intervalMs;
+      steady = intervalMs;
+      networkDelay = NETWORK_RETRY_MS;
+    } catch (cause) {
+      // The refresh already stored the failure. The two ladders stay apart, so a DNS miss
+      // does not shorten an auth backoff and an auth failure does not inherit the 5-second ladder.
+      if (networkFailure(cause)) {
+        delay = Math.min(networkDelay, intervalMs);
+        networkDelay = Math.min(networkDelay * 2, intervalMs);
+      } else {
+        steady = Math.min(steady * 2, intervalMs * FAILURE_BACKOFF_CEILING);
+        delay = steady;
+        networkDelay = NETWORK_RETRY_MS;
+      }
+    }
     if (signal.aborted) return;
     try { await wait(delay, signal); }
     catch (error) { if (!signal.aborted) throw error; }

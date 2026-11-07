@@ -100,6 +100,24 @@ test('consecutive failures back off to four times the source cadence; success re
     180_000, 180_000, 45_000, 45_000, 90_000, 180_000]);
 });
 
+test('a network miss retries in 5 seconds; an auth failure keeps the long backoff', async () => {
+  const controller = new AbortController();
+  const delays: number[] = [];
+  let attempts = 0;
+  await runInboxRefresh(async () => {
+    attempts++;
+    if (attempts <= 4) throw new Error('gmail gmail-personal request failed (ENOTFOUND): getaddrinfo ENOTFOUND gmail.googleapis.com');
+    if (attempts === 5) return;
+    if (attempts === 6) throw new Error('LinkedIn could not reach the network.');
+    throw new Error('offline');
+  }, 45_000, controller.signal, async delay => {
+    delays.push(delay);
+    if (delays.length === 7) controller.abort();
+  });
+  assert.equal(attempts, 7);
+  assert.deepEqual(delays, [5_000, 10_000, 20_000, 40_000, 45_000, 5_000, 90_000]);
+});
+
 test('abort cancels a pending worker sleep without another refresh', async () => {
   const controller = new AbortController();
   let attempts = 0;
