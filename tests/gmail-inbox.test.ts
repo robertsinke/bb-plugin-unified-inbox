@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { latestReceivedMessage, sentReplySnippet } from '../src/gmail-inbox.ts';
+import { gmailSnippet, latestReceivedMessage, sentReplySnippet } from '../src/gmail-inbox.ts';
 
 test('inbox summary uses the newest received message instead of a later sent reply', () => {
   const received = { id: 'received-new', internalDate: '200', labelIds: ['INBOX'], from: 'Ada <ada@example.test>', snippet: 'Latest incoming' };
@@ -30,6 +30,13 @@ test('inbox summary keeps the latest received message when thread messages are n
     { id: 'sent-later', internalDate: '700', labelIds: ['SENT'] },
     { id: 'received-old', internalDate: '200', labelIds: ['INBOX'] },
   ]), newest);
+});
+
+test('a Gmail snippet is text, so an escaped apostrophe is an apostrophe', () => {
+  assert.equal(gmailSnippet('I&#39;m working with 80+ startups'), "I'm working with 80+ startups");
+  assert.equal(gmailSnippet('Tom &amp; Jerry &lt;3 &quot;hi&quot;'), 'Tom & Jerry <3 "hi"');
+  assert.equal(gmailSnippet('already I\'m fine'), "already I'm fine");
+  assert.equal(gmailSnippet('keep &amp;amp; and &unknown;'), 'keep &amp; and &unknown;');
 });
 
 test('a sent reply newer than the inbox message is visible to classification', () => {

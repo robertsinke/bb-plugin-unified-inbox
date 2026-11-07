@@ -14,6 +14,19 @@ import { harness } from './harness.ts';
 
 const TOKEN = 'ya29.a0AfH6SMBx9TcdefGHijklmnopqrstuvwxyz1234567890';
 
+test('a cached Gmail row shows the apostrophe Gmail escaped in the snippet', () => {
+  const h = harness();
+  try {
+    h.cache.save('gmail-personal', [{
+      account: 'gmail-personal', id: 't1', title: 'Hi', preview: 'I&#39;m working', date: 1, unread: false,
+      sender: 'Jim', senderAddress: 'jim@example.com', recipients: '', attachments: [], sentSnippet: 'I&#39;ll reply',
+    }]);
+    const shown = h.registry['gmail-personal'].decorate!(h.cache.list()[0]);
+    assert.equal(shown.preview, "I'm working");
+    assert.equal(shown.sentSnippet, "I'll reply");
+  } finally { h.close(); }
+});
+
 test('a transport rejection becomes one scrubbed ProviderError message at the source boundary', async () => {
   const h = harness({ gmailCall: () => { throw new GmailApiError(401, 'authError', `Invalid Credentials for Bearer ${TOKEN}`, 'GET /users/me/profile'); } });
   try {
