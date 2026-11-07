@@ -57,6 +57,23 @@ test('toProviderError redacts secrets carried in an exception message', () => {
   assert.ok(err.message.includes('whatsapp whatsapp request failed (unknown)'));
 });
 
+test('toProviderError reports the code nested under a fetch failure', () => {
+  const named = new TypeError('fetch failed', {
+    cause: Object.assign(new Error('getaddrinfo ENOTFOUND gmail.googleapis.com'), { code: 'ENOTFOUND' }),
+  });
+  assert.equal(
+    toProviderError('gmail-personal', 'gmail', named).message,
+    'gmail gmail-personal request failed (ENOTFOUND): getaddrinfo ENOTFOUND gmail.googleapis.com',
+  );
+
+  const refused = new TypeError('fetch failed', {
+    cause: new AggregateError([
+      Object.assign(new Error('connect ECONNREFUSED 142.250.185.14:443'), { code: 'ECONNREFUSED' }),
+    ]),
+  });
+  assert.match(toProviderError('gmail-business', 'gmail', refused).message, /^gmail gmail-business request failed \(ECONNREFUSED\): connect ECONNREFUSED /);
+});
+
 test('toProviderError handles non-Error causes without throwing', () => {
   const err = toProviderError('imessage', 'imsg', 'imsg timeout');
   assert.ok(err.message.includes('imsg imessage request failed'));

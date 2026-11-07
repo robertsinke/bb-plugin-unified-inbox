@@ -62,17 +62,49 @@ function classify(diagnostic: string): string[] {
   return [...new Set(SAFE_HINTS.filter(hint => lower.includes(hint)))].sort();
 }
 
-/** Failure code from an exec/system error, mirroring gmail()'s code handling. */
-function errorCode(cause: unknown): string {
-  const error = cause as NodeJS.ErrnoException;
-  if (error && (typeof error.code === 'string' || typeof error.code === 'number')) return String(error.code);
-  return 'unknown';
+/** A system or HTTP code sitting on the error itself. A number is an exit or status, not a missing code. */
+function ownCode(cause: unknown): string | undefined {
+  if (!cause || typeof cause !== 'object') return undefined;
+  const code = (cause as { code?: unknown }).code;
+  if (typeof code === 'string' && code) return code;
+  if (typeof code === 'number') return String(code);
+  return undefined;
 }
+
+/**
+ * The code and text on `cause.cause`, including an `AggregateError`'s `errors`.
+ * Node's `fetch` reports `TypeError: fetch failed` and puts `ENOTFOUND` on the cause.
+ */
+function nestedFailure(cause: unknown): { code?: string; message?: string } {
+  const queue: unknown[] = [];
+  if (cause && typeof cause === 'object') {
+    queue.push((cause as { cause?: unknown }).cause);
+    const errors = (cause as { errors?: unknown }).errors;
+    if (Array.isArray(errors)) queue.push(...errors);
+  }
+  const seen = new Set<object>();
+  let message: string | undefined;
+  while (queue.length > 0 && seen.size < 8) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || seen.has(current)) continue;
+    seen.add(current);
+    const text = current instanceof Error ? current.message : undefined;
+    if (text && text !== 'fetch failed' && text !== 'Failed to fetch') message ??= text;
+    const code = ownCode(current);
+    if (code) return { code, message: text && text !== 'fetch failed' && text !== 'Failed to fetch' ? text : message };
+    queue.push((current as { cause?: unknown }).cause);
+    const errors = (current as { errors?: unknown }).errors;
+    if (Array.isArray(errors)) queue.push(...errors);
+  }
+  return message ? { message } : {};
+}
+
+const NESTED_CODE = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_[A-Z0-9_]+)\b/;
 
 /**
  * Normalize any thrown cause into a safe ProviderError. The message is
  * synthesized: `<source> <account> request failed (<code>[; <hints>])[<detail>]`.
- * - code: the exception's system/exec code, else `unknown`.
+ * - code: the exception's system/exec code, else the code on `error.cause`, else `unknown`.
  * - hints: SAFE_HINTS words found in stderr/stdout/cause text — classification only.
  * - detail: the redacted first line of the cause text (Error message or string), when present.
  * Raw stderr/stdout never enter the message; if an exception message must
@@ -80,12 +112,13 @@ function errorCode(cause: unknown): string {
  */
 export function toProviderError(account: Account, source: ProviderError['source'], cause: unknown): ProviderError {
   const error = cause as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
+  const nested = nestedFailure(cause);
   const causeText = error instanceof Error ? error.message : typeof cause === 'string' ? cause : '';
-  const diagnostic = `${error?.stderr ?? ''} ${error?.stdout ?? ''} ${causeText}`;
+  const diagnostic = `${error?.stderr ?? ''} ${error?.stdout ?? ''} ${causeText} ${nested.message ?? ''}`;
   const hints = classify(diagnostic);
-  const code = errorCode(cause);
+  const code = ownCode(cause) ?? nested.code ?? nested.message?.match(NESTED_CODE)?.[1] ?? 'unknown';
   const template = `${source} ${account} request failed (${code}${hints.length > 0 ? `; ${hints.join(', ')}` : ''})`;
-  const rawDetail = causeText;
+  const rawDetail = (causeText === 'fetch failed' || causeText === 'Failed to fetch') && nested.message ? nested.message : causeText;
   const detail = rawDetail ? redactProviderText(rawDetail.split('\n')[0] ?? '') : '';
   const message = detail && detail !== template ? `${template}: ${detail}`.slice(0, MESSAGE_LIMIT) : template.slice(0, MESSAGE_LIMIT);
   return { account, source, message };
