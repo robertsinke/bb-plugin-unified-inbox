@@ -5,7 +5,7 @@
 // further.
 import { buildGmailMime } from '../gmail-mime.ts';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
-import { latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
+import { gmailSnippet, latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor } from '../sync-plan.ts';
 import { mailSenderAddress, mailSenderName, replyRecipients } from '../recipients.ts';
 import { sourceAvatarUrl } from '../avatar-url.ts';
@@ -82,7 +82,10 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
    * picture on a later one. The allowlist stays `src/avatar-url.ts`: a URL it refuses is dropped.
    */
   const withFace = (item: Conversation): Conversation => {
-    const { avatarUrl: _stale, ...rest } = item;
+    const preview = gmailSnippet(item.preview);
+    const sentSnippet = item.sentSnippet === undefined ? undefined : gmailSnippet(item.sentSnippet);
+    const shown = preview === item.preview && sentSnippet === item.sentSnippet ? item : { ...item, preview, ...(sentSnippet === undefined ? {} : { sentSnippet }) };
+    const { avatarUrl: _stale, ...rest } = shown;
     const avatarUrl = rest.senderAddress ? sourceAvatarUrl(faces.url(rest.senderAddress), 'gmail') : undefined;
     return avatarUrl ? { ...rest, avatarUrl } : rest;
   };
@@ -163,7 +166,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       senderAddress: mailSenderAddress(from),
       recipients,
       ...(attachments ? { attachments } : {}),
-      preview: String(last.snippet || ''),
+      preview: gmailSnippet(String(last.snippet || '')),
       ...(reply ? { sentSnippet: reply } : {}),
       date: Number(last.internalDate || 0),
       unread: cache.heldRead(account, String(t.id)) ? false : ms.some((m: any) => m.labelIds?.includes('UNREAD')),
@@ -267,7 +270,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
         const html = await messageHtml(String(m.id), m.payload);
         const attachments = pickGmailAttachments(m.payload);
         return {
-          sender, text: plain(m.payload) || String(m.snippet || ''), date: Number(m.internalDate || 0),
+          sender, text: plain(m.payload) || gmailSnippet(String(m.snippet || '')), date: Number(m.internalDate || 0),
           ...(html ? { html } : {}),
           to, cc, replyTo, subject: String(h.subject || ''), messageId: String(h['message-id'] || ''), references: String(h.references || ''),
           suggestedTo: suggested.to, suggestedCc: suggested.cc, attachments, gmailId: String(m.id),
