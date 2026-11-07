@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { attentionFromAnswer, attentionScore, attentionVerdict, createAttentionStore, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
+import { attentionFromAnswer, attentionScore, attentionVerdict, createAttentionStore, DEFAULT_WORDING, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
 import { createInboxCache } from '../src/inbox-cache.ts';
 
 const row = (preview: string, date = 2) => ({
@@ -305,6 +305,51 @@ test('a LinkedIn invitation is not asked', async () => {
     assert.deepEqual(asked, ['can you review this']);
     store.put('linkedin', 'urn:li:fs_relInvitation:abc', { verdict: 'yes', noul: 0.91, stateHash: 'x', lines: null, anchor: null });
     assert.equal(store.get('linkedin', 'urn:li:fs_relInvitation:abc'), null);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('a new question asks the current span again and leaves older lines out', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const recent = [
+    { sender: 'Ada', text: 'can you reply?' },
+    { sender: 'Ada', text: 'just an update' },
+  ];
+  cache.save('gmail-personal', [{ account: 'gmail-personal', id: 'chat', title: 'Ada', preview: 'just an update', date: 1, unread: true }]);
+  cache.saveThread('gmail-personal', 'chat', recent);
+  let wording = { ...DEFAULT_WORDING };
+  const asked: string[][] = [];
+  const yes: string[] = [];
+  const spans: number[] = [];
+  const watch = watchNewConversations({
+    cache,
+    store,
+    wording: async () => wording,
+    ask: async input => {
+      const keys = Object.keys(input.questions).sort();
+      asked.push(keys);
+      yes.push(input.questions[keys[0]].criteria.true);
+      spans.push((input.state.messages as unknown[]).length);
+      return { answers: Object.fromEntries(keys.map(key => [key, { noul: 0.2 }])) };
+    },
+  });
+  try {
+    await settle();
+    watch.arrived('gmail-personal', 'chat');
+    await settle();
+    const older = Array.from({ length: 8 }, (_, index) => ({ sender: 'Ada', text: `old ${index}` }));
+    cache.saveThread('gmail-personal', 'chat', [...older, ...recent]);
+    wording = { ...DEFAULT_WORDING, yes: 'Only a direct question counts.' };
+    watch.arrived('gmail-personal', 'chat');
+    await settle();
+    assert.deepEqual(asked, [['line_1', 'line_2'], ['line_1', 'line_2']]);
+    assert.deepEqual(spans, [2, 2]);
+    assert.equal(yes[0], DEFAULT_WORDING.yes);
+    assert.equal(yes[1], 'Only a direct question counts.');
   } finally {
     watch.stop();
     db.close();
