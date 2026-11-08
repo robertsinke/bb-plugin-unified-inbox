@@ -76,7 +76,7 @@ function rpcAnswer(rows: unknown[], messages: unknown[], action: (input: any) =>
 function sdk(rpc: (method: string, input: unknown) => unknown) {
   let panel: any = null;
   const app = {
-    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; } },
+    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} },
   };
   return {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },

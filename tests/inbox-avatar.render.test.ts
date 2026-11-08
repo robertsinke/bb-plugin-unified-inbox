@@ -48,7 +48,7 @@ const ROWS = [
 function sdk(rpc: (method: string, ...args: unknown[]) => Promise<any>) {
   let panel: any = null;
   const app = {
-    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; } },
+    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} },
   };
   const stub = {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },

@@ -226,6 +226,7 @@ export default function plugin(bb: BbPluginApi) {
           return settings.gmailClientId.trim() !== '' && (settings.gmailClientSecret ?? '').trim() !== '';
         },
         mailboxes: () => listGmailCredentialStates(),
+        cancel: () => { cancelGmailLogin(); },
         connect: async ({ replace }) => {
           const settings = await mailSettings.get();
           const result = await connectGmailMailbox({

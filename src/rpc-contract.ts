@@ -177,6 +177,8 @@ export const rpcContract = defineRpcContract({
     replaced: z.boolean(),
     alreadyConnected: z.boolean(),
   }).strict() },
+  /** Close the loopback listener. Not an agent tool. Writes nothing and deletes nothing. */
+  gmail_connect_cancel: { input: noArgs, output: z.object({ cancelled: z.literal(true) }).strict() },
   /** Delete one mailbox credential. Not an all-source clear. */
   gmail_remove: { input: z.object({
     account: z.string().refine(value => isMailboxAddress(value) || isLegacyGmailAccount(value), 'Unknown mailbox'),
