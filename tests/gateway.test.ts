@@ -31,6 +31,7 @@ interface FixtureOptions {
   extraAccounts?: string[];
   /** What the pairing module answers; the gateway only forwards, so a recorder is enough. */
   pairing?: GatewayDeps['pairing'];
+  gmail?: GatewayDeps['gmail'];
   /** What the index ranks for a query, and the rows only it holds. */
   ranked?: { id: string; score: number }[];
   indexRows?: Conversation[];
@@ -69,7 +70,8 @@ function fixture(options: FixtureOptions = {}) {
     threadUpdatedAt: () => null,
     list: () => cacheRows,
     readThread: () => null,
-    clear: () => { cacheRows.length = 0; },
+    clear: () => { calls.push('clear'); cacheRows.length = 0; },
+    forget: account => { calls.push(`forget:${account}`); const index = cacheRows.findIndex(row => row.account === account); if (index >= 0) cacheRows.splice(index, 1); },
     setSentSnippet: () => {},
   };
   const search: GatewayDeps['search'] = {
@@ -135,6 +137,7 @@ function fixture(options: FixtureOptions = {}) {
     // its own tests over a real connection.
     pairing: options.pairing ?? (async () => ({ state: 'unpaired' })),
     note: (level, line) => notes.push(`${level} ${line}`),
+    gmail: options.gmail,
   });
   return { gateway, calls, auditRows, cacheRows, registry, notes };
 }
@@ -442,4 +445,42 @@ test('a targeted reply, a bad emoji, a missing message id, and a removal are ref
   );
   assert.equal(delivered(), 0);
   assert.deepEqual(f.auditRows.filter(row => row.decision === 'allowed'), []);
+});
+
+test('connection status is a read, and remove drops one account cache without clearing every source', async () => {
+  const seen: unknown[] = [];
+  let ensured = 0;
+  const f = fixture({
+    pairing: async request => {
+      seen.push(request);
+      if (request.op) ensured += 1;
+      return { state: 'unpaired' };
+    },
+    gmail: {
+      clientConfigured: async () => true,
+      mailboxes: async () => [{ account: 'ada@example.com', present: true, hasRefreshToken: true, source: 'login', refresh_token: '1//secret-refresh' } as never],
+      connect: async input => ({ account: 'ada@example.com', replaced: input.replace, alreadyConnected: false }),
+      remove: async () => {},
+    },
+  });
+  const status = await f.gateway.connection_status(null);
+  assert.equal(status.clientConfigured, true);
+  assert.equal(status.mailboxes[0]?.account, 'ada@example.com');
+  assert.equal(status.whatsapp.state, 'unpaired');
+  assert.deepEqual(seen, [{}]);
+  assert.equal(ensured, 0);
+  assert.equal(JSON.stringify(status).includes('1//secret-refresh'), false);
+  assert.equal(JSON.stringify(status).includes('secret'), false);
+  assert.equal(rpcContract.connection_status.output.safeParse(status).success, true);
+  assert.equal(status.messages.includes('Full Disk Access'), true);
+
+  f.cacheRows.push({ account: 'ada@example.com', id: 't1', title: 'Hi', preview: '', date: NOW, unread: false });
+  f.cacheRows.push({ account: 'whatsapp', id: 'c1', title: 'Chat', preview: '', date: NOW, unread: false });
+  const added = await f.gateway.gmail_connect({});
+  assert.deepEqual(added, { account: 'ada@example.com', replaced: false, alreadyConnected: false });
+  assert.deepEqual(await f.gateway.gmail_remove({ account: 'ada@example.com' }), { removed: true });
+  assert.equal(f.calls.includes('forget:ada@example.com'), true);
+  assert.equal(f.calls.includes('clear'), false);
+  assert.equal(f.cacheRows.some(row => row.account === 'ada@example.com'), false);
+  assert.equal(f.cacheRows.some(row => row.account === 'whatsapp'), true);
 });

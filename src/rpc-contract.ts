@@ -4,7 +4,7 @@
 // must not touch.
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { isAccountId } from './adapters/types.ts';
+import { isAccountId, isLegacyGmailAccount, isMailboxAddress } from './adapters/types.ts';
 import { MEDIA_KINDS, attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
 import { sourceDeclarationSchema } from './adapters/source.ts';
@@ -168,4 +168,32 @@ export const rpcContract = defineRpcContract({
     legacy: z.record(z.string(), z.string()),
     conflicts: z.array(z.object({ account: z.string(), address: z.string() })),
   }) },
+  /**
+   * Start a desktop sign-in. The only field is `replace`. A code, state, verifier, redirect,
+   * token URL, mailbox address, client id, client secret, or scope is rejected.
+   */
+  gmail_connect: { input: z.union([z.null(), z.object({ replace: z.boolean().optional() }).strict()]), output: z.object({
+    account: z.string(),
+    replaced: z.boolean(),
+    alreadyConnected: z.boolean(),
+  }).strict() },
+  /** Delete one mailbox credential. Not an all-source clear. */
+  gmail_remove: { input: z.object({
+    account: z.string().refine(value => isMailboxAddress(value) || isLegacyGmailAccount(value), 'Unknown mailbox'),
+  }).strict(), output: z.object({ removed: z.literal(true) }).strict() },
+  /** What the settings page reads. No token and no client secret. */
+  connection_status: { input: noArgs, output: z.object({
+    clientConfigured: z.boolean(),
+    mailboxes: z.array(z.object({
+      account: z.string(),
+      present: z.boolean(),
+      hasRefreshToken: z.boolean(),
+      expiresAt: z.number().optional(),
+      source: z.enum(['gws-import', 'login']).optional(),
+      lastError: z.object({ at: z.number(), message: z.string() }).strict().optional(),
+    }).strict()),
+    whatsapp: whatsappPairing,
+    linkedin: z.object({ lastAttemptAt: timestamp, lastSuccessAt: timestamp, lastError: z.string().nullable(), cacheFallback: z.boolean() }),
+    messages: z.string(),
+  }).strict() },
 });

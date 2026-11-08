@@ -8,11 +8,18 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { gwsConfigDir, importGwsAccount, parseGwsExport } from '../src/account-import.ts';
-import { gmailCredentialPath, type GmailCredentialRecord } from '../src/gmail-oauth.ts';
+import { gmailCredentialPath, type GmailCredentialRecord, type TokenFetch } from '../src/gmail-oauth.ts';
 
 const CLIENT_ID = 'client-123.apps.googleusercontent.com';
 const CLIENT_SECRET = 'fixture-client-secret-value';
 const REFRESH_TOKEN = '1//fixture-refresh-token-value';
+const ADDRESS = 'ada@example.com';
+
+/** A token grant and a profile read. Neither talks to Google. */
+function profileRead(email: string | undefined, fail = false) {
+  const fetch: TokenFetch = async () => ({ ok: true, status: 200, json: async () => ({ access_token: 'ya29.probe', expires_in: 3600 }) });
+  return { fetch, profile: async () => { if (fail) throw new Error('profile down'); return email; } };
+}
 
 /** The verified `gws auth export --unmasked` shape. */
 function exportPayload(overrides: Record<string, unknown> = {}): string {
@@ -36,9 +43,11 @@ async function tempDir(): Promise<string> {
 }
 
 /** Seed a record the way a previous import or login would have left it. */
-async function seed(dir: string, seeded: Partial<GmailCredentialRecord> = {}): Promise<string> {
-  const path = gmailCredentialPath('gmail-business', dir);
-  const record: GmailCredentialRecord = { client_id: CLIENT_ID, client_secret: CLIENT_SECRET, refresh_token: REFRESH_TOKEN, source: 'gws-import', ...seeded };
+async function seed(dir: string, accountOrSeed: string | Partial<GmailCredentialRecord> = 'gmail-business', seeded: Partial<GmailCredentialRecord> = {}): Promise<string> {
+  const account = typeof accountOrSeed === 'string' ? accountOrSeed : 'gmail-business';
+  const extra = typeof accountOrSeed === 'string' ? seeded : accountOrSeed;
+  const path = gmailCredentialPath(account, dir);
+  const record: GmailCredentialRecord = { client_id: CLIENT_ID, client_secret: CLIENT_SECRET, refresh_token: REFRESH_TOKEN, source: 'gws-import', ...extra };
   await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   return path;
 }
@@ -47,9 +56,11 @@ test('imports an account from an export payload as a 0600 gws-import record', as
   const dir = await tempDir();
   const { readExport } = fixtureExport(exportPayload());
 
-  const imported = await importGwsAccount({ account: 'gmail-business' }, { dir, readExport });
+  const imported = await importGwsAccount({ account: 'gmail-business' }, { dir, readExport, ...profileRead(ADDRESS) });
 
-  assert.deepEqual(imported, { account: 'gmail-business', path: gmailCredentialPath('gmail-business', dir), replaced: false });
+  assert.deepEqual(imported, { account: ADDRESS, path: gmailCredentialPath(ADDRESS, dir), replaced: false });
+  assert.equal(existsSync(gmailCredentialPath('gmail-business', dir)), false, 'the selector is not the stored id');
+  assert.equal(existsSync(gmailCredentialPath('gmail-personal', dir)), false);
   const stored = JSON.parse(await readFile(imported.path, 'utf8')) as GmailCredentialRecord;
   assert.equal(stored.source, 'gws-import');
   assert.equal(stored.client_id, CLIENT_ID);
@@ -60,26 +71,26 @@ test('imports an account from an export payload as a 0600 gws-import record', as
   assert.equal((await stat(imported.path)).mode & 0o777, 0o600);
 });
 
-test('refuses to overwrite without --force, names the blocking account, and never runs the CLI', async () => {
+test('refuses to overwrite the profile address without --force, and leaves that file unchanged', async () => {
   const dir = await tempDir();
-  const path = await seed(dir);
+  const path = await seed(dir, ADDRESS);
   const before = await readFile(path, 'utf8');
-  const { calls, readExport } = fixtureExport(exportPayload());
+  const { readExport } = fixtureExport(exportPayload());
 
   await assert.rejects(
-    importGwsAccount({ account: 'gmail-business' }, { dir, readExport }),
-    (error: Error) => /gmail-business/.test(error.message) && /--force/.test(error.message),
+    importGwsAccount({ account: 'gmail-business' }, { dir, readExport, ...profileRead(ADDRESS) }),
+    (error: Error) => /ada@example.com/.test(error.message) && /--force/.test(error.message),
   );
-  assert.equal(calls.length, 0);
   assert.equal(await readFile(path, 'utf8'), before);
+  assert.equal(existsSync(gmailCredentialPath('gmail-business', dir)), false);
 });
 
 test('--force replaces the record and drops the previous access token and last error', async () => {
   const dir = await tempDir();
-  const path = await seed(dir, { access_token: 'ya29.stale', expires_at: 1, lastError: { at: 1, message: 'invalid_grant' } });
+  const path = await seed(dir, ADDRESS, { access_token: 'ya29.stale', expires_at: 1, lastError: { at: 1, message: 'invalid_grant' } });
   const { readExport } = fixtureExport(exportPayload());
 
-  const imported = await importGwsAccount({ account: 'gmail-business', force: true }, { dir, readExport });
+  const imported = await importGwsAccount({ account: 'gmail-business', force: true }, { dir, readExport, ...profileRead(ADDRESS) });
 
   assert.equal(imported.replaced, true);
   const stored = JSON.parse(await readFile(path, 'utf8')) as GmailCredentialRecord;
@@ -124,7 +135,7 @@ test('a malformed export leaves the previous record byte-for-byte untouched', as
 
 test('neither the outcome nor a rejection ever carries a refresh token or client secret', async () => {
   const dir = await tempDir();
-  const imported = await importGwsAccount({ account: 'gmail-personal' }, { dir, readExport: fixtureExport(exportPayload()).readExport });
+  const imported = await importGwsAccount({ account: 'gmail-personal' }, { dir, readExport: fixtureExport(exportPayload()).readExport, ...profileRead(ADDRESS) });
   assert.ok(!JSON.stringify(imported).includes(REFRESH_TOKEN));
   assert.ok(!JSON.stringify(imported).includes(CLIENT_SECRET));
 
@@ -139,7 +150,7 @@ test('neither the outcome nor a rejection ever carries a refresh token or client
     }
   }
   // The seeded personal record above is the one that blocks a non-forced run; read its message too.
-  await assert.rejects(importGwsAccount({ account: 'gmail-personal' }, { dir, readExport: fixtureExport(exportPayload()).readExport }), (error: Error) => {
+  await assert.rejects(importGwsAccount({ account: 'gmail-personal' }, { dir, readExport: fixtureExport(exportPayload()).readExport, ...profileRead(ADDRESS) }), (error: Error) => {
     failures.push(error.message);
     return true;
   });
@@ -154,6 +165,19 @@ test('parseGwsExport accepts the verified payload and refuses a wrong credential
     client_id: CLIENT_ID, client_secret: CLIENT_SECRET, refresh_token: REFRESH_TOKEN,
   });
   assert.throws(() => parseGwsExport(exportPayload({ type: 'service_account' }), 'gmail-business'), /authorized_user/);
+});
+
+test('a profile failure writes nothing and leaves the previous file byte-for-byte', async () => {
+  const dir = await tempDir();
+  const path = await seed(dir, ADDRESS, { lastError: { at: 4, message: 'invalid_grant' } });
+  const before = await readFile(path, 'utf8');
+  const { readExport } = fixtureExport(exportPayload());
+  await assert.rejects(
+    importGwsAccount({ account: 'gmail-personal', force: true }, { dir, readExport, ...profileRead(undefined, true) }),
+    /nothing was written/,
+  );
+  assert.equal(await readFile(path, 'utf8'), before);
+  assert.equal(existsSync(gmailCredentialPath('gmail-personal', dir)), false);
 });
 
 test('each account imports from its own gws config directory', () => {
