@@ -615,6 +615,57 @@ test('a blind copy the owner types reaches send_gmail with the rest of the draft
   assert.equal(session.snapshot().mail, null, 'a sent draft leaves the composer');
 });
 
+test('a Gmail reply shows in the open thread, and the stored copy replaces that line', async () => {
+  const target = row({ account: 'gmail-personal', id: 't1', title: 'Plan' });
+  const prior = { sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com' };
+  let opened: Message[] = [prior];
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: () => ({ items: [] }),
+    open: () => ({ messages: opened }),
+    send_gmail: () => {
+      opened = [...opened, { sender: 'Me <me@example.com>', text: 'On it.\n\nOn Mon Ada wrote:\n> The plan', date: 50, gmailId: 'm2' }];
+      return { status: 'Sent.' };
+    },
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.startMail('reply', 'gmail-personal');
+  session.setMail({ text: 'On it.' });
+  await session.sendMail();
+
+  assert.equal(session.snapshot().mail, null);
+  assert.equal(session.snapshot().messages.length, 2, 'the thread gains the reply');
+  assert.equal(session.snapshot().messages.some(message => message.fromMe), false, 'the stored copy replaces the temporary line');
+  assert.match(session.snapshot().messages[1].text, /^On it\./);
+  assert.ok(rpc.calls.filter(call => call.name === 'open').length >= 2, 'the open thread is read again after the send');
+});
+
+test('a Gmail reply stays on screen when the reload has not stored it yet', async () => {
+  const target = row({ account: 'gmail-personal', id: 't1', title: 'Plan' });
+  const prior = { sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com' };
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: () => ({ items: [] }),
+    open: () => ({ messages: [prior] }),
+    send_gmail: () => ({ status: 'Sent.' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 10 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.startMail('reply', 'gmail-personal');
+  session.setMail({ text: 'On it.' });
+  await session.sendMail();
+
+  const last = session.snapshot().messages.at(-1);
+  assert.equal(last?.fromMe, true);
+  assert.equal(last?.text, 'On it.');
+  assert.equal(session.snapshot().messages[0].text, 'The plan', 'the earlier message stays');
+});
+
 const bytes = (size: number) => Buffer.alloc(size, 'a').toString('base64');
 
 test('a draft takes attachments, refuses one that would make it too big, and can drop them again', async () => {

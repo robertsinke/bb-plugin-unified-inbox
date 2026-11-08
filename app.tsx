@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './src/rpc-contract';
@@ -335,6 +335,16 @@ function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, source
   const rpc = useRpc<typeof rpcContract>();
   const [taking, setTaking] = useState('');
   const [error, setError] = useState('');
+  const [ask, setAsk] = useState(false);
+  const askTitle = useId();
+  const confirmSend = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!ask) return;
+    confirmSend.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setAsk(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ask]);
 
   /** A file already on the thread travels through `media`: the same call that reads it in the message. */
   async function take(name: string): Promise<void> {
@@ -357,19 +367,29 @@ function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, source
     }
   }
 
-  return <MailComposer
-    mail={mail}
-    accountLabel={sourceLabel(sources,mail.account)}
-    busy={busy}
-    status={error || mailStatus}
-    sendIcon={<Icon name="ArrowUp" aria-hidden="true" />}
-    fromThread={fromThread ? { names: fromThread.names, taking, onTake: name => void take(name) } : undefined}
-    onField={patch => session.setMail(patch)}
-    onAttach={file => { session.attach(file); }}
-    onDetach={index => session.detach(index)}
-    onDiscard={() => { if ((!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}
-    onSend={() => { if (window.confirm(`Send from ${sourceLabel(sources,mail.account)} to ${mail.to}?`)) void session.sendMail(); }}
-  />;
+  const accountLabel = sourceLabel(sources, mail.account);
+  return <>
+    {ask ? <div className="ui-send-ask" role="dialog" aria-labelledby={askTitle}>
+      <p id={askTitle}>Send from {accountLabel} to {mail.to}?</p>
+      <div className="ui-send-ask-actions">
+        <button type="button" className="ui-send-ask-cancel" onClick={() => setAsk(false)}>Cancel</button>
+        <button type="button" className="ui-send-ask-send" ref={confirmSend} onClick={() => { setAsk(false); void session.sendMail(); }}>Send</button>
+      </div>
+    </div> : null}
+    <MailComposer
+      mail={mail}
+      accountLabel={accountLabel}
+      busy={busy}
+      status={error || mailStatus}
+      sendIcon={<Icon name="ArrowUp" aria-hidden="true" />}
+      fromThread={fromThread ? { names: fromThread.names, taking, onTake: name => void take(name) } : undefined}
+      onField={patch => session.setMail(patch)}
+      onAttach={file => { session.attach(file); }}
+      onDetach={index => session.detach(index)}
+      onDiscard={() => { if ((!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}
+      onSend={() => setAsk(true)}
+    />
+  </>;
 }
 function MessageText({ text, onOpenLink }: { text: string; onOpenLink: (url: string) => void }) {
   return <>{messageParts(text).map((part, index) => part.kind === 'link'
