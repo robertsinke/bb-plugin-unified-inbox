@@ -11,9 +11,10 @@ test('a sent reply is stored on the row and reported as a list change', () => {
     cache.save('gmail-personal', [{ account: 'gmail-personal', id: '1', title: 'Subject', preview: 'Can you review this?', date: 1, unread: true }]);
     const changes: string[] = [];
     cache.onChange(change => changes.push(change.kind));
-    cache.setSentSnippet('gmail-personal', '1', 'On my way');
+    cache.setSentSnippet('gmail-personal', '1', 'On my way', 50);
     assert.equal(cache.list()[0].sentSnippet, 'On my way');
-    assert.equal(cache.list()[0].preview, 'Can you review this?');
+    assert.equal(cache.list()[0].preview, 'On my way');
+    assert.equal(cache.list()[0].date, 50);
     cache.setSentSnippet('gmail-personal', 'missing', 'no row');
     assert.deepEqual(changes, ['items']);
   } finally { db.close(); }

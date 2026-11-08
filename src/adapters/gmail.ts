@@ -5,7 +5,7 @@
 // further.
 import { buildGmailMime } from '../gmail-mime.ts';
 import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
-import { gmailSnippet, latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
+import { gmailSnippet, latestMessage, latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor } from '../sync-plan.ts';
 import { mailSenderAddress, mailSenderName, replyRecipients } from '../recipients.ts';
 import { sourceAvatarUrl } from '../avatar-url.ts';
@@ -147,8 +147,9 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
 
   function row(t: any, headersOnly = false): Conversation {
     const ms: any[] = t.messages ?? [];
-    const last: any = latestReceivedMessage(ms) ?? {};
-    const head = headers(last);
+    const received: any = latestReceivedMessage(ms) ?? {};
+    const last: any = latestMessage(ms) ?? received;
+    const head = headers(received);
     const recipients = [...new Set(ms.flatMap((m: any) => { const h = headers(m); return [h.to, h.cc]; }).filter(Boolean))].join(', ').slice(0, 4000);
     // A `metadata` read carries no part list, so an older row cannot name its attachments. Saying
     // "none" would be a lie, so the field is left out; only the newest page reaches the cache, and
@@ -158,6 +159,8 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // never be turned into a picture afterwards, and the cache is what survives a restart.
     const from = String(head.from || '');
     const reply = sentReplySnippet(ms);
+    const newestSnippet = gmailSnippet(String(last.snippet || ''));
+    const receivedSnippet = gmailSnippet(String(received.snippet || ''));
     return {
       account,
       id: String(t.id),
@@ -166,9 +169,9 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       senderAddress: mailSenderAddress(from),
       recipients,
       ...(attachments ? { attachments } : {}),
-      preview: gmailSnippet(String(last.snippet || '')),
+      preview: newestSnippet || receivedSnippet,
       ...(reply ? { sentSnippet: reply } : {}),
-      date: Number(last.internalDate || 0),
+      date: Number(last.internalDate || received.internalDate || 0),
       unread: cache.heldRead(account, String(t.id)) ? false : ms.some((m: any) => m.labelIds?.includes('UNREAD')),
     };
   }

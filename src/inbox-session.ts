@@ -218,7 +218,7 @@ const OLDER_TIMEOUT = `Older conversations could not load in time: nothing answe
 const PAIRING_POLL_MS = 2_000;
 
 /** A row's identity across sources; the same thread can arrive from a refresh and from a page. */
-function rowKey(item: InboxItem): string {
+function rowKey(item: { account: Account; id: string }): string {
   return `${item.account}\u0000${item.id}`;
 }
 
@@ -284,6 +284,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
    * removes it from here, so it does not come back on the next refresh.
    */
   const olderRows = new Map<Account, InboxItem[]>();
+  /** A reply just sent. A cache read from before Gmail stored it must not move the row back down. */
+  const sentRows = new Map<string, { date: number; preview: string; sentSnippet: string }>();
 
   /** Per source: whether it told the gateway it still holds rows older than the newest page. */
   const olderLeft = new Map<Account, boolean>();
@@ -379,6 +381,32 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     reconcileSelected();
   }
 
+  /** A reply the cache has not caught up with keeps its place. A row at least as new drops the hold. */
+  function applySent(items: InboxItem[]): InboxItem[] {
+    if (sentRows.size === 0) return items;
+    return items.map(item => {
+      const sent = sentRows.get(rowKey(item));
+      if (!sent) return item;
+      if (item.date >= sent.date) {
+        sentRows.delete(rowKey(item));
+        return item;
+      }
+      return { ...item, date: sent.date, preview: sent.preview, sentSnippet: sent.sentSnippet };
+    });
+  }
+
+  function noteSentReply(account: Account, id: string, preview: string, date: number): void {
+    const text = preview.trim();
+    if (!text) return;
+    sentRows.set(rowKey({ account, id }), { date, preview: text, sentSnippet: text });
+    const next = applySent(state.items).sort((a, b) => b.date - a.date);
+    state.items = next;
+    if (state.selected?.account === account && state.selected.id === id) {
+      state.selected = next.find(item => item.account === account && item.id === id)
+        ?? { ...state.selected, date, preview: text, sentSnippet: text };
+    }
+  }
+
   /** Replace one source's rows; the list stays newest first. */
   function mergeSource(account: Account, listed: InboxItem[]): void {
     // A row that has moved back into the newest page (new mail pushed the page down) is served
@@ -386,7 +414,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     const listedIds = new Set(listed.map(item => item.id));
     const kept = (olderRows.get(account) ?? []).filter(item => !listedIds.has(item.id));
     olderRows.set(account, kept);
-    setItems([...state.items.filter(item => item.account !== account), ...listed, ...kept].sort((a, b) => b.date - a.date));
+    setItems(applySent([...state.items.filter(item => item.account !== account), ...listed, ...kept]).sort((a, b) => b.date - a.date));
   }
 
   // Capabilities are asked once. A failure leaves the declaration null, which
@@ -939,7 +967,10 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       state.mail = null;
       state.status = '';
       const sentAt = clock();
+      const preview = sent.text.replace(/\s+/g, ' ').trim().slice(0, 500)
+        || sent.attachmentNames.map(name => name.trim()).filter(Boolean).join(', ').slice(0, 500);
       // The thread has no watch. Without this line the reply stays missing until the owner leaves and opens it again.
+      if (threadId) noteSentReply(account, threadId, preview, sentAt);
       if (stillHere()) state.messages = messagesAfterMail(before, before, sent, sentAt);
       notify();
       if (stillHere() && threadId) {

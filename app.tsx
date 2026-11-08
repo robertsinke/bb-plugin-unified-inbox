@@ -324,27 +324,39 @@ function threadAttachments(messages: InboxMessage[], account: 'gmail-personal' |
  * The panel's half of the mail composer: the media reader, the refusals and the confirmations live
  * here, so the form itself stays a form that a test can render.
  */
-function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, sources }: {
+type PanelAsk = { title: string; confirm: string; run: () => void };
+
+/** The send, discard, and archive questions. One card, in the panel, for each. */
+function AskCard({ ask, onCancel }: { ask: PanelAsk; onCancel: () => void }) {
+  const titleId = useId();
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    confirmButton.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ask.title, onCancel]);
+  return <div className="ui-send-ask" role="dialog" aria-labelledby={titleId}>
+    <p id={titleId}>{ask.title}</p>
+    <div className="ui-send-ask-actions">
+      <button type="button" className="ui-send-ask-cancel" onClick={onCancel}>Cancel</button>
+      <button type="button" className="ui-send-ask-send" ref={confirmButton} onClick={() => { onCancel(); ask.run(); }}>{ask.confirm}</button>
+    </div>
+  </div>;
+}
+
+function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, sources, onAsk }: {
   mail: MailDraft;
   busy: boolean;
   mailStatus: string;
   session: InboxSession;
   sources: SourceMap | null;
   fromThread?: { account: 'gmail-personal' | 'gmail-business'; gmailId: string; names: string[] };
+  onAsk: (ask: PanelAsk) => void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [taking, setTaking] = useState('');
   const [error, setError] = useState('');
-  const [ask, setAsk] = useState(false);
-  const askTitle = useId();
-  const confirmSend = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!ask) return;
-    confirmSend.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setAsk(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [ask]);
 
   /** A file already on the thread travels through `media`: the same call that reads it in the message. */
   async function take(name: string): Promise<void> {
@@ -368,28 +380,22 @@ function MailDraftComposer({ mail, busy, mailStatus, session, fromThread, source
   }
 
   const accountLabel = sourceLabel(sources, mail.account);
-  return <>
-    {ask ? <div className="ui-send-ask" role="dialog" aria-labelledby={askTitle}>
-      <p id={askTitle}>Send from {accountLabel} to {mail.to}?</p>
-      <div className="ui-send-ask-actions">
-        <button type="button" className="ui-send-ask-cancel" onClick={() => setAsk(false)}>Cancel</button>
-        <button type="button" className="ui-send-ask-send" ref={confirmSend} onClick={() => { setAsk(false); void session.sendMail(); }}>Send</button>
-      </div>
-    </div> : null}
-    <MailComposer
-      mail={mail}
-      accountLabel={accountLabel}
-      busy={busy}
-      status={error || mailStatus}
-      sendIcon={<Icon name="ArrowUp" aria-hidden="true" />}
-      fromThread={fromThread ? { names: fromThread.names, taking, onTake: name => void take(name) } : undefined}
-      onField={patch => session.setMail(patch)}
-      onAttach={file => { session.attach(file); }}
-      onDetach={index => session.detach(index)}
-      onDiscard={() => { if ((!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) || window.confirm('Discard this draft?')) session.discardMail(); }}
-      onSend={() => setAsk(true)}
-    />
-  </>;
+  return <MailComposer
+    mail={mail}
+    accountLabel={accountLabel}
+    busy={busy}
+    status={error || mailStatus}
+    sendIcon={<Icon name="ArrowUp" aria-hidden="true" />}
+    fromThread={fromThread ? { names: fromThread.names, taking, onTake: name => void take(name) } : undefined}
+    onField={patch => session.setMail(patch)}
+    onAttach={file => { session.attach(file); }}
+    onDetach={index => session.detach(index)}
+    onDiscard={() => {
+      if (!mail.text.trim() && mail.attachments.length === 0 && !mail.to.trim()) session.discardMail();
+      else onAsk({ title: 'Discard this draft?', confirm: 'Discard', run: () => session.discardMail() });
+    }}
+    onSend={() => onAsk({ title: `Send from ${accountLabel} to ${mail.to}?`, confirm: 'Send', run: () => void session.sendMail() })}
+  />;
 }
 function MessageText({ text, onOpenLink }: { text: string; onOpenLink: (url: string) => void }) {
   return <>{messageParts(text).map((part, index) => part.kind === 'link'
@@ -484,6 +490,8 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen,pairing}=state;
   /* Which account picker is open is the one thing only the panel needs to know. */
   const [compose,setCompose]=useState(false);
+  const [ask,setAsk]=useState<PanelAsk|null>(null);
+  const cancelAsk=useCallback(()=>setAsk(null),[]);
   const [mailFocus,setMailFocus]=useState(0);
   const threadScroll=useRef<HTMLDivElement>(null); const pinnedBottom=useRef(true); const activeThread=useRef('');
   const listScroll=useRef<HTMLDivElement>(null); const olderKey=useRef('');
@@ -583,7 +591,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   >
     
 
-    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>session.back()} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3><span className="ui-conversation-name">{selected.title}</span>{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}{selected.needsAttention&&<AttentionChip verdict={selected.needsAttention} dismissed={selected.attentionDismissed} onClear={()=>void session.clearAttention(selected)} onRestore={()=>void session.restoreAttention(selected)}/>}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-line"><span className="ui-conversation-meta">{selected.sender}</span></span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} actions={[
+    {selected ? <section className="ui-detail"><header className="ui-conversation-header"><button className="ui-icon-button" onClick={()=>{setAsk(null);session.back();}} aria-label="Back to inbox" title="Back to inbox"><Icon name="ArrowLeft" aria-hidden="true"/></button><ContactAvatar name={selected.account==='whatsapp'||selected.account==='imessage'?selected.title:(selected.sender||selected.title)} account={selected.account} participants={selected.participants} avatarUrl={selected.avatarUrl}/><div className="ui-conversation-title"><h3><span className="ui-conversation-name">{selected.title}</span>{selected.account==='linkedin'&&isInvitationId(selected.id)&&(canAnswerInvitation(capabilities,selected.account)?<InvitationChip item={selected} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}{selected.needsAttention&&<AttentionChip verdict={selected.needsAttention} dismissed={selected.attentionDismissed} onClear={()=>void session.clearAttention(selected)} onRestore={()=>void session.restoreAttention(selected)}/>}</h3>{selected.account!=='whatsapp'&&selected.sender&&<span className="ui-conversation-line"><span className="ui-conversation-meta">{selected.sender}</span></span>}</div><div className="ui-conversation-actions"><ItemMenu label={selected.title||'this conversation'} actions={[
           ...(isMail(selected.account)?[
             { label: 'Reply', run: () => { session.startMail('reply', selected.account as 'gmail-personal'|'gmail-business'); setMailFocus(n => n + 1); }, title: 'Reply to this conversation', disabled: opening&&!messages.length },
             { label: 'Reply all', run: () => { session.startMail('replyAll', selected.account as 'gmail-personal'|'gmail-business'); setMailFocus(n => n + 1); }, title: 'Reply to everyone on this thread', disabled: opening&&!messages.length },
@@ -591,13 +599,13 @@ function Inbox({ threadId }: { threadId: string | null }) {
           ]:[]),
           { label: 'Add to chat', run: () => tag(selected) },
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
-          ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => { if(window.confirm('Archive this Gmail conversation?')) void session.mark(selected,'archive'); } }]:[]),
+          ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => setAsk({ title: 'Archive this Gmail conversation?', confirm: 'Archive', run: () => void session.mark(selected,'archive') }) }]:[]),
         ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
       {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
-      {composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
+      {ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}{composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk} fromThread={threadAttachments(messages, selected.account as 'gmail-personal' | 'gmail-business')}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources}/>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
+    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions"><button onClick={()=>{session.startMail('new','gmail-personal');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-personal')}</button><button onClick={()=>{session.startMail('new','gmail-business');setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources,'gmail-business')}</button></div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<>{ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk}/></>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>})}} actions={[
           { label: 'New', run: () => setCompose(!compose) },
           {
             label: auditOpen ? 'Back to inbox' : 'Send log',
@@ -605,7 +613,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
             title: 'What the send gate decided; a refusal means nothing was sent',
           },
           { label: 'Refresh', run: () => void session.refresh(allSources), title: refreshTitle },
-        ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{i.preview||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
+        ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{(i.sentSnippet||i.preview)||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
       { label: 'Add to chat', run: () => tag(i) },
       ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
     ]}/></span></div></div></div>)}{loadingOlder&&hits===null&&<p className="ui-older" role="status">Loading older…</p>}</div></>}
