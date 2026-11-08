@@ -163,7 +163,6 @@ function imsgResponse(method: string, params?: Record<string, unknown>): unknown
     return { messages: [{ id: 1, guid: 'g-1', sender: '+15551234567', sender_name: 'Ada', chat_name: null, text: 'Hello', created_at: '2024-01-01T00:00:00Z', is_from_me: false, attachments: [], reactions: [] }] };
   }
   if (method === 'send') return { ok: true, guid: 'g-sent', message_id: params?.text };
-  if (method === 'read') return { ok: true };
   throw new Error(`unexpected Messages call: ${method}`);
 }
 

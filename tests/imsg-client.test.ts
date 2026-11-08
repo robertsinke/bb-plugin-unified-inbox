@@ -40,7 +40,7 @@ test('rejects malformed output and can start a new child', async () => {
   } finally { client.dispose(); await f.cleanup(); }
 });
 
-test('permits send, tapback, and read, and rejects every other mutation', async () => {
+test('permits send and tapback, and rejects every other mutation', async () => {
   const f = await fixture(`
     const rl = require('node:readline').createInterface({ input: process.stdin });
     rl.on('line', line => {
@@ -52,7 +52,6 @@ test('permits send, tapback, and read, and rejects every other mutation', async 
   try {
     assert.equal(await client.request('send', { chat_id: 1, text: 'hi' }), 'send');
     assert.equal(await client.request('tapback', { message_guid: 'g', kind: 'like' }), 'tapback');
-    assert.equal(await client.request('read', { chat_id: 1 }), 'read');
     await assert.rejects(client.request('react', { message_guid: 'g' }), /not permitted/);
     await assert.rejects(client.request('send.rich', { chat_id: 1, text: 'hi' }), /not permitted/);
     await assert.rejects(client.request('messages.delete', { id: '1' }), /not permitted/);
