@@ -31,7 +31,7 @@ import { createGmailCredentials, listGmailCredentialStates, settleLegacyGmailAcc
 import { cancelGmailLogin, connectGmailMailbox, openSystemBrowser } from './src/gmail-login';
 import { gmailAccounts, isLegacyGmailAccount, legacyGmailAccounts, type GmailAccount } from './src/adapters/types';
 import { importGwsAccount } from './src/account-import';
-import { runInboxRefresh } from './src/inbox-refresh';
+import { refreshServiceName, runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
 import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 import { createAttentionStore, watchNewConversations } from './src/attention';
@@ -42,7 +42,7 @@ import { createAttentionStore, watchNewConversations } from './src/attention';
 // How a source lists, opens, serves media and acts lives in src/adapters/ — never here.
 
 
-export default function plugin(bb: BbPluginApi) {
+export default async function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const whatsappStore = createWhatsAppStore(db);
   // Where a Gmail row's contact photo is cached (INBOX-38): one table in the same database, so
@@ -165,8 +165,9 @@ export default function plugin(bb: BbPluginApi) {
 
   // Profile reads finish before any refresh service is registered. A legacy id whose profile
   // failed keeps its service. A renamed mailbox gets a service for the email id in this same load.
+  // The host starts only the services registered before this factory returns.
   const gmailCredentials = createGmailCredentials();
-  void (async () => {
+  await (async () => {
     let settlement: { accounts: string[]; legacy: Record<string, string>; conflicts: { account: string; address: string }[] } = {
       accounts: [...legacyGmailAccounts], legacy: {}, conflicts: [],
     };
@@ -263,7 +264,7 @@ export default function plugin(bb: BbPluginApi) {
     bb.rpc.register(rpcContract, gateway);
     registerInboxAgentTools(bb, gateway);
     for (const account of Object.keys(registry)) {
-      bb.background.service(`refresh-${account}`, {
+      bb.background.service(refreshServiceName(account), {
         start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
       });
     }

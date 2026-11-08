@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { createInboxCache } from '../src/inbox-cache.ts';
-import { createInboxRefresh, runInboxRefresh } from '../src/inbox-refresh.ts';
+import { createInboxRefresh, refreshServiceName, runInboxRefresh } from '../src/inbox-refresh.ts';
 import { accounts } from '../src/adapters/types.ts';
 
 function fixture(sync: Parameters<typeof createInboxRefresh>[0]['sync']) {
@@ -136,6 +136,16 @@ test('worker retries failure on cadence and cancels its sleep', async () => {
     controller.abort();
   }, 1, controller.signal);
   assert.equal(attempts, 2);
+});
+
+test('a mailbox address becomes a legal, stable refresh service name', () => {
+  const personal = refreshServiceName('owner@example.com');
+  const other = refreshServiceName('other.name@example.com');
+  assert.match(personal, /^refresh-[a-zA-Z0-9_-]+$/);
+  assert.match(other, /^refresh-[a-zA-Z0-9_-]+$/);
+  assert.notEqual(personal, other);
+  assert.equal(refreshServiceName('owner@example.com'), personal);
+  assert.equal(refreshServiceName('whatsapp'), 'refresh-whatsapp');
 });
 
 test('legacy bodies have unknown age and cache repair preserves body verification time', () => {
