@@ -1,5 +1,6 @@
 export type GmailRevision = { id: string; historyId: string; preview: string };
-export const GMAIL_INBOX_SUMMARY_VERSION = 'received-v1';
+/** `latest-v1`: the row's time and preview are the newest message, including a sent reply. */
+export const GMAIL_INBOX_SUMMARY_VERSION = 'latest-v1';
 
 export function gmailSummaryCursor(historyId: string): string {
   return `${GMAIL_INBOX_SUMMARY_VERSION}:${historyId}`;

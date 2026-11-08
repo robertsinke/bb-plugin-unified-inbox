@@ -259,7 +259,7 @@ export interface Conversation {
   id: string;
   title: string;
   preview: string;
-  /** A sent reply newer than the received message. The list still shows `preview`. The classifier reads this. */
+  /** A sent reply newer than the received message. `preview` shows it too. The classifier reads this so the line is yours. */
   sentSnippet?: string;
   date: number;
   unread: boolean;

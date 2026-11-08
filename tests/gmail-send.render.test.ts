@@ -21,6 +21,7 @@ const DECLARED = {
 };
 
 const MAIL = { account: 'gmail-personal', id: 't1', title: 'Plan', sender: 'Ada Lovelace', preview: 'The plan', date: 1, unread: false };
+const LATER = { account: 'gmail-personal', id: 't2', title: 'Later', sender: 'Grace Hopper', preview: 'A later note', date: 2, unread: false };
 const PRIOR = { sender: 'Ada Lovelace <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com' };
 
 let sends = 0;
@@ -30,7 +31,7 @@ function caps() {
   return Object.fromEntries(Object.keys(DECLARED).map(account => [account, {
     send: true,
     markRead: true,
-    archive: false,
+    archive: account === 'gmail-personal' || account === 'gmail-business',
     invitations: false,
     media: false,
     attachments: true,
@@ -45,7 +46,7 @@ function caps() {
 function rpc(name: string, input: any): unknown {
   if (name === 'capabilities') return caps();
   if (name === 'sources') return DECLARED;
-  if (name === 'cached') return { items: [MAIL] };
+  if (name === 'cached') return { items: [LATER, MAIL] };
   if (name === 'cached_open') return { messages: [PRIOR] };
   if (name === 'open') return { messages: [PRIOR] };
   if (name === 'sync') return { items: [], updatedAt: 0 };
@@ -117,9 +118,24 @@ test('a Gmail reply asks in the panel, then the sent line is in the thread', asy
     assert.equal(sends, 0, 'the question does not send');
     assert.equal(confirms, 0, 'the question is not the system dialog');
 
-    click(ask!.querySelector('.ui-send-ask-cancel')!);
+    click(host.querySelector('.ui-send-ask-cancel')!);
     flush();
-    assert.equal(host.querySelector('.ui-send-ask'), null, 'Cancel leaves the draft');
+    click(host.querySelector('[aria-label="Discard"]')!);
+    flush();
+    assert.equal(host.querySelector('.ui-send-ask p')?.textContent, 'Discard this draft?');
+    click(host.querySelector('.ui-send-ask-cancel')!);
+    flush();
+    assert.ok(host.querySelector('.ui-mail-composer'), 'Cancel keeps the draft');
+
+    const archive = [...host.querySelectorAll('.ui-conversation-actions [role="menuitem"]')].find(item => item.textContent?.trim() === 'Archive');
+    assert.ok(archive, 'Archive is in the conversation menu');
+    click(archive!);
+    flush();
+    assert.equal(host.querySelector('.ui-send-ask p')?.textContent, 'Archive this Gmail conversation?');
+    click(host.querySelector('.ui-send-ask-cancel')!);
+    flush();
+    assert.equal(host.querySelector('.ui-send-ask'), null);
+    assert.equal(confirms, 0, 'discard and archive use the same card');
     assert.equal(sends, 0);
 
     (host.querySelector('.ui-mail-composer') as HTMLFormElement).dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
@@ -133,6 +149,12 @@ test('a Gmail reply asks in the panel, then the sent line is in the thread', asy
     const lines = [...host.querySelectorAll('.ui-message')].map(message => message.textContent);
     assert.ok(lines.some(line => line?.includes('On it.')), 'the reply is in the thread');
     assert.ok(lines.some(line => line?.includes('The plan')), 'the earlier message stays');
+
+    click(host.querySelector('[aria-label="Back to inbox"]')!);
+    flush();
+    const bodies = [...host.querySelectorAll('.ui-row-body')].map(row => row.textContent?.trim());
+    assert.equal(bodies[0], 'On it.', 'the reply leads the inbox');
+    assert.ok(bodies.includes('A later note'));
   } finally {
     done();
   }

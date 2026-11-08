@@ -666,6 +666,44 @@ test('a Gmail reply stays on screen when the reload has not stored it yet', asyn
   assert.equal(session.snapshot().messages[0].text, 'The plan', 'the earlier message stays');
 });
 
+test('a Gmail reply moves its row above a newer received one, and a stale cache read leaves it there', async () => {
+  const target = row({ account: 'gmail-personal', id: 't1', title: 'Plan', preview: 'The plan', date: 10, sender: 'Ada' });
+  const other = row({ account: 'gmail-personal', id: 't2', title: 'Other', preview: 'Later', date: 20, sender: 'Bea' });
+  const prior = { sender: 'Ada <ada@example.com>', text: 'The plan', date: 1, subject: 'Plan', messageId: '<m1@example.com>', suggestedTo: 'ada@example.com' };
+  let cached = [other, target];
+  const rpc = fakeRpc({
+    cached: () => ({ items: cached }),
+    sync: () => ({ items: cached }),
+    open: () => ({ messages: [prior] }),
+    send_gmail: () => ({ status: 'Sent.' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 100 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.startMail('reply', 'gmail-personal');
+  session.setMail({ text: 'On it.' });
+  await session.sendMail();
+
+  assert.deepEqual(session.snapshot().items.map(item => item.id), ['t1', 't2'], 'the reply is the newest line, so the row leads');
+  assert.equal(session.snapshot().items[0].preview, 'On it.');
+  assert.equal(session.snapshot().items[0].date, 100);
+  assert.equal(session.snapshot().items[0].sender, 'Ada', 'the row is still the other person');
+  assert.equal(session.snapshot().selected?.preview, 'On it.');
+
+  session.tick(0);
+  session.tick(5_000);
+  await settle();
+  assert.equal(session.snapshot().items[0].id, 't1');
+  assert.equal(session.snapshot().items[0].preview, 'On it.', 'a cache from before the send does not put the row back');
+
+  cached = [{ ...target, date: 100, preview: 'On it.' }, other];
+  session.tick(10_000);
+  await settle();
+  assert.equal(session.snapshot().items.find(item => item.id === 't1')?.preview, 'On it.');
+  assert.equal(session.snapshot().items[0].id, 't1');
+});
+
 const bytes = (size: number) => Buffer.alloc(size, 'a').toString('base64');
 
 test('a draft takes attachments, refuses one that would make it too big, and can drop them again', async () => {

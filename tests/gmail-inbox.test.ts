@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { gmailSnippet, latestReceivedMessage, sentReplySnippet } from '../src/gmail-inbox.ts';
+import { gmailSnippet, latestMessage, latestReceivedMessage, sentReplySnippet } from '../src/gmail-inbox.ts';
 
-test('inbox summary uses the newest received message instead of a later sent reply', () => {
+test('the person on the row is the newest received message, not a later sent reply', () => {
   const received = { id: 'received-new', internalDate: '200', labelIds: ['INBOX'], from: 'Ada <ada@example.test>', snippet: 'Latest incoming' };
   const selected = latestReceivedMessage([
     { id: 'received-old', internalDate: '100', labelIds: ['INBOX'], snippet: 'Earlier incoming' },
@@ -49,6 +49,17 @@ test('a sent reply newer than the inbox message is visible to classification', (
     { internalDate: '400', labelIds: ['INBOX'], snippet: 'Thanks' },
     { internalDate: '300', labelIds: ['SENT'], snippet: 'On my way' },
   ]), undefined);
+});
+
+test('the row time and preview follow a sent reply, and the received message stays the person on the row', () => {
+  const received = { id: 'received', internalDate: '200', labelIds: ['INBOX'], snippet: 'Can you review this?' };
+  const sent = { id: 'sent', internalDate: '300', labelIds: ['SENT'], snippet: 'On my way' };
+  assert.equal(latestMessage([received, sent]), sent);
+  assert.equal(latestReceivedMessage([received, sent]), received);
+  assert.equal(latestMessage([
+    { internalDate: '400', labelIds: ['INBOX'], snippet: 'Thanks' },
+    { internalDate: '300', labelIds: ['SENT'], snippet: 'On my way' },
+  ])?.snippet, 'Thanks');
 });
 
 test('inbox summary falls back to the final message only when a thread has no received messages', () => {

@@ -1,6 +1,6 @@
 type GmailMessageDate = { internalDate?: string | number | null; labelIds?: readonly string[] };
 
-/** Choose the newest received message to represent an Inbox thread. */
+/** The other person on the row: the newest message you received. A sent reply is not this person. */
 export function latestReceivedMessage<T extends GmailMessageDate>(messages: readonly T[]): T | undefined {
   let latest: T | undefined;
   let latestDate = Number.NEGATIVE_INFINITY;
@@ -14,6 +14,21 @@ export function latestReceivedMessage<T extends GmailMessageDate>(messages: read
     }
   }
   return latest ?? messages.at(-1);
+}
+
+/** The row's time and preview. A sent reply counts, so the thread moves up when you answer. */
+export function latestMessage<T extends GmailMessageDate>(messages: readonly T[]): T | undefined {
+  let latest: T | undefined;
+  let latestDate = Number.NEGATIVE_INFINITY;
+  for (const message of messages) {
+    const date = Number(message.internalDate);
+    const timestamp = Number.isFinite(date) ? date : Number.NEGATIVE_INFINITY;
+    if (!latest || timestamp >= latestDate) {
+      latest = message;
+      latestDate = timestamp;
+    }
+  }
+  return latest;
 }
 
 const NAMED_ENTITIES: Record<string, string> = {
@@ -40,7 +55,7 @@ export function gmailSnippet(text: string): string {
   });
 }
 
-/** The snippet of a sent message that is newer than every received one. The row still shows the received message. */
+/** The snippet of a sent message that is newer than every received one. The classifier reads it as your line. */
 export function sentReplySnippet<T extends GmailMessageDate & { snippet?: string | null }>(messages: readonly T[]): string | undefined {
   let sent: T | undefined;
   let sentAt = Number.NEGATIVE_INFINITY;

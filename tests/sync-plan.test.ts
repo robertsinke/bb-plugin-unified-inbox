@@ -32,5 +32,6 @@ test('Gmail summary changes invalidate cached rows once, then use normal thread 
   const known = [{ id: 'thread', historyId: '20', preview: 'reply I sent' }];
   const listed = [{ id: 'thread', historyId: '20', snippet: 'reply I sent' }];
   assert.deepEqual(gmailInboxIdsToFetch('10', known, listed), ['thread']);
+  assert.deepEqual(gmailInboxIdsToFetch('received-v1:10', known, listed), ['thread'], 'a row saved when a sent reply did not count is read again');
   assert.deepEqual(gmailInboxIdsToFetch(gmailSummaryCursor('10'), known, listed), []);
 });

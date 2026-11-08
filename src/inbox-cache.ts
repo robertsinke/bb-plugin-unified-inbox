@@ -83,7 +83,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, sender_address, avatar_url, recipients, attachments, sent_snippet FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
   const insert = db.prepare('INSERT INTO inbox_cache (account,id,title,preview,date,unread,sender,sender_address,avatar_url,recipients,attachments,sent_snippet) VALUES (@account,@id,@title,@preview,@date,@unread,@sender,@senderAddress,@avatarUrl,@recipients,@attachments,@sentSnippet)');
-  const writeSent = db.prepare('UPDATE inbox_cache SET sent_snippet = ? WHERE account = ? AND id = ?');
+  const writeSent = db.prepare('UPDATE inbox_cache SET sent_snippet = ?, preview = ?, date = ? WHERE account = ? AND id = ?');
   const save = db.transaction((account: CachedItem['account'], items: CachedItem[]) => {
     if (items.some(item => item.account !== account)) throw new Error('Cache account mismatch');
     clear.run(account);
@@ -92,9 +92,9 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   return {
     list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'senderAddress'|'avatarUrl'|'recipients'|'attachments'|'sentSnippet'> & {unread:number; sender:string; sender_address:string|null; avatar_url:string|null; recipients:string|null; attachments:string|null; sent_snippet:string|null}>).map(({sender,sender_address,avatar_url,recipients,attachments,sent_snippet,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(sender_address!==null?{senderAddress:sender_address}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{}),...(sent_snippet?{sentSnippet:sent_snippet}:{})};}); },
     save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); emit({kind:'items', account}); },
-    setSentSnippet(account: CachedItem['account'], id: string, text: string) {
-      const snippet = text.trim().slice(0, 2_000);
-      if (!snippet || writeSent.run(snippet, account, id).changes === 0) return;
+    setSentSnippet(account: CachedItem['account'], id: string, text: string, date = Date.now()) {
+      const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 2_000);
+      if (!snippet || writeSent.run(snippet, snippet, date, account, id).changes === 0) return;
       emit({ kind: 'items', account });
     },
     onChange(fn: (change: CacheChange) => void) { listeners.add(fn); },

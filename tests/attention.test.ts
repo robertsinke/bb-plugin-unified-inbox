@@ -256,7 +256,7 @@ test('WhatsApp messages in one window become one ask', async () => {
   }
 });
 
-test('a sent Gmail reply is part of the ask and the list preview stays', async () => {
+test('a sent Gmail reply is the list preview and the last line of the ask', async () => {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   const store = createAttentionStore(db);
@@ -275,7 +275,7 @@ test('a sent Gmail reply is part of the ask and the list preview stays', async (
     await settle();
     cache.setSentSnippet('gmail-personal', 't1', 'On my way');
     await settle();
-    assert.equal(asked.at(-1)?.preview, 'Can you review this?');
+    assert.equal(asked.at(-1)?.preview, 'On my way');
     assert.deepEqual(asked.at(-1)?.messages.at(-1), { n: 1, from: 'You', text: 'On my way', mine: true });
   } finally {
     watch.stop();
