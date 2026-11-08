@@ -20,7 +20,6 @@ import { createInboxSession, type InboxItem, type InboxSession, type InboxSessio
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterAccountOrder, filterActions, menuTrigger } from './src/inbox-menu.tsx';
 import { AccountSettings } from './src/account-settings.tsx';
-import { WhatsAppPairingCard } from './src/whatsapp-pairing.tsx';
 import { sourceLabel } from './src/source-label.ts';
 import type { SourceMap } from './src/adapters/types';
 import { expandEmailScrollRegions } from './src/mail-scroll';
@@ -51,6 +50,14 @@ function draftStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | u
 function getInboxSession(rpc: InboxSessionDeps['rpc']): InboxSession {
   shared ??= createInboxSession({ rpc, storage: draftStorage(), now: () => Date.now() });
   return shared;
+}
+/** Names BB Settings and this plugin. There is no navigation from a thread tab to that page. */
+const SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect an account.';
+function emptyInboxCopy(query: string, filter: string, errorCount: number): string {
+  if (query.trim()) return 'No conversations match this search.';
+  if (filter === 'unread') return 'No unread messages in this view.';
+  if (filter !== 'all' || errorCount > 0) return 'No conversations in this view.';
+  return SETTINGS_COPY;
 }
 /* Presentation and mail protocol: the sources whose messages render as documents and reply through the mail draft form. */
 const isMail = (account: string) => isLegacyGmailAccount(account) || isMailboxAddress(account);
@@ -486,7 +493,18 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const session=getInboxSession(rpc);
   // State and time live in the session; the panel renders its snapshot.
   const state=useSyncExternalStore(session.subscribe,session.snapshot);
-  const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen,pairing}=state;
+  const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen}=state;
+  // One status read so a list that already has rows can say where to pair. It is not a poll, and it never pairs or closes a socket.
+  const [whatsappUnpaired,setWhatsappUnpaired]=useState(false);
+  const rpcRef=useRef(rpc);
+  rpcRef.current=rpc;
+  useEffect(()=>{
+    let alive=true;
+    void rpcRef.current.call('whatsapp_pairing', null).then(answer=>{
+      if(alive&&answer?.state==='unpaired') setWhatsappUnpaired(true);
+    }).catch(()=>{ /* a missed status read is not a source error */ });
+    return()=>{ alive=false; };
+  },[]);
   /* Which account picker is open is the one thing only the panel needs to know. */
   const [compose,setCompose]=useState(false);
   const [ask,setAsk]=useState<PanelAsk|null>(null);
@@ -612,7 +630,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
             title: 'What the send gate decided; a refusal means nothing was sent',
           },
           { label: 'Refresh', run: () => void session.refresh(sources ? Object.keys(sources) : undefined), title: refreshTitle },
-        ]}/></header>{auditOpen?null:<>{pairing&&<WhatsAppPairingCard pairing={pairing} busy={busy} onPair={()=>void session.pairWhatsApp()} onCode={phone=>void session.codeWhatsApp(phone)} onRePair={()=>void session.rePairWhatsApp()} onReconnect={()=>void session.reconnectWhatsApp()}/>}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{query.trim()?'No conversations match this search.':filter==='unread'?'No unread messages in this view.':'No conversations in this view.'}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{(i.sentSnippet||i.preview)||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
+        ]}/></header>{auditOpen?null:<>{whatsappUnpaired&&shown.length>0?<p className="ui-settings-hint">{SETTINGS_COPY}</p>:null}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{emptyInboxCopy(query, filter, errors.length)}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{(i.sentSnippet||i.preview)||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
       { label: 'Add to chat', run: () => tag(i) },
       ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
     ]}/></span></div></div></div>)}{loadingOlder&&hits===null&&<p className="ui-older" role="status">Loading older…</p>}</div></>}
