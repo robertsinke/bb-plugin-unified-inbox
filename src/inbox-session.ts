@@ -13,6 +13,7 @@ import { messagesAfterMail, messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canQuoteReply, canReact, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
+import { migrateDraftAccountIds } from './inbox-drafts.ts';
 import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
 // The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
 // method or a reshaped input is a compile error here, where the session calls it, and
@@ -301,7 +302,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     cacheReading = true;
     try {
       const cached = await deps.rpc.call('cached', null);
-      for (const account of accounts) {
+      const live = state.sources ? Object.keys(state.sources) : [...accounts];
+      for (const account of live) {
         mergeSource(account, cached.items.filter(item => item.account === account));
         const status = cached.freshness?.[account];
         if (status) {
@@ -439,6 +441,10 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         state.sources = await deps.rpc.call('sources', null);
         notify();
       } catch { /* a source with no declaration is named by its account key and polled not at all */ }
+      try {
+        const status = await deps.rpc.call('mailbox_status', null);
+        migrateDraftAccountIds(storage, status?.legacy ?? {});
+      } catch { /* drafts stay on the key they were saved under */ }
       await readCache();
       void loadAudit();
     })();
@@ -516,8 +522,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     if (kept.length !== state.errors.length) state.errors = kept;
   }
 
-  async function refresh(sources: Account[] = DEFAULT_SOURCES): Promise<void> {
-    const pending = sources.filter(account => !refreshing.has(account));
+  async function refresh(sources?: Account[]): Promise<void> {
+    const named = sources ?? (state.sources ? Object.keys(state.sources) : DEFAULT_SOURCES);
+    const pending = named.filter(account => !refreshing.has(account));
     if (!pending.length) return;
     for (const account of pending) refreshing.add(account);
     state.refreshingInbox = true;

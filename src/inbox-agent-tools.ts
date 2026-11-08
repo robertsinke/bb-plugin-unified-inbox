@@ -1,13 +1,13 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import type { createGateway } from './gateway.ts';
-import { accounts, type Account } from './adapters/types.ts';
+import { isAccountId, type Account } from './adapters/types.ts';
 import { ATTACHMENT_LIMIT, IMAGE_LIMIT, mediaRequestSchema, type MediaRequest } from './adapters/media.ts';
 import { tokenize } from './bm25.ts';
 import { message } from './rpc-contract.ts';
 import { isReactionEmoji, REACTION_SET } from './reaction-set.ts';
 
-const account = z.enum(accounts);
+const account = z.string().min(1).max(320).refine(isAccountId, 'Unknown account');
 const conversation = z.object({ account, id: z.string().min(1).max(512) }).strict();
 const messageTarget = conversation.extend({ messageId: z.string().min(1).max(512) }).strict();
 const SEARCH_CAP = 50;
@@ -98,14 +98,15 @@ function decodedFile(result: { dataUrl?: string; mime: string }): { mime: string
 }
 
 function coverageAccounts(cached: Awaited<ReturnType<Gateway['cached']>>, sources: Awaited<ReturnType<Gateway['sources']>>, selected?: Account) {
-  return (selected ? [selected] : [...accounts]).map(name => {
+  const names = selected ? [selected] : Object.keys(sources);
+  return names.map(name => {
     const fresh = cached.freshness?.[name];
     return {
       account: name,
       lastSuccessAt: iso(fresh?.lastSuccessAt),
       stale: fresh?.cacheFallback === true,
       error: fresh?.lastError ?? null,
-      olderAvailable: sources[name].pageSize != null,
+      olderAvailable: sources[name]?.pageSize != null,
     };
   });
 }

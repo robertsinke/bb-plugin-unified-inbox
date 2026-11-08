@@ -14,17 +14,42 @@ import type { CapabilityKey } from './capability.ts';
 import type { MediaRequest, MediaKind } from './media.ts';
 
 /**
- * Registry keys: one adapter per account, and the `account` value on every RPC
- * input. The tuple is the canonical list — `server.ts` builds its zod enum from
- * it, so a new source is one entry here plus one adapter.
+ * Chat ids stay a fixed set. A Gmail id is a mailbox address, or a legacy file
+ * that has not been renamed yet. The compiler cannot name every mailbox, so
+ * `Account` is the id a registry currently holds.
  */
-export const gmailAccounts = ['gmail-personal', 'gmail-business'] as const;
-export const accounts = [...gmailAccounts, 'whatsapp', 'imessage', 'linkedin'] as const;
+export const legacyGmailAccounts = ['gmail-personal', 'gmail-business'] as const;
+export const chatAccounts = ['whatsapp', 'imessage', 'linkedin'] as const;
+/** Selectors for the two local gws directories. Not the stored id once a mailbox has an address. */
+export const gmailAccounts = legacyGmailAccounts;
+export const accounts = [...legacyGmailAccounts, ...chatAccounts] as const;
 
-export type Account = (typeof accounts)[number];
+export type LegacyGmailAccount = (typeof legacyGmailAccounts)[number];
+export type ChatAccount = (typeof chatAccounts)[number];
+/** A connected source id: chat, legacy Gmail, or a mailbox address. */
+export type Account = string;
+/** A Gmail credential id: a legacy file name, or the mailbox address. */
+export type GmailAccount = string;
 
-/** Gmail accounts are the only ones with a `send_gmail` draft today. */
-export type GmailAccount = (typeof gmailAccounts)[number];
+const MAILBOX_ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isLegacyGmailAccount(value: string): value is LegacyGmailAccount {
+  return (legacyGmailAccounts as readonly string[]).includes(value);
+}
+
+export function isChatAccount(value: string): value is ChatAccount {
+  return (chatAccounts as readonly string[]).includes(value);
+}
+
+/** A mailbox address. Comparison and storage use the lowercased form. */
+export function isMailboxAddress(value: string): boolean {
+  return MAILBOX_ADDRESS.test(value);
+}
+
+/** An id the RPC schema can name before the registry is asked. */
+export function isAccountId(value: string): boolean {
+  return isChatAccount(value) || isLegacyGmailAccount(value) || isMailboxAddress(value);
+}
 
 /** How much of a thread or message Gmail returns: everything, headers only, or ids only. */
 export type GmailFormat = 'full' | 'metadata' | 'minimal';

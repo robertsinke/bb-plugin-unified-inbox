@@ -5,28 +5,75 @@ const STORAGE_PREFIX = 'unified-inbox.reply-draft.v1';
 const MAIL_PREFIX = 'unified-inbox.mail-draft.v1';
 const legacyDraftAccounts: Record<string, string> = { personal: 'gmail-personal', business: 'gmail-business' };
 
-/** Drafts saved before the Gmail account ids were renamed. Keeps a newer draft when both exist. */
-export function migrateDraftAccountIds(storage: (InboxDraftStorage & Pick<Storage, 'key' | 'length'>) | undefined) {
-  if (!storage) return;
+type ParsedDraftKey =
+  | { kind: 'reply'; account: string; id: string }
+  | { kind: 'mail'; account: string; mailKind: 'thread' | 'new'; id: string };
+
+function parseDraftKey(key: string): ParsedDraftKey | null {
+  if (key.startsWith(`${STORAGE_PREFIX}:`)) {
+    const rest = key.slice(STORAGE_PREFIX.length + 1);
+    const split = rest.indexOf(':');
+    if (split < 1 || split >= rest.length - 1) return null;
+    return { kind: 'reply', account: decodeURIComponent(rest.slice(0, split)), id: decodeURIComponent(rest.slice(split + 1)) };
+  }
+  if (key.startsWith(`${MAIL_PREFIX}:`)) {
+    const rest = key.slice(MAIL_PREFIX.length + 1);
+    const match = /^([^:]+):(thread|new):([\s\S]+)$/.exec(rest);
+    if (!match || !match[3]) return null;
+    return { kind: 'mail', account: decodeURIComponent(match[1]), mailKind: match[2] === 'new' ? 'new' : 'thread', id: decodeURIComponent(match[3]) };
+  }
+  return null;
+}
+
+function renamedAccount(account: string, map: Record<string, string>): string {
+  let next = account;
+  const seen = new Set<string>();
+  while (map[next] && !seen.has(next)) {
+    seen.add(next);
+    next = map[next];
+  }
+  return next;
+}
+
+/**
+ * Drafts saved under an older account id. Keys are rebuilt with the same helpers
+ * that write them, so the account stays encoded. The old key is removed only
+ * after the new key holds the draft. A destination that already exists stays.
+ */
+export function migrateDraftAccountIds(
+  storage: (InboxDraftStorage & Partial<Pick<Storage, 'key' | 'length'>>) | undefined,
+  extra: Record<string, string> = {},
+) {
+  if (!storage || typeof storage.key !== 'function' || typeof storage.length !== 'number') return;
+  const map = { ...legacyDraftAccounts, ...extra };
+  let keys: string[] = [];
   try {
-    const keys: string[] = [];
     for (let index = 0; index < storage.length; index++) {
       const key = storage.key(index);
       if (key) keys.push(key);
     }
-    for (const key of keys) {
-      const match = /^(unified-inbox\.(?:reply|mail)-draft\.v1):(personal|business):([\s\S]+)$/.exec(key);
-      const account = match && legacyDraftAccounts[match[2]];
-      if (!match || !account) continue;
-      const next = `${match[1]}:${account}:${match[3]}`;
+  } catch { return; }
+  for (const key of keys) {
+    try {
+      const parsed = parseDraftKey(key);
+      if (!parsed) continue;
+      const account = renamedAccount(parsed.account, map);
+      if (account === parsed.account) continue;
+      const next = parsed.kind === 'reply'
+        ? inboxDraftKey({ account, id: parsed.id })
+        : parsed.mailKind === 'new'
+          ? mailDraftKey({ account, newMessageKey: parsed.id })
+          : mailDraftKey({ account, threadId: parsed.id });
+      if (next === key) continue;
       const raw = storage.getItem(key);
       if (raw !== null && storage.getItem(next) === null) {
-        const value = match[1].endsWith('mail-draft.v1') ? renamedMailDraft(raw, account) : raw;
+        const value = parsed.kind === 'mail' ? renamedMailDraft(raw, account) : raw;
         storage.setItem(next, value);
+        if (storage.getItem(next) !== value) continue;
       }
       storage.removeItem(key);
-    }
-  } catch { /* a failed rename leaves the old draft in place */ }
+    } catch { /* a failed copy leaves this draft on its old key */ }
+  }
 }
 
 function renamedMailDraft(raw: string, account: string) {

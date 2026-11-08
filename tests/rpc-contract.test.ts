@@ -130,7 +130,7 @@ test('a source refresh may say it has an older page, and may say nothing at all'
 test('a call that takes nothing parses as null and as an empty object', () => {
   // The same calls arrive both ways in the log: the panel and the CLI pass null, a client that always
   // sends a body passes {}. A refusal on the shape alone is a failure the caller cannot act on.
-  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources'] as const;
+  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources', 'mailbox_status'] as const;
   for (const method of noArg) {
     assert.equal(rpcContract[method].input.safeParse(null).success, true, `${method} answers a null call`);
     assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty-body call`);
@@ -146,6 +146,18 @@ test('the audit and approval-status reads survive a caller with nothing to ask',
     assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty call`);
   }
   assert.equal(rpcContract.send_audit.input.safeParse({ limit: 0 }).success, false, 'and a page size is still a page size');
+});
+
+test('a mailbox address is an account id, and the schema is not the two legacy slots', () => {
+  const mail = { account: 'ada@example.com', to: 'bob@example.com', subject: 'Hi', text: 'Hello' };
+  assert.equal(rpcContract.send_gmail.input.safeParse(mail).success, true, 'send_gmail accepts the mailbox address');
+  assert.equal(rpcContract.list.input.safeParse({ account: 'ada@example.com' }).success, true);
+  assert.equal(rpcContract.sync.input.safeParse({ account: 'ada@example.com' }).success, true);
+  assert.equal(rpcContract.list.input.safeParse({ account: 'nobody' }).success, false, 'a word that is not an account is still refused');
+  const described = rpcContract.freshness.output.safeParse({
+    'ada@example.com': { lastAttemptAt: 1, lastSuccessAt: null, lastError: 'gmail ada@example.com request failed (401; invalid, token)', cacheFallback: false },
+  });
+  assert.equal(described.success, true, 'an email-shaped account id survives the freshness record');
 });
 
 test('the pairing call reads with nothing and acts with one of four words', () => {

@@ -4,7 +4,7 @@
 import { z } from 'zod';
 
 export const sourceDeclarationSchema = z.strictObject({
-  label: z.string().min(1).max(80),
+  label: z.string().min(1).max(320),
   icon: z.string().min(1).max(80),
   pollIntervalMs: z.number().int().positive(),
   watchIntervalMs: z.number().int().positive().optional(),

@@ -321,3 +321,21 @@ test('observe writes its row before delivering, so a failed delivery is still re
   assert.equal(rows[0].decision, 'allowed');
   assert.equal(rows[0].approvalId, undefined);
 });
+
+test('a mailbox address uses the enabled Gmail rule, and a chat id or an unknown mailbox does not', async () => {
+  const store = memoryStore();
+  const send = createSendGate({ now: () => T0, store, mailboxes: () => new Set(['ada@example.com', 'gmail-personal']) });
+  const sent = await send.mail(
+    { account: 'ada@example.com', to: 'bob@example.com', subject: 'Hi', text: 'Hello', allow: 'send' },
+    async () => ({ status: 'Sent.' }),
+  );
+  assert.equal(sent.status.startsWith('Sent.'), true);
+  await assert.rejects(
+    () => send.mail({ account: 'whatsapp', to: 'bob@example.com', subject: 'Hi', text: 'Hello', allow: 'send' }, async () => ({ status: 'Sent.' })),
+    /invalid_mail/,
+  );
+  await assert.rejects(
+    () => send.mail({ account: 'nobody@example.com', to: 'bob@example.com', subject: 'Hi', text: 'Hello', allow: 'send' }, async () => ({ status: 'Sent.' })),
+    /invalid_mail/,
+  );
+});

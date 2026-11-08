@@ -27,7 +27,8 @@ interface FixtureOptions {
   /** One source whose `list` rejects, for the isolation case. */
   fail?: Account;
   /** One source whose `sync` rejects with a sentence it already phrased, for the message-fidelity case. */
-  syncFailure?: { account: Account; message: string };
+  syncFailure?: { account: string; message: string };
+  extraAccounts?: string[];
   /** What the pairing module answers; the gateway only forwards, so a recorder is enough. */
   pairing?: GatewayDeps['pairing'];
   /** What the index ranks for a query, and the rows only it holds. */
@@ -40,7 +41,7 @@ const LABEL: Record<Account, string> = { 'gmail-personal': 'Personal Gmail', 'gm
 
 function adapter(name: Account, overrides: Partial<Adapter>): Adapter {
   return {
-    source: { label: LABEL[name], icon: 'MessageCircle', pollIntervalMs: 1_000 },
+    source: { label: LABEL[name] ?? name, icon: 'MessageCircle', pollIntervalMs: 1_000 },
     capabilities: () => NO_CAPABILITIES,
     list: async () => ({ items: [], errors: [] }),
     sync: async () => ({ items: [], updatedAt: NOW }),
@@ -112,7 +113,7 @@ function fixture(options: FixtureOptions = {}) {
       return { status: 'sent' };
     },
   };
-  const registry = Object.fromEntries(accounts.map(name => [name, adapter(name, {
+  const registry = Object.fromEntries([...accounts, ...(options.extraAccounts ?? [])].map(name => [name, adapter(name, {
     ...(name === 'gmail-personal' ? personal : {}),
     ...(name === options.fail
       ? { list: async (): Promise<never> => { calls.push(`${name}:list`); throw new Error('provider exploded'); } }
@@ -339,6 +340,18 @@ test('a source failure that already names itself keeps its own words', async () 
   const fresh = await f.gateway.freshness(null);
   assert.equal(fresh['gmail-business'].lastError, message, 'the stored line is the reason, not a generic sentence');
   assert.equal(fresh['gmail-business'].lastSuccessAt, null, 'a failure never advances success');
+});
+
+test('an email-shaped provider failure keeps its own words', async () => {
+  const message = 'gmail ada@example.com request failed (401; invalid, token)';
+  const f = fixture({ extraAccounts: ['ada@example.com'], syncFailure: { account: 'ada@example.com', message } });
+  await assert.rejects(
+    async () => { await f.gateway.sync({ account: 'ada@example.com', limit: 10 }); },
+    (error: unknown) => error instanceof Error && error.message === message,
+  );
+  const fresh = await f.gateway.freshness(null);
+  assert.equal(fresh['ada@example.com'].lastError, message);
+  await assert.rejects(async () => { await f.gateway.send_gmail({ account: 'nobody@example.com', to: 'a@example.com', subject: 'Hi', text: 'Hello' }); }, /not connected/);
 });
 
 test('the pairing handler forwards one call and nothing about the socket', async () => {

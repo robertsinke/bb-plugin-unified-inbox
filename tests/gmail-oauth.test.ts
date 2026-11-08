@@ -2,17 +2,19 @@
 // directory and a fake token endpoint — no network, no CLI.
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   createGmailCredentials,
   gmailCredentialPath,
+  settleLegacyGmailAccounts,
   TOKEN_EXPIRY_MARGIN_MS,
   type GmailCredentialRecord,
   type TokenFetch,
 } from '../src/gmail-oauth.ts';
+import { pauseAccountWrites, resumeAccountWrites, accountWritesPaused } from '../src/inbox-cache.ts';
 import { redactProviderText } from '../src/adapters/provider-error.ts';
 
 const NOW = 1_700_000_000_000;
@@ -256,4 +258,127 @@ test('every "run this command" message survives redaction unchanged', () => {
       `Gmail credential for ${account} is not valid JSON; run bb unified-inbox import-gws-account ${account} --force`,
     ]) assert.equal(redactProviderText(message), message);
   }
+});
+
+async function writeCredential(dir: string, account: string, value: GmailCredentialRecord) {
+  await writeFile(join(dir, `${account}.json`), `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+test('a profile read publishes the mailbox file and a later start does not ask Google again', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gmail-settle-'));
+  const moved: string[] = [];
+  let profiles = 0;
+  const token = fakeTokenEndpoint({ body: { access_token: 'ya29.new', expires_in: 3600, scope: 'https://www.googleapis.com/auth/gmail.readonly' } });
+  const personal = record({ lastError: { at: 1, message: 'old' } });
+  await writeCredential(dir, 'gmail-personal', personal);
+  try {
+    const first = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => { profiles += 1; return 'Ada@Example.com'; },
+      moveRows: (from, to) => moved.push(`${from}->${to}`),
+    });
+    assert.deepEqual(moved, ['gmail-personal->ada@example.com']);
+    assert.equal(profiles, 1);
+    assert.equal(existsSync(join(dir, 'gmail-personal.json')), false);
+    const published = JSON.parse(await readFile(join(dir, 'ada@example.com.json'), 'utf8')) as GmailCredentialRecord & { legacy?: string };
+    assert.equal(published.access_token, 'ya29.new');
+    assert.equal(published.client_id, personal.client_id);
+    assert.equal(published.legacy, undefined);
+    assert.equal(published.lastError, undefined);
+    assert.match(token.calls[0].body, /client_id=client-123/);
+    assert.deepEqual(first.accounts, ['ada@example.com']);
+    assert.equal(first.legacy['gmail-personal'], 'ada@example.com');
+    const second = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => { profiles += 1; throw new Error('google down'); },
+    });
+    assert.equal(profiles, 1, 'the email file is already published');
+    assert.equal(token.calls.length, 1);
+    assert.deepEqual(second.accounts, ['ada@example.com']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a failed profile leaves the legacy file and writes no mailbox file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gmail-settle-fail-'));
+  const before = record({ lastError: { at: 9, message: 'kept', reason: 'deleted_client' } });
+  await writeCredential(dir, 'gmail-personal', before);
+  const token = fakeTokenEndpoint({ status: 400, body: { error: 'invalid_grant' } });
+  try {
+    const settled = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => 'ada@example.com',
+    });
+    const after = JSON.parse(await readFile(join(dir, 'gmail-personal.json'), 'utf8')) as GmailCredentialRecord;
+    assert.deepEqual(after.lastError, before.lastError);
+    assert.equal(existsSync(join(dir, 'ada@example.com.json')), false);
+    assert.deepEqual(settled.accounts, ['gmail-personal']);
+    assert.equal(settled.legacy['gmail-personal'], undefined);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('both files move leftover rows without calling Google, and a paused save does not recreate the legacy id', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gmail-settle-pair-'));
+  const shared = record({ refresh_token: 'same-refresh' });
+  await writeCredential(dir, 'gmail-personal', { ...shared, lastError: { at: 1, message: 'stale' } });
+  await writeCredential(dir, 'ada@example.com', shared);
+  const token = fakeTokenEndpoint();
+  let profiles = 0;
+  let paused = false;
+  try {
+    const settled = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => { profiles += 1; return 'ada@example.com'; },
+      moveRows: () => {
+        assert.equal(accountWritesPaused('gmail-personal'), true);
+        paused = true;
+      },
+      pause: pauseAccountWrites,
+      resume: resumeAccountWrites,
+    });
+    assert.equal(profiles, 0);
+    assert.equal(token.calls.length, 0);
+    assert.equal(paused, true);
+    assert.equal(accountWritesPaused('gmail-personal'), false);
+    assert.equal(existsSync(join(dir, 'gmail-personal.json')), false);
+    assert.equal(existsSync(join(dir, 'ada@example.com.json')), true);
+    assert.deepEqual(settled.accounts, ['ada@example.com']);
+  } finally {
+    resumeAccountWrites('gmail-personal');
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('two legacy files for one address keep the first and report the loser', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gmail-settle-conflict-'));
+  const seen: string[] = [];
+  await writeCredential(dir, 'gmail-personal', record({ refresh_token: 'personal-refresh' }));
+  await writeCredential(dir, 'gmail-business', record({ refresh_token: 'business-refresh', client_id: 'other-client.apps.googleusercontent.com' }));
+  const businessBefore = await readFile(join(dir, 'gmail-business.json'), 'utf8');
+  const token = fakeTokenEndpoint({ body: { access_token: 'ya29.new', expires_in: 3600 } });
+  try {
+    const settled = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => {
+        seen.push('profile');
+        if (seen.length === 1) {
+          assert.equal(existsSync(join(dir, 'gmail-personal.json')), true, 'both legacy files are listed before the first profile read');
+          assert.equal(existsSync(join(dir, 'gmail-business.json')), true);
+        }
+        return 'ada@example.com';
+      },
+    });
+    assert.equal(seen.length, 2, 'each legacy file is asked once');
+    assert.equal(existsSync(join(dir, 'gmail-personal.json')), false);
+    assert.equal(await readFile(join(dir, 'gmail-business.json'), 'utf8'), businessBefore);
+    assert.equal(existsSync(join(dir, 'ada@example.com.json')), true);
+    assert.deepEqual(settled.accounts, ['ada@example.com']);
+    assert.deepEqual(settled.conflicts, [{ account: 'gmail-business', address: 'ada@example.com' }]);
+    const again = await settleLegacyGmailAccounts({
+      dir, fetch: token.fetch, now: () => NOW,
+      profile: async () => { throw new Error('must not ask'); },
+    });
+    assert.equal(existsSync(join(dir, 'gmail-business.json')), true);
+    assert.deepEqual(again.accounts, ['ada@example.com']);
+    assert.equal(again.conflicts.length, 1);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

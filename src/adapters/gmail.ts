@@ -26,11 +26,16 @@ import { savedPayload } from '../media-save.ts';
 /** Largest HTML body kept on a message; larger bodies are dropped, not truncated. */
 const HTML_LIMIT = 800_000;
 
-/** The address each Gmail account sends as, and never suggests to itself. */
-const SELF: Record<GmailAccount, string> = {
-  'gmail-personal': 'robertsinke.jr@gmail.com',
-  'gmail-business': 'robert@inhouse.works',
-};
+/**
+ * The address a mailbox sends as, and never suggests to itself.
+ * A legacy id keeps this map until an email-named credential file exists.
+ * An address-named mailbox sends as that address.
+ */
+export function gmailFromAddress(account: string): string {
+  if (account === 'gmail-personal') return 'robertsinke.jr@gmail.com';
+  if (account === 'gmail-business') return 'robert@inhouse.works';
+  return account;
+}
 
 // `send` is declared because this adapter implements it; whether it may be used is the send
 // gate's decision (SEND_POLICY), and every attempt lands in the audit log first.
@@ -44,10 +49,14 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, 
  * — so the owner saw the WhatsApp page and no mail. Ten fits the panel. The ceiling, not the
  * transport, is the reason: a read is faster now, and the page size stays until someone measures it again.
  */
-const SOURCE: Record<GmailAccount, SourceDeclaration> = {
-  'gmail-personal': { label: 'Personal Gmail', icon: 'Mail', pollIntervalMs: 180_000, pageSize: 10 },
-  'gmail-business': { label: 'Inhouse Gmail', icon: 'Mail', pollIntervalMs: 180_000, pageSize: 10 },
-};
+const GMAIL_PACE = { icon: 'Mail' as const, pollIntervalMs: 180_000, pageSize: 10 };
+
+/** Every Gmail mailbox, including a legacy id that has not been renamed, uses this pace. */
+export function gmailSource(account: string): SourceDeclaration {
+  if (account === 'gmail-personal') return { label: 'Personal Gmail', ...GMAIL_PACE };
+  if (account === 'gmail-business') return { label: 'Inhouse Gmail', ...GMAIL_PACE };
+  return { label: account, ...GMAIL_PACE };
+}
 
 /** A cached thread is reused only if every message still carries what this adapter writes into it. */
 const cachedMessage = z.object({ sender: z.string(), text: z.string(), date: z.number() }).loose();
@@ -269,7 +278,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       messages = await Promise.all((t.messages ?? []).map(async (m: any) => {
         const h = headers(m);
         const sender = String(h.from || ''), to = String(h.to || ''), cc = String(h.cc || ''), replyTo = String(h['reply-to'] || '');
-        const suggested = replyRecipients({ from: sender, to, cc, replyTo, self: SELF[account] });
+        const suggested = replyRecipients({ from: sender, to, cc, replyTo, self: gmailFromAddress(account) });
         const html = await messageHtml(String(m.id), m.payload);
         const attachments = pickGmailAttachments(m.payload);
         return {
@@ -289,7 +298,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   }
 
   return {
-    source: SOURCE[account],
+    source: gmailSource(account),
     capabilities: () => CAPABILITIES,
 
     /**
@@ -337,7 +346,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     async send(draft: SendDraft, _authorization: SendAuthorization): Promise<SendReceipt> {
       if (draft.kind !== 'gmail' || draft.account !== account) throw new Error('This draft belongs to another account.');
       try {
-        const raw = await buildGmailMime({ from: SELF[account], to: draft.to, cc: draft.cc ?? '', bcc: draft.bcc ?? '', subject: draft.subject, text: draft.text, inReplyTo: draft.inReplyTo, references: draft.references, attachments: draft.attachments });
+        const raw = await buildGmailMime({ from: gmailFromAddress(account), to: draft.to, cc: draft.cc ?? '', bcc: draft.bcc ?? '', subject: draft.subject, text: draft.text, inReplyTo: draft.inReplyTo, references: draft.references, attachments: draft.attachments });
         const response = await mail.sendRaw({ raw, threadId: draft.threadId });
         if (typeof response?.id !== 'string' || !response.id) throw new Error('Send result missing message ID');
         return { status: 'Sent.' };

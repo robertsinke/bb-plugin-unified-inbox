@@ -2,12 +2,32 @@
  * Inbox mentions: the `#` picker tags one inbox conversation, and the context
  * below is what the agent receives when the message is sent.
  */
-import { accounts as sourceAccounts, type Account as MentionAccount } from './adapters/types.ts';
+import { isAccountId, accounts as sourceAccounts, type Account as MentionAccount } from './adapters/types.ts';
 export { sourceAccounts, type MentionAccount };
 
 /** Cached rows can outlive the sources a build understands. */
 export function isSourceAccount(value: string): value is MentionAccount {
-  return (sourceAccounts as readonly string[]).includes(value);
+  return isAccountId(value);
+}
+
+/** Legacy id → mailbox address, recorded after a rename. Not stored on the credential file. */
+let legacyAccounts: Record<string, string> = {};
+
+export function setLegacyAccountMap(map: Record<string, string>) {
+  legacyAccounts = { ...map };
+}
+
+export function legacyAccountMap(): Record<string, string> {
+  return { ...legacyAccounts };
+}
+
+/** A legacy token on the map is the mailbox address. An id the registry does not hold is refused. */
+export function resolveMentionAccount(token: string, known?: ReadonlySet<string>): string {
+  const account = legacyAccounts[token] ?? token;
+  if (known ? !known.has(account) : !isSourceAccount(account)) {
+    throw new Error('This inbox mention does not name a known conversation.');
+  }
+  return account;
 }
 
 export const MENTION_PROVIDER = 'inbox';
@@ -30,13 +50,13 @@ export function threadComposer<T extends { scope: ComposerScope }>(composers: re
   return beside ?? composers.find(composer => composer.scope.kind === 'thread');
 }
 
-export function parseMentionId(value: string): { account: MentionAccount; id: string } {
+export function parseMentionId(value: string, known?: ReadonlySet<string>): { account: MentionAccount; id: string } {
   const split = value.indexOf(':');
-  const account = value.slice(0, split);
-  if (split < 1 || value.length === split + 1 || !isSourceAccount(account)) {
+  const token = value.slice(0, split);
+  if (split < 1 || value.length === split + 1) {
     throw new Error('This inbox mention does not name a known conversation.');
   }
-  return { account, id: value.slice(split + 1) };
+  return { account: resolveMentionAccount(token, known), id: value.slice(split + 1) };
 }
 
 export type MentionMessage = {

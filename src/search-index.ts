@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { migrateGmailAccountIds, type CacheChange } from './inbox-cache.ts';
+import { accountWritesPaused, migrateGmailAccountIds, type CacheChange } from './inbox-cache.ts';
 import { accounts, type Account, type Conversation, type SearchRow } from './adapters/types.ts';
 import { bm25RankPrepared, conversationText, prepareDocument, type PreparedDocument } from './bm25.ts';
 
@@ -64,7 +64,7 @@ export function createSearchStore(db: Database.Database) {
   };
 }
 
-export function createSearchIndex(source: SearchSource, store: ReturnType<typeof createSearchStore> | null = null) {
+export function createSearchIndex(source: SearchSource, store: ReturnType<typeof createSearchStore> | null = null, scope: readonly string[] = accounts) {
   const documents = new Map<string, PreparedDocument>();
   const signatures = new Map<string, string>();
   /** The row behind each document: a hit is answered with it, whether or not the list ever loaded it. */
@@ -140,6 +140,7 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
    * that cannot answer keeps the documents it had — a failed read must not empty a corpus.
    */
   async function replaceAccount(account: Account) {
+    if (accountWritesPaused(account)) return;
     const corpus = await source.corpus(account);
     const keep = new Set(corpus.map(row => key(row.item.account, row.item.id)));
     for (const id of [...documents.keys()]) if (id.startsWith(`${account}\u0000`) && !keep.has(id)) drop(id);
@@ -151,7 +152,7 @@ export function createSearchIndex(source: SearchSource, store: ReturnType<typeof
     if (ready) return Promise.resolve();
     warming ??= (async () => {
       try {
-        for (const account of accounts) {
+        for (const account of scope) {
           try { await replaceAccount(account); } catch { /* one source's failure is not the index's */ }
         }
         ready = true;
