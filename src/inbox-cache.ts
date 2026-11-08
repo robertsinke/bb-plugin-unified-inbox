@@ -77,6 +77,8 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   if (!columns.some(column => column.name === 'sent_snippet')) db.exec('ALTER TABLE inbox_cache ADD COLUMN sent_snippet TEXT');
   const threadColumns = db.prepare('PRAGMA table_info(inbox_thread)').all() as { name: string }[];
   if (!threadColumns.some(column => column.name === 'updated_at')) db.exec('ALTER TABLE inbox_thread ADD COLUMN updated_at INTEGER');
+  const holdColumns = db.prepare('PRAGMA table_info(inbox_read_hold)').all() as { name: string }[];
+  if (!holdColumns.some(column => column.name === 'through_ms')) db.exec('ALTER TABLE inbox_read_hold ADD COLUMN through_ms INTEGER');
   migrateGmailAccountIds(db);
   const read = db.prepare('SELECT account, id, title, preview, date, unread, sender, sender_address, avatar_url, recipients, attachments, sent_snippet FROM inbox_cache ORDER BY date DESC, account, id');
   const clear = db.prepare('DELETE FROM inbox_cache WHERE account = ?');
@@ -121,10 +123,12 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     },
     /**
      * The owner already read this row. Gmail may still carry UNREAD until the minute budget
-     * allows the label change. A later sync must not paint the row unread again.
+     * allows the label change. Messages keeps its own unread count; `throughMs` is the chat
+     * date this inbox has read through, and a later message is newer than that. A later sync
+     * must not paint the row unread again while it is still held.
      */
-    holdRead(account: CachedItem['account'], id: string) {
-      db.prepare('INSERT INTO inbox_read_hold (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
+    holdRead(account: CachedItem['account'], id: string, throughMs?: number) {
+      db.prepare('INSERT INTO inbox_read_hold (account, id, through_ms) VALUES (?, ?, ?) ON CONFLICT(account, id) DO UPDATE SET through_ms = COALESCE(excluded.through_ms, inbox_read_hold.through_ms)').run(account, id, throughMs ?? null);
       db.prepare('UPDATE inbox_cache SET unread = 0 WHERE account = ? AND id = ?').run(account, id);
     },
     releaseRead(account: CachedItem['account'], id: string) {
@@ -135,6 +139,9 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     },
     heldReads(account: CachedItem['account']) {
       return (db.prepare('SELECT id FROM inbox_read_hold WHERE account = ?').all(account) as { id: string }[]).map(row => row.id);
+    },
+    readHolds(account: CachedItem['account']) {
+      return (db.prepare('SELECT id, through_ms AS throughMs FROM inbox_read_hold WHERE account = ?').all(account) as { id: string; throughMs: number | null }[]);
     },
     cursor(account: CachedItem['account']) {
       const row = db.prepare('SELECT history_id FROM inbox_sync WHERE account = ?').get(account) as { history_id: string } | undefined;
