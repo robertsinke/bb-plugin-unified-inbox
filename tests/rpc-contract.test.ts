@@ -130,7 +130,7 @@ test('a source refresh may say it has an older page, and may say nothing at all'
 test('a call that takes nothing parses as null and as an empty object', () => {
   // The same calls arrive both ways in the log: the panel and the CLI pass null, a client that always
   // sends a body passes {}. A refusal on the shape alone is a failure the caller cannot act on.
-  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources', 'mailbox_status', 'connection_status'] as const;
+  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources', 'mailbox_status', 'connection_status', 'gmail_connect_cancel'] as const;
   for (const method of noArg) {
     assert.equal(rpcContract[method].input.safeParse(null).success, true, `${method} answers a null call`);
     assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty-body call`);

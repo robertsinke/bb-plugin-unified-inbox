@@ -450,6 +450,7 @@ test('a targeted reply, a bad emoji, a missing message id, and a removal are ref
 test('connection status is a read, and remove drops one account cache without clearing every source', async () => {
   const seen: unknown[] = [];
   let ensured = 0;
+  let cancelled = 0;
   const f = fixture({
     pairing: async request => {
       seen.push(request);
@@ -460,6 +461,7 @@ test('connection status is a read, and remove drops one account cache without cl
       clientConfigured: async () => true,
       mailboxes: async () => [{ account: 'ada@example.com', present: true, hasRefreshToken: true, source: 'login', refresh_token: '1//secret-refresh' } as never],
       connect: async input => ({ account: 'ada@example.com', replaced: input.replace, alreadyConnected: false }),
+      cancel: () => { cancelled += 1; },
       remove: async () => {},
     },
   });
@@ -483,4 +485,7 @@ test('connection status is a read, and remove drops one account cache without cl
   assert.equal(f.calls.includes('clear'), false);
   assert.equal(f.cacheRows.some(row => row.account === 'ada@example.com'), false);
   assert.equal(f.cacheRows.some(row => row.account === 'whatsapp'), true);
+  assert.deepEqual(await f.gateway.gmail_connect_cancel(null), { cancelled: true });
+  assert.deepEqual(await f.gateway.gmail_connect_cancel({}), { cancelled: true });
+  assert.equal(cancelled, 2);
 });

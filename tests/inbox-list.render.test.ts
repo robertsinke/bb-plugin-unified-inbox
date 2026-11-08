@@ -30,7 +30,7 @@ const HIT = { account: 'whatsapp', id: '15559999999@s.whatsapp.net', title: 'Gra
 function sdk(rpc: (method: string, ...args: unknown[]) => Promise<any>) {
   let panel: any = null;
   const app = {
-    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; } },
+    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} },
   };
   const stub = {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },

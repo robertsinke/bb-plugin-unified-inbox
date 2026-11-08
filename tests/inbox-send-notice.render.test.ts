@@ -49,7 +49,7 @@ function rpcAnswer(rows: unknown[], reply: () => Promise<unknown>) {
 function sdk(rpc: (method: string, input: unknown) => unknown) {
   let panel: any = null;
   const app = {
-    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; } },
+    slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} },
   };
   const stub = {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },

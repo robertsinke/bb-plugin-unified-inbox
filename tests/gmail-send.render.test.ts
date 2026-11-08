@@ -57,7 +57,7 @@ function rpc(name: string, input: any): unknown {
 
 function sdk() {
   let panel: any = null;
-  const app = { slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; } } };
+  const app = { slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} } };
   return {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },
     experimental_Icon: () => null,

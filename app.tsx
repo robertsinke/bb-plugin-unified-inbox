@@ -19,6 +19,7 @@ import { attentionTitle, attentionWords } from './src/attention-label';
 import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps, type MailDraft } from './src/inbox-session';
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterAccountOrder, filterActions, menuTrigger } from './src/inbox-menu.tsx';
+import { AccountSettings } from './src/account-settings.tsx';
 import { WhatsAppPairingCard } from './src/whatsapp-pairing.tsx';
 import { sourceLabel } from './src/source-label.ts';
 import type { SourceMap } from './src/adapters/types';
@@ -672,4 +673,10 @@ function MessageAttachment({media,link,onShow,onOpenLink}:{media?:Message['media
 }
 export default definePluginApp(app => {
   app.slots.experimental_tab({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', context: { kind: 'thread' }, availability: 'fixed', layout: 'flush', component: Inbox });
+  app.slots.settingsSection({
+    id: 'accounts',
+    title: 'Accounts',
+    description: 'Connect Gmail, WhatsApp, LinkedIn, and Messages. The client id and secret are the fields above.',
+    component: AccountSettings,
+  });
 });

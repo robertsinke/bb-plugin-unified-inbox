@@ -110,6 +110,8 @@ export interface GatewayDeps {
     clientConfigured: () => boolean | Promise<boolean>;
     mailboxes: () => GmailCredentialState[] | Promise<GmailCredentialState[]>;
     connect: (input: { replace: boolean }) => Promise<GmailLoginResult>;
+    /** Closes the sign-in listener. A file already written stays. */
+    cancel: () => void;
     remove: (account: string) => Promise<void>;
   };
 }
@@ -191,6 +193,10 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async gmail_connect(input) {
       if (!gmail) throw new Error('Gmail sign-in is not available.');
       return gmail.connect({ replace: input?.replace === true });
+    },
+    async gmail_connect_cancel() {
+      gmail?.cancel();
+      return { cancelled: true as const };
     },
     async gmail_remove({ account }) {
       if (!gmail) throw new Error('Gmail removal is not available.');
