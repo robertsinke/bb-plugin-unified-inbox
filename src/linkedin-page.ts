@@ -31,10 +31,10 @@ export const LINKEDIN_OLDER_QUERY = 'messengerConversations.9501074288a12f3ae9e3
 export const LINKEDIN_OLDER_PAGE_MAX = 25;
 
 /**
- * The cursor for a walk nobody has started yet. Where the first older page begins is not something
- * this plugin can compute — `lastUpdatedBefore` and every other name tried against the query is
- * ignored, and only the server's own `nextCursor` moves the window — so the first press asks the
- * newest page for its cursor and then reads the page behind it, in one read.
+ * The cursor for a walk nobody has started yet. The first press reads the first primary page.
+ * The panel drops rows the sync-token page already shows. Only the server's own `nextCursor`
+ * moves the window after that — `lastUpdatedBefore` and every other name tried against the query
+ * is ignored.
  */
 export const LINKEDIN_WALK_START = 'start';
 
@@ -194,9 +194,10 @@ const BODY = `
 
     if (request.mode === 'older') {
       // The paged read the web app sends when its conversation list is scrolled: a cursor-paged
-      // collection, not the by-sync-token read above. Only the server's own cursor moves the window
-      // (every other paging variable is ignored), so the walk begins by asking the newest page where
-      // the page behind it starts.
+      // collection, not the by-sync-token read above. Only the server's own cursor moves the window.
+      // The seed cursor has no server cursor yet, so this read is the first primary page. That page
+      // is not the sync-token window: archived InMail in that window pushes primary conversations
+      // onto this one, and dropping it here would skip them. The panel removes rows it already shows.
       const mailbox = enc(meRef.replace('fs_miniProfile', 'fsd_profile'));
       const pageOf = async tail => {
         const url = '/voyager/api/voyagerMessagingGraphQL/graphql?queryId=${LINKEDIN_OLDER_QUERY}&variables=(query:(predicateUnions:List((conversationCategoryPredicate:(category:PRIMARY_INBOX)))),count:' + request.count + ',mailboxUrn:' + mailbox + (tail ? ',' + tail : '') + ')';
@@ -204,13 +205,7 @@ const BODY = `
         return { node: json?.data?.data?.messengerConversationsByCategoryQuery || {}, included: json?.included || [] };
       };
       const beginning = request.cursor === ${JSON.stringify(LINKEDIN_WALK_START)};
-      let page = await pageOf(beginning ? '' : 'nextCursor:' + enc(request.cursor));
-      if (beginning) {
-        const first = String(page.node.metadata?.nextCursor || '');
-        // There is no page behind the newest one: the walk ends before it starts.
-        if (!first) return { conversations: [], nextCursor: '' };
-        page = await pageOf('nextCursor:' + enc(first));
-      }
+      const page = await pageOf(beginning ? '' : 'nextCursor:' + enc(request.cursor));
       // The page names its rows in order, so the cursor it hands back belongs to the last of them.
       const inlined = new Map(page.included.filter(e => conversationUrn.test(String(e.entityUrn || ''))).map(e => [String(e.entityUrn), e]));
       const entities = (page.node['*elements'] || []).map(urn => inlined.get(String(urn))).filter(Boolean);

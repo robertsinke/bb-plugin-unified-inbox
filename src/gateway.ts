@@ -34,6 +34,16 @@ const DESCRIBED_FAILURE = /^(?:LinkedIn |(?:gmail|whatsapp|imsg|linkedin) \S+ re
  * One failed source never hides the others: it becomes one line in `list`'s `errors`. The fallback
  * names the source the way the source declares itself, so there is no second spelling to drift.
  */
+/**
+ * The browser did not answer. That is not a cursor LinkedIn rejected. Forgetting the cursor lets
+ * the next refresh start the walk again, and the panel then hears that the page it already shows
+ * had nothing new.
+ */
+function linkedInBrowserMissed(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : '';
+  return /LinkedIn browser did not answer|Could not connect to the LinkedIn browser|LinkedIn did not answer in time|LinkedIn could not reach the network|LinkedIn is unavailable in its browser/.test(message);
+}
+
 function listError(registry: Record<Account, Adapter>, account: Account, cause: unknown, note?: Note): string {
   const message = cause instanceof Error ? cause.message : '';
   if (DESCRIBED_FAILURE.test(message)) return message;
@@ -329,7 +339,9 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
         }
         // A page that failed may be a token the source has since dropped: forget it so the next
         // refresh reseeds the walk from the newest page instead of retrying a dead one forever.
-        if (older) olderCursor[name] = undefined;
+        // A browser that did not answer is not that token. Keep it, and the next press retries
+        // the page the list has not shown.
+        if (older && !linkedInBrowserMissed(result.reason)) olderCursor[name] = undefined;
         errors.push(listError(registry, name, result.reason, note));
       });
       void search.warm();

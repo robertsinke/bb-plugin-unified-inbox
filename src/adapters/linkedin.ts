@@ -97,10 +97,10 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
 
     /**
      * The newest page is the cache, and the walk starts from it. No cursor is a request for that page,
-     * which answers `LINKEDIN_WALK_START` without touching the page: where the page behind it begins is
-     * not something this plugin can compute, so knowing it is the first press's own cost. A cursored
-     * call is one live page and nothing else — an older page is drawn, never cached, because
-     * `cache.save` replaces an account's rows wholesale and this page is older than the newest one.
+     * which answers `LINKEDIN_WALK_START` without touching the page. The first press reads the first
+     * primary page; the panel drops rows this cache already shows. A cursored call is one live page
+     * and nothing else — an older page is drawn, never cached, because `cache.save` replaces an
+     * account's rows wholesale and this page is older than the newest one.
      */
     async list(cursor?: string): Promise<ListResult> {
       const rows = cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
