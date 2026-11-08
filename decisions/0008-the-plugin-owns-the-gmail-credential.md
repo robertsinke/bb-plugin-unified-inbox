@@ -9,6 +9,12 @@
 - **Verified against the code:** 2026-11-05 — `src/gmail-oauth.ts` resolves the credential directory to `~/.bb/plugins/unified-inbox/gmail-credentials` (overridable with `UNIFIED_INBOX_GMAIL_CREDENTIALS`), writes one file per `GmailAccount`, and owns the access-token cache and single-flight refresh; `server.ts` builds `createGmailCredentials()` once and hands out `createGmailClient({ account, credentials })` per account; `bb unified-inbox import-gws-account` is the only remaining `gws` invocation; `src/adapters/gws.ts` no longer exists.
 - **Tags:** credentials, oauth, gmail, portability, security
 
+> **Current state (2026-11-08): a Desktop client may be supplied in settings.**
+> Sign-in writes `source: 'login'`. Refresh tokens are still files and are still
+> read only by `src/gmail-oauth.ts`. Consent-screen verification is still not done.
+> A Testing client can still expire a refresh token after 7 days. The settings row
+> shows `invalid_grant`.
+
 ## Context
 
 Until this decision the plugin borrowed the `gws` CLI for Gmail, and the CLI held three things at once: the transport, the OAuth client, and the credential. The plugin therefore contained no auth code at all — and could not run on any machine that had not installed the CLI and signed it in.

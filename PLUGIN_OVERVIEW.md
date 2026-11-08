@@ -1,5 +1,5 @@
-Five mail and chat sources behind one inbox tab, beside the thread you are
-already working in.
+Gmail mailboxes, WhatsApp, Messages, and LinkedIn behind one inbox tab, beside
+the thread you are already working in.
 
 ## How to read this repo
 
@@ -19,13 +19,16 @@ If a decision and the code disagree, the code wins and the decision needs a curr
 - An **Inbox** tab on the thread's right side panel: the sources in one list,
   the open conversation beside them, and `#` in any composer to tag one into
   a thread.
-- Personal and business Gmail: read, archive, read/unread, a reply /
-  reply-all / forward / new-mail composer that sends, and the sender's Google
-  contact photo in the list where the contacts grant allows it — initials
-  otherwise, and `README.md` says how to re-consent.
-- WhatsApp through the plugin's own socket: paired from the tab by scanning a
-  QR, replies to a person or a group, photos, stickers, video, documents, and
-  mark-read.
+- Gmail: read, archive, read/unread, a reply / reply-all / forward / new-mail
+  composer that sends, and the sender's Google contact photo in the list where
+  the contacts grant allows it — initials otherwise, and `README.md` says how
+  to re-consent. A Gmail account id is the mailbox address after a profile
+  read publishes the email-named credential file. Until that file exists,
+  `gmail-personal` and `gmail-business` still serve, with their existing From
+  addresses.
+- WhatsApp through the plugin's own socket: paired on this plugin's BB
+  settings page by scanning a QR, not from the inbox tab. Replies to a person
+  or a group, photos, stickers, video, documents, and mark-read.
 - Local Messages through `imsg`: the latest conversations, their messages and
   attachments, a reply into an open conversation, and an inbox read dot. Marking
   a chat read clears that dot here. The Messages app still shows its own unread
@@ -43,6 +46,19 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   keeps its mail composer.
 
 ## How it works
+
+Connect happens on the BB settings page for this plugin. The installer supplies
+one Desktop OAuth client id and secret there. A Gmail account id is the mailbox
+address after a profile read publishes the email-named credential file. Until
+that file exists, `gmail-personal` and `gmail-business` still serve, with their
+existing From addresses. WhatsApp pairing is on the settings page, not the
+inbox tab. The inbox tells a person to open BB Settings for Unified Inbox when
+nothing is connected, and shows that same sentence above the rows when WhatsApp
+is unpaired: "Open BB Settings for Unified Inbox to connect an account."
+LinkedIn sign-in is a button on that page and still opens the plugin Chrome.
+Messages shows status and the install and Full Disk Access instructions. The
+plugin does not grant that permission. Refresh tokens stay in the per-mailbox
+files. The send gate and the mail-approval settings are unchanged.
 
 Each source is one adapter under `src/adapters/`, and each declares what it can
 do — `send`, `markRead`, `archive`, `invitations`, `media`, `attachments`,
@@ -70,16 +86,18 @@ There is no push alert. `bb unified-inbox send-audit [limit]` and the inbox menu
 Send log show attempts, not proof of delivery.
 
 What each source needs, and what stays local: Gmail needs no CLI on the machine. The
-plugin reads and sends over HTTPS with a credential it owns — one file per account
-in `~/.bb/plugins/unified-inbox/gmail-credentials`, named for the account, mode
+plugin reads and sends over HTTPS with a credential it owns — one file per mailbox
+in `~/.bb/plugins/unified-inbox/gmail-credentials`, mode
 0600, holding the OAuth client, the refresh token and the current access token with
-its expiry. Only `src/gmail-oauth.ts` reads or writes those files: it renews the
-token once per account, keeps a rejected grant's message on the record, and never
-deletes a record because a grant failed. An account with no credential file is not a
-crash: that mailbox's refresh fails with one scrubbed line naming the account, the
-panel keeps the rows it has and marks them as possibly stale, and
-`bb unified-inbox import-gws-account <account>` copies an existing `gws` config in
-once — the one remaining use of that CLI. WhatsApp needs no second program: the
+its expiry. The file name is the mailbox address after that profile read, and
+`gmail-personal.json` or `gmail-business.json` until then. Only `src/gmail-oauth.ts`
+reads or writes those files: it renews the token once per account, keeps a rejected
+grant's message on the record, and never deletes a record because a grant failed.
+An account with no credential file is not a crash: that mailbox's refresh fails
+with one scrubbed line naming the account, the panel keeps the rows it has and
+marks them as possibly stale, and `bb unified-inbox import-gws-account <account>`
+is the optional copy of an existing `gws` config. It is not the only door.
+WhatsApp needs no second program: the
 plugin opens its own Baileys socket in its own process and keeps the linked
 account state in `~/.bb/plugins/unified-inbox/whatsapp-auth` — one 0700 directory
 of 0600 files holding AES-256-GCM blobs under a key kept beside them, so the
@@ -87,13 +105,16 @@ directory's permissions are the protection rather than the encryption. The panel
 never sees those bytes and no RPC returns them. One socket per state directory,
 held by a pid lock and stopped when the plugin unloads; a socket opened for a QR
 nobody scanned is stopped after ten minutes, while a linked one stays up because
-it is how messages arrive. A start that fails says why to the pairing card
+it is how messages arrive. A start that fails says why on the settings page
 instead of leaving an account that only looks connected. Scanning a code counts
 as a linked device, like WhatsApp Web: WhatsApp prohibits bulk and automated
-messaging and has banned linked-device sessions, and the card says so before it
-draws a code. Messages runs a
-supervised `imsg rpc` child and needs Full Disk Access. LinkedIn
-is read and written inside a Chrome the plugin starts with its own profile: no
+messaging and has banned linked-device sessions, and the settings page says so
+before it draws a code. Messages runs a
+supervised `imsg rpc` child and needs Full Disk Access. The settings row shows
+that status. The plugin does not grant Full Disk Access and does not install
+`imsg`. LinkedIn
+is read and written inside a Chrome the plugin starts with its own profile. The
+settings button opens that same Chrome. No
 cookie store, Keychain entry or session export leaves that browser
 (`decisions/0003`). Every source, including LinkedIn, refreshes in a backend
 service while the plugin is loaded, even with the inbox closed. Manual refresh
@@ -141,7 +162,9 @@ an image. Any other file comes back inline up to 5 MiB; a larger one comes back 
 size, without the bytes. The read tools do not send. `inbox_react` sets or removes one reaction
 (heart, like, dislike, or laugh) on one message. `inbox_reply` replies to that one message when the
 source can target it. Both send through the same action gate as the panel.
-Stored Gmail account ids are `gmail-personal` and `gmail-business`.
+A Gmail account id is the mailbox address after a profile read publishes the
+email-named credential file. Until that file exists, `gmail-personal` and
+`gmail-business` still serve.
 
 One RPC surface, declared once in `src/rpc-contract.ts` (the list is not repeated here, so it cannot fall
 behind): reads and the cache, search, `media`, `capabilities` and `sources`, the `action`/`send_gmail` writes,
