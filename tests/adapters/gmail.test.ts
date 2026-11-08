@@ -275,3 +275,19 @@ test('a refused People read leaves the row alone and makes no error row', async 
     assert.match(notes[0], /contacts\.readonly is not granted/);
   } finally { h.close(); }
 });
+
+test('a mailbox address sends as itself, and a legacy id keeps its From address and pace', async () => {
+  const named = harness({ gmailIds: ['ada@example.com', 'gmail-personal'] });
+  try {
+    await named.registry['ada@example.com'].send?.({ kind: 'gmail', account: 'ada@example.com', to: 'bob@example.com', subject: 'Hi', text: 'Hello' }, {});
+    assert.match(Buffer.from(named.sent[0].raw).toString(), /From: ada@example.com/);
+    assert.equal(named.registry['ada@example.com'].source.pollIntervalMs, 180_000);
+    assert.equal(named.registry['ada@example.com'].source.pageSize, 10);
+    assert.equal(named.registry['ada@example.com'].source.label, 'ada@example.com');
+    await named.registry['gmail-personal'].send?.({ kind: 'gmail', account: 'gmail-personal', to: 'bob@example.com', subject: 'Hi', text: 'Hello' }, {});
+    assert.match(Buffer.from(named.sent[1].raw).toString(), /From: personal@example.com/);
+    assert.equal(named.registry['gmail-personal'].source.pollIntervalMs, 180_000);
+    assert.equal(named.registry['gmail-personal'].source.pageSize, 10);
+    assert.equal(named.registry['gmail-business'] , undefined);
+  } finally { named.close(); }
+});

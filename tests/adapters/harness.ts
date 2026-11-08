@@ -191,6 +191,8 @@ export interface HarnessOptions {
   people?: Partial<GooglePeopleClient>;
   /** One line per refused or failed address book read, as the plugin log would carry it. */
   notes?: string[];
+  /** Gmail ids to register. The default is the two legacy slots. */
+  gmailIds?: readonly string[];
 }
 
 /** Registry wired to stubs; `calls` is the only record of source traffic. */
@@ -291,7 +293,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     },
     providerError: toProviderError,
   };
-  return { cache, registry: createRegistry(deps), calls, sent, close: () => db.close() };
+  return { cache, registry: createRegistry(deps, options.gmailIds), calls, sent, close: () => db.close() };
 }
 
 /** A refusal must reject and must not touch the source behind the adapter. */

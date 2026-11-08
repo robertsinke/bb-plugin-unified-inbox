@@ -6,7 +6,7 @@
 // A local process can still reach the source directly; OQ-1 owns that boundary.
 import { randomUUID } from 'node:crypto';
 import { createMailGate, type MailGateDeps, type MailRequest } from '../mail-approval.ts';
-import type { Account, SendReceipt } from './types.ts';
+import { isMailboxAddress, legacyGmailAccounts, type Account, type SendReceipt } from './types.ts';
 
 /** One attempted send as the gate saw it: no body, no attachment bytes, ever. */
 export interface AuditRow {
@@ -93,13 +93,22 @@ export type SendPolicy = { state: 'enabled' } | { state: 'disabled'; reason: str
  * reached the gate with `allow: 'send'`, a refusal was visible in the panel, and a send was spent
  * before delivery. A `disabled` reason is the caller-facing refusal text.
  */
-export const SEND_POLICY: Record<Account, SendPolicy> = {
+export const SEND_POLICY: Record<string, SendPolicy> = {
   'gmail-personal': { state: 'enabled' },
   'gmail-business': { state: 'enabled' },
   whatsapp: { state: 'enabled' },
   imessage: { state: 'enabled' },
   linkedin: { state: 'enabled' },
 };
+
+/** Chat ids keep their own row. Every mailbox uses the same enabled Gmail rule. */
+export function policyFor(account: string): SendPolicy {
+  if (Object.prototype.hasOwnProperty.call(SEND_POLICY, account)) return SEND_POLICY[account];
+  if (isMailboxAddress(account)) return { state: 'enabled' };
+  return { state: 'disabled', reason: 'This account cannot send.' };
+}
+
+const legacyMailboxSet = () => new Set<string>(legacyGmailAccounts);
 
 /**
  * Where attempts are written and where spend is read back. In the plugin this is the
@@ -115,6 +124,8 @@ export interface SendGateDeps {
   now: () => number;
   store: SendAuditStore;
   mail?: Pick<MailGateDeps, 'db' | 'policy' | 'lastRefusal'>;
+  /** Mailbox ids the registry currently holds. Defaults to the two legacy ids. */
+  mailboxes?: () => ReadonlySet<string>;
 }
 
 /**
@@ -134,7 +145,7 @@ export function approvalFor(allow: 'send' | undefined, conversationId: string, a
   return allow === 'send' ? { id: randomUUID(), conversationId, issuedAt: at } : undefined;
 }
 
-export function createSendGate({ now, store, mail }: SendGateDeps): SendGate {
+export function createSendGate({ now, store, mail, mailboxes }: SendGateDeps): SendGate {
   /** The refusal record and the refusal itself, so a refusal can never skip its row. */
   function refuse(request: SendRequest, reason: string, approval?: SendApproval): never {
     store.record({ at: now(), operation: 'send', account: request.account, conversationId: request.conversationId, decision: 'refused', reason, ...(request.authorizationModel ? { authorizationModel: request.authorizationModel } : {}), ...(approval ? { approvalId: approval.id } : {}) });
@@ -143,8 +154,8 @@ export function createSendGate({ now, store, mail }: SendGateDeps): SendGate {
 
   /** Deliver through `deliver` only when this attempt is allowed; the row is written either way. */
   const send = async function send(request: SendRequest, approval: SendApproval | undefined, deliver: () => Promise<SendReceipt>): Promise<SendReceipt> {
-    const policy = SEND_POLICY[request.account];
-    if (policy.state === 'disabled') refuse(request, policy.reason);
+    const policy = policyFor(request.account);
+    if (policy.state === 'disabled') refuse(request, policy.reason ?? 'This account cannot send.');
     if (!approval) refuse(request, 'A send needs an approval for the conversation it goes to; nothing was sent.');
     if (approval.conversationId !== request.conversationId) {
       refuse(request, `The approval does not cover this conversation: it was issued for ${approval.conversationId}, and this send names ${request.conversationId}. Nothing was sent.`);
@@ -194,7 +205,8 @@ export function createSendGate({ now, store, mail }: SendGateDeps): SendGate {
   const mailGate = createMailGate({
     db: mail?.db,
     policy: mail?.policy ?? (() => ({ mode: 'compatibility', allowedKeyIds: [] })),
-    now, enabled: account => SEND_POLICY[account].state === 'enabled',
+    now, enabled: account => policyFor(account).state === 'enabled',
+    mailbox: account => (mailboxes ?? legacyMailboxSet)().has(account),
     record: row => store.record(row), lastRefusal: mail?.lastRefusal,
     legacy: (request: MailRequest, deliver) => send(
       { account: request.account, conversationId: request.threadId ?? request.to, text: request.text,

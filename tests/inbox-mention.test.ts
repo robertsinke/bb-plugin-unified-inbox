@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { inboxMentionContext, mentionId, parseMentionId, threadComposer } from '../src/inbox-mention.ts';
+import { inboxMentionContext, mentionId, parseMentionId, setLegacyAccountMap, threadComposer } from '../src/inbox-mention.ts';
 
 test('the tag goes to the thread beside the inbox', () => {
   const beside = { scope: { kind: 'thread', threadId: 'thr_beside' } };
@@ -57,6 +57,18 @@ test('mentions never teach self-approval or provide a send recipe, for any sourc
     assert.doesNotMatch(context, /printf|bb plugin rpc|"allow"\s*:|send_gmail|send once from the page/);
     assert.doesNotMatch(context, /inbox_react|inbox_reply/);
     assert.match(context, /This mention does not authorize sending/);
+  }
+});
+
+test('a legacy mention resolves to the mailbox address, and an unregistered mailbox is refused', () => {
+  setLegacyAccountMap({ 'gmail-personal': 'ada@example.com' });
+  try {
+    const known = new Set(['ada@example.com', 'whatsapp']);
+    assert.deepEqual(parseMentionId('gmail-personal:18f2c', known), { account: 'ada@example.com', id: '18f2c' });
+    assert.throws(() => parseMentionId('nobody@example.com:18f2c', known), /known conversation/);
+    assert.throws(() => parseMentionId('gmail-personal:18f2c', new Set(['whatsapp'])), /known conversation/);
+  } finally {
+    setLegacyAccountMap({});
   }
 });
 

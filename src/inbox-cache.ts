@@ -2,42 +2,90 @@ import type Database from 'better-sqlite3';
 import type { Account } from './adapters/types.ts';
 import { unknownFreshness, type SourceFreshness } from './inbox-refresh.ts';
 
-const legacyGmailAccounts: Record<string, Account> = { personal: 'gmail-personal', business: 'gmail-business' };
+/** Rows written before `personal` / `business` became `gmail-personal` / `gmail-business`. */
+const legacyGmailAccounts: Record<string, string> = { personal: 'gmail-personal', business: 'gmail-business' };
 
-/** Rows written before the Gmail account ids were renamed. Idempotent. */
-export function migrateGmailAccountIds(db: Database.Database) {
+/**
+ * Writes for a legacy id stop once its email-named credential file is published
+ * and start again only after that legacy file is gone. A save in the window
+ * must not put the old id back.
+ */
+const pausedWrites = new Set<string>();
+
+export function pauseAccountWrites(account: string) {
+  pausedWrites.add(account);
+}
+
+export function resumeAccountWrites(account: string) {
+  pausedWrites.delete(account);
+}
+
+export function accountWritesPaused(account: string): boolean {
+  return pausedWrites.has(account);
+}
+
+/**
+ * Move account-keyed rows from one id to another. When the target key exists,
+ * the target row stays and the source row is dropped. `inbox_send_audit` is
+ * historical and is only touched for the original personal/business rename.
+ * Idempotent.
+ */
+export function migrateGmailAccountIds(db: Database.Database, extra: Record<string, string> = {}) {
   const exists = (name: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
   const rename = (table: string, from: string, to: string) => db.prepare(`UPDATE ${table} SET account = ? WHERE account = ?`).run(to, from);
+  const moveKeyed = (table: string, key: string, from: string, to: string) => {
+    db.prepare(`DELETE FROM ${table} WHERE account = ? AND ${key} IN (SELECT ${key} FROM ${table} WHERE account = ?)`).run(from, to);
+    rename(table, from, to);
+  };
+  const moveAccount = (table: string, from: string, to: string) => {
+    db.prepare(`DELETE FROM ${table} WHERE account = ? AND EXISTS (SELECT 1 FROM ${table} WHERE account = ?)`).run(from, to);
+    rename(table, from, to);
+  };
+  const searchColumns = exists('inbox_search')
+    ? db.prepare('PRAGMA table_info(inbox_search)').all() as { name: string }[]
+    : [];
+  const searchHasItem = searchColumns.some(column => column.name === 'item');
   db.transaction(() => {
-    for (const table of ['inbox_cache', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark']) {
-      if (!exists(table)) continue;
-      for (const [from, to] of Object.entries(legacyGmailAccounts)) {
-        db.prepare(`DELETE FROM ${table} WHERE account = ? AND id IN (SELECT id FROM ${table} WHERE account = ?)`).run(from, to);
-        rename(table, from, to);
+    const apply = (map: Record<string, string>, audit: boolean) => {
+      for (const [from, to] of Object.entries(map)) {
+        if (!from || !to || from === to) continue;
+        for (const table of ['inbox_cache', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention']) {
+          if (exists(table)) moveKeyed(table, 'id', from, to);
+        }
+        if (exists('gmail_faces')) moveKeyed('gmail_faces', 'address', from, to);
+        for (const table of ['inbox_sync', 'inbox_freshness']) {
+          if (exists(table)) moveAccount(table, from, to);
+        }
+        if (audit && exists('inbox_send_audit')) rename('inbox_send_audit', from, to);
       }
-    }
-    for (const table of ['inbox_sync', 'inbox_freshness']) {
-      if (!exists(table)) continue;
-      for (const [from, to] of Object.entries(legacyGmailAccounts)) {
-        db.prepare(`DELETE FROM ${table} WHERE account = ? AND EXISTS (SELECT 1 FROM ${table} WHERE account = ?)`).run(from, to);
-        rename(table, from, to);
+      if (!exists('inbox_search')) return;
+      const present = db.prepare('SELECT 1 FROM inbox_search WHERE id = ?');
+      const update = searchHasItem
+        ? db.prepare('UPDATE inbox_search SET id = ?, item = ? WHERE id = ?')
+        : db.prepare('UPDATE inbox_search SET id = ? WHERE id = ?');
+      const remove = db.prepare('DELETE FROM inbox_search WHERE id = ?');
+      const rows = searchHasItem
+        ? db.prepare('SELECT id, item FROM inbox_search').all() as { id: string; item: string | null }[]
+        : (db.prepare('SELECT id FROM inbox_search').all() as { id: string }[]).map(row => ({ ...row, item: null }));
+      for (const row of rows) {
+        const split = row.id.indexOf('\u0000');
+        const next = split > 0 ? map[row.id.slice(0, split)] : undefined;
+        if (!next) continue;
+        const id = next + row.id.slice(split);
+        if (present.get(id)) { remove.run(row.id); continue; }
+        let item = row.item;
+        if (item) {
+          try {
+            const parsed = JSON.parse(item) as { account?: string };
+            if (parsed && parsed.account && map[parsed.account]) item = JSON.stringify({ ...parsed, account: map[parsed.account] });
+          } catch { /* the id move still stands */ }
+        }
+        if (searchHasItem) update.run(id, item, row.id);
+        else update.run(id, row.id);
       }
-    }
-    if (exists('inbox_send_audit')) {
-      for (const [from, to] of Object.entries(legacyGmailAccounts)) rename('inbox_send_audit', from, to);
-    }
-    if (!exists('inbox_search')) return;
-    const present = db.prepare('SELECT 1 FROM inbox_search WHERE id = ?');
-    const update = db.prepare('UPDATE inbox_search SET id = ? WHERE id = ?');
-    const remove = db.prepare('DELETE FROM inbox_search WHERE id = ?');
-    for (const row of db.prepare('SELECT id FROM inbox_search').all() as { id: string }[]) {
-      const split = row.id.indexOf('\u0000');
-      const next = split > 0 ? legacyGmailAccounts[row.id.slice(0, split)] : undefined;
-      if (!next) continue;
-      const id = next + row.id.slice(split);
-      if (present.get(id)) remove.run(row.id);
-      else update.run(id, row.id);
-    }
+    };
+    apply(legacyGmailAccounts, true);
+    apply(extra, false);
   })();
 }
 
@@ -91,7 +139,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
   });
   return {
     list(): CachedItem[] { return (read.all() as Array<Omit<CachedItem,'unread'|'sender'|'senderAddress'|'avatarUrl'|'recipients'|'attachments'|'sentSnippet'> & {unread:number; sender:string; sender_address:string|null; avatar_url:string|null; recipients:string|null; attachments:string|null; sent_snippet:string|null}>).map(({sender,sender_address,avatar_url,recipients,attachments,sent_snippet,...item})=>{const names=parseAttachments(attachments);return {...item,unread:!!item.unread,...(sender?{sender}:{}),...(sender_address!==null?{senderAddress:sender_address}:{}),...(avatar_url?{avatarUrl:avatar_url}:{}),...(recipients!==null?{recipients}:{}),...(names?{attachments:names}:{}),...(sent_snippet?{sentSnippet:sent_snippet}:{})};}); },
-    save(account: CachedItem['account'], items: CachedItem[]) { save(account, items); emit({kind:'items', account}); },
+    save(account: CachedItem['account'], items: CachedItem[]) { if (pausedWrites.has(account)) return; save(account, items); emit({kind:'items', account}); },
     setSentSnippet(account: CachedItem['account'], id: string, text: string, date = Date.now()) {
       const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 2_000);
       if (!snippet || writeSent.run(snippet, snippet, date, account, id).changes === 0) return;
@@ -103,6 +151,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       return row ? { ...row, cacheFallback: !!row.cacheFallback } : unknownFreshness();
     },
     saveFreshness(account: CachedItem['account'], state: SourceFreshness) {
+      if (pausedWrites.has(account)) return;
       db.prepare('INSERT INTO inbox_freshness VALUES (?, ?, ?, ?, ?) ON CONFLICT(account) DO UPDATE SET last_attempt = excluded.last_attempt, last_success = excluded.last_success, last_error = excluded.last_error, cache_fallback = excluded.cache_fallback').run(account, state.lastAttemptAt, state.lastSuccessAt, state.lastError, state.cacheFallback ? 1 : 0);
     },
     threadUpdatedAt(account: CachedItem['account'], id: string): number | null {
@@ -148,12 +197,14 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       return row?.history_id ?? null;
     },
     setCursor(account: CachedItem['account'], historyId: string) {
+      if (pausedWrites.has(account)) return;
       db.prepare('INSERT INTO inbox_sync (account, history_id) VALUES (?, ?) ON CONFLICT(account) DO UPDATE SET history_id = excluded.history_id').run(account, historyId);
     },
     revisions(account: CachedItem['account']) {
       return db.prepare('SELECT id, history_id AS historyId, preview FROM inbox_revision WHERE account = ?').all(account) as { id: string; historyId: string; preview: string }[];
     },
     saveRevisions(account: CachedItem['account'], rows: { id: string; historyId: string; preview: string }[]) {
+      if (pausedWrites.has(account)) return;
       const clearRows = db.prepare('DELETE FROM inbox_revision WHERE account = ?');
       const insertRow = db.prepare('INSERT INTO inbox_revision (account, id, history_id, preview) VALUES (?, ?, ?, ?)');
       db.transaction(() => {
@@ -170,6 +221,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       } catch { return null; }
     },
     saveThread(account: CachedItem['account'], id: string, messages: unknown[], updatedAt: number | null = Date.now()) {
+      if (pausedWrites.has(account)) return;
       db.prepare('INSERT INTO inbox_thread (account, id, messages, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(account, id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at').run(account, id, JSON.stringify(messages), updatedAt);
       emit({kind:'thread', account, id});
     },

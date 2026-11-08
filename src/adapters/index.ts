@@ -7,29 +7,32 @@ import { createGmailAdapter } from './gmail.ts';
 import { createIMessageAdapter } from './imessage.ts';
 import { createLinkedInAdapter } from './linkedin.ts';
 import { createWhatsAppAdapter } from './whatsapp.ts';
-import { accounts } from './types.ts';
+import { legacyGmailAccounts } from './types.ts';
 import type { Account, Adapter, Capabilities, SourceMap } from './types.ts';
 
 export type { InboxCache, RegistryDeps } from './deps.ts';
 export { accounts } from './types.ts';
 
-/** One adapter per account, every account covered. */
-export function createRegistry(deps: RegistryDeps): Record<Account, Adapter> {
-  return {
-    'gmail-personal': createGmailAdapter(deps, 'gmail-personal'),
-    'gmail-business': createGmailAdapter(deps, 'gmail-business'),
-    whatsapp: createWhatsAppAdapter(deps),
-    imessage: createIMessageAdapter(deps),
-    linkedin: createLinkedInAdapter(deps),
-  };
+/**
+ * One adapter per account the process is serving. Gmail ids are the credential
+ * files still registered; the default keeps the two legacy slots for callers
+ * that have not listed the credential directory.
+ */
+export function createRegistry(deps: RegistryDeps, gmailIds: readonly string[] = legacyGmailAccounts): Record<Account, Adapter> {
+  const registry: Record<Account, Adapter> = {};
+  for (const id of gmailIds) registry[id] = createGmailAdapter(deps, id);
+  registry.whatsapp = createWhatsAppAdapter(deps);
+  registry.imessage = createIMessageAdapter(deps);
+  registry.linkedin = createLinkedInAdapter(deps);
+  return registry;
 }
 
 /** Every adapter's declared capabilities, keyed as the `capabilities` RPC returns them. */
 export function registryCapabilities(registry: Record<Account, Adapter>): Record<Account, Capabilities> {
-  return Object.fromEntries(accounts.map(account => [account, registry[account].capabilities()])) as Record<Account, Capabilities>;
+  return Object.fromEntries(Object.entries(registry).map(([account, adapter]) => [account, adapter.capabilities()]));
 }
 
 /** Every adapter's declaration, keyed as the `sources` RPC returns them. */
 export function registrySources(registry: Record<Account, Adapter>): SourceMap {
-  return Object.fromEntries(accounts.map(account => [account, registry[account].source])) as SourceMap;
+  return Object.fromEntries(Object.entries(registry).map(([account, adapter]) => [account, adapter.source]));
 }

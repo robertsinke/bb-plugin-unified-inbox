@@ -1043,8 +1043,8 @@ test('the rpc dep is the contract: a dead method name or a wrong input does not 
   await rpc.call('list_source', { account: 'whatsapp' });
   // @ts-expect-error `linkedin_sync` went with it.
   await rpc.call('linkedin_sync', { account: 'linkedin' });
-  // @ts-expect-error `account` is the registry enum, not any string.
-  await rpc.call('sync', { account: 'myspace' });
+  // @ts-expect-error an account id is a string: a chat id, a legacy id, or a mailbox address.
+  await rpc.call('sync', { account: 1 });
   // @ts-expect-error `sync` names its account; the input is not optional.
   await rpc.call('sync');
   // The same call the session makes still compiles, at the same seam.

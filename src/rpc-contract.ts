@@ -4,13 +4,14 @@
 // must not touch.
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { accounts, gmailAccounts } from './adapters/types.ts';
+import { isAccountId } from './adapters/types.ts';
 import { MEDIA_KINDS, attachmentMediaRequestSchema, imsgMediaRequestSchema, messageMediaRequestSchema } from './adapters/media.ts';
 import { capabilitiesSchema } from './adapters/capability.ts';
 import { sourceDeclarationSchema } from './adapters/source.ts';
 import { isReactionEmoji } from './reaction-set.ts';
 
-const account = z.enum(accounts);
+/** A chat id, a legacy Gmail id, or a mailbox address. The registry still rejects an id it does not hold. */
+const account = z.string().min(1).max(320).refine(isAccountId, 'Unknown account');
 export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no', 'unsettled']).optional(), attentionDismissed: z.boolean().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
@@ -137,7 +138,7 @@ export const rpcContract = defineRpcContract({
   // `allow: 'send'` is the caller's statement that this reply is a send. Without it the gate
   // refuses and records the attempt: a send is never approved by merely happening.
   action: { input: actionInput, output: z.object({ status: z.string(), text: z.string().optional() }) },
-  send_gmail: { input: z.object({ account: z.enum(gmailAccounts), to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
+  send_gmail: { input: z.object({ account, to: header.min(1), cc: header.optional(), bcc: header.optional(), subject: header, text: z.string().max(100000), threadId: z.string().max(512).optional(), attachments: z.array(mailAttachment).max(20).optional(), inReplyTo: header.optional(), references: header.optional(),
     // Legacy flag remains a migration input, never a fallback from envelope refusal.
     allow: z.literal('send').optional(), envelope: z.unknown().optional(),
     draft: z.object({ draftId: z.string().min(1).max(512), revision: z.number().int().min(1), sourceVersion: z.string().max(512) }).strict().optional(),
@@ -161,4 +162,10 @@ export const rpcContract = defineRpcContract({
   // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its
   // own, so a renamed source is renamed everywhere the moment its adapter says so.
   sources: { input: noArgs, output: z.record(account, sourceDeclarationSchema) },
+  /** Legacy id → mailbox address, plus a loser that resolved to an address already taken. No secrets. */
+  mailbox_status: { input: noArgs, output: z.object({
+    accounts: z.array(z.string()),
+    legacy: z.record(z.string(), z.string()),
+    conflicts: z.array(z.object({ account: z.string(), address: z.string() })),
+  }) },
 });

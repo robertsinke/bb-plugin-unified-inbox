@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createInboxCache } from './src/inbox-cache';
+import { createInboxCache, migrateGmailAccountIds, pauseAccountWrites, resumeAccountWrites } from './src/inbox-cache';
 import { createGmailFaceStore, createGmailFaces, type GmailFaces } from './src/gmail-faces';
 import { createPeopleClient } from './src/google-people';
 import { createWhatsAppStore } from './src/whatsapp/store';
@@ -20,15 +20,15 @@ import {
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { inboxMentionContext, isSourceAccount, MENTION_PROVIDER, mentionId, parseMentionId, type MentionMessage } from './src/inbox-mention';
+import { inboxMentionContext, MENTION_PROVIDER, mentionId, parseMentionId, setLegacyAccountMap, type MentionMessage } from './src/inbox-mention';
 import { message, rpcContract } from './src/rpc-contract';
 import { createRegistry } from './src/adapters/index';
 import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createGateway } from './src/gateway';
 import { createGmailClient } from './src/gmail-client';
-import { createGmailCredentials } from './src/gmail-oauth';
-import { accounts, gmailAccounts, type GmailAccount } from './src/adapters/types';
+import { createGmailCredentials, settleLegacyGmailAccounts } from './src/gmail-oauth';
+import { gmailAccounts, isLegacyGmailAccount, legacyGmailAccounts, type GmailAccount } from './src/adapters/types';
 import { importGwsAccount } from './src/account-import';
 import { runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
@@ -141,7 +141,8 @@ export default function plugin(bb: BbPluginApi) {
       description: 'Deliberately configure trusted SHA-256 key ids. Empty authorizes no signing keys.',
       experimental_schema: z.string().refine(value => { try { parseMailKeyIds(value); return true; } catch { return false; } }, 'Use lowercase SHA-256 ids separated by commas or whitespace') },
   });
-  const sendGate = createSendGate({ now, store: sendAudit, mail: { db, lastRefusal: sendAudit.lastMailRefusal, policy: async () => {
+  const mailboxes = new Set<string>();
+  const sendGate = createSendGate({ now, store: sendAudit, mailboxes: () => mailboxes, mail: { db, lastRefusal: sendAudit.lastMailRefusal, policy: async () => {
     const settings = await mailSettings.get();
     return { mode: settings.mailApprovalMode as MailMode, allowedKeyIds: parseMailKeyIds(settings.mailApprovalKeyIds) };
   } } });
@@ -156,78 +157,110 @@ export default function plugin(bb: BbPluginApi) {
   // Chrome's start is the slow part of a LinkedIn read; load the page once the profile exists.
   if (existsSync(linkedinProfileDir())) void prewarmLinkedInBrowser();
 
-  // The plugin's own Gmail credential: one store for both accounts, so a token renewed for one
-  // account is never handed to the other, and concurrent reads wait on one grant per account.
+  // Profile reads finish before any refresh service is registered. A legacy id whose profile
+  // failed keeps its service. A renamed mailbox gets a service for the email id in this same load.
   const gmailCredentials = createGmailCredentials();
-
-  // One face source per account: the address book is the account's own, and so is its grant. The
-  // read happens behind the draw (`src/gmail-faces.ts`), and a refusal is one log line plus initials
-  // rather than an error row: until both accounts are re-consented, every People call answers 403.
-  const gmailFaces = Object.fromEntries(gmailAccounts.map(account => [account, createGmailFaces({
-    account,
-    store: gmailFaceStore,
-    people: createPeopleClient({ account, credentials: gmailCredentials }),
-    note: (line: string) => bb.log.warn(line),
-    now,
-  })])) as Record<GmailAccount, GmailFaces>;
-
-  const registry = createRegistry({
-    cache,
-    // Gmail reads and sends go over HTTPS with the plugin's own credential — no CLI, no shell.
-    gmail: account => createGmailClient({ account, credentials: gmailCredentials }),
-    gmailFaces: account => gmailFaces[account],
-    whatsapp: whatsappTransport,
-    imsg,
-    linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),
-    armLinkedInRecorder: armLinkedInWriteRecorder,
-    providerError: toProviderError,
-  });
-
-  // What search holds for one account: a source that keeps its own corpus answers for all of it, and
-  // a networked source answers with the cache's newest page. One hook, so no source is named here.
-  const searchIndex = createSearchIndex({
-    corpus: async account => {
-      const own = registry[account].searchCorpus;
-      if (own) return own();
-      return cache.list().filter(row => row.account === account).map(item => ({ item }));
-    },
-    readThread: (account, id) => cache.readThread(account, id),
-    onChange: listener => cache.onChange(listener),
-  }, createSearchStore(db));
-
-  const gateway = createGateway({
-    cache,
-    search: searchIndex,
-    audit: sendAudit,
-    gate: sendGate,
-    registry,
-    now,
-    pairing: async request => (await whatsappPairing()).handle(request),
-    // A source that fails says "check its connection" to the owner and its real cause here: one is
-    // the act they can take, the other is what a repeat is diagnosed from.
-    note: (level, line) => bb.log[level](line),
-    attentionOf: (account, id) => attention.get(account, id)?.verdict ?? null,
-    attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
-    clearAttention: (account, id) => { attention.dismiss(account, id); },
-    restoreAttention: (account, id) => attention.restore(account, id),
-    driver: {
-      openInLinkedInProfile,
-      inspectLinkedInPage,
-      evaluateInLinkedInProfile,
-      pressKeyInLinkedInPage,
-      readSendTarget,
-      clickNamedControl,
-      typeIntoNamedControl,
-      openLinkedInSignIn,
-    },
-  });
-  bb.rpc.register(rpcContract, gateway);
-  registerInboxAgentTools(bb, gateway);
-  for (const account of accounts) {
-    bb.background.service(`refresh-${account}`, {
-      start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
+  void (async () => {
+    let settlement: { accounts: string[]; legacy: Record<string, string>; conflicts: { account: string; address: string }[] } = {
+      accounts: [...legacyGmailAccounts], legacy: {}, conflicts: [],
+    };
+    try {
+      settlement = await settleLegacyGmailAccounts({
+        moveRows: (from, to) => migrateGmailAccountIds(db, { [from]: to }),
+        pause: pauseAccountWrites,
+        resume: resumeAccountWrites,
+      });
+    } catch (error) {
+      bb.log.warn(`Gmail mailbox setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    mailboxes.clear();
+    for (const id of settlement.accounts) mailboxes.add(id);
+    setLegacyAccountMap(settlement.legacy);
+    const gmailIds = settlement.accounts;
+    const gmailFaces = Object.fromEntries(gmailIds.map(account => [account, createGmailFaces({
+      account,
+      store: gmailFaceStore,
+      people: createPeopleClient({ account, credentials: gmailCredentials }),
+      note: (line: string) => bb.log.warn(line),
+      now,
+    })])) as Record<GmailAccount, GmailFaces>;
+    const registry = createRegistry({
+      cache,
+      gmail: account => createGmailClient({ account, credentials: gmailCredentials }),
+      gmailFaces: account => gmailFaces[account],
+      whatsapp: whatsappTransport,
+      imsg,
+      linkedInPage: createLinkedInPageSession(evaluateInLinkedInProfile, evaluateLinkedInListRead),
+      armLinkedInRecorder: armLinkedInWriteRecorder,
+      providerError: toProviderError,
+    }, gmailIds);
+    const registered = new Set(Object.keys(registry));
+    const searchIndex = createSearchIndex({
+      corpus: async account => {
+        const own = registry[account]?.searchCorpus;
+        if (own) return own();
+        return cache.list().filter(row => row.account === account).map(item => ({ item }));
+      },
+      readThread: (account, id) => cache.readThread(account, id),
+      onChange: listener => cache.onChange(listener),
+    }, createSearchStore(db), Object.keys(registry));
+    const gateway = createGateway({
+      cache,
+      search: searchIndex,
+      audit: sendAudit,
+      gate: sendGate,
+      registry,
+      now,
+      mailboxes: settlement,
+      pairing: async request => (await whatsappPairing()).handle(request),
+      note: (level, line) => bb.log[level](line),
+      attentionOf: (account, id) => attention.get(account, id)?.verdict ?? null,
+      attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
+      clearAttention: (account, id) => { attention.dismiss(account, id); },
+      restoreAttention: (account, id) => attention.restore(account, id),
+      driver: {
+        openInLinkedInProfile,
+        inspectLinkedInPage,
+        evaluateInLinkedInProfile,
+        pressKeyInLinkedInPage,
+        readSendTarget,
+        clickNamedControl,
+        typeIntoNamedControl,
+        openLinkedInSignIn,
+      },
     });
-  }
+    bb.rpc.register(rpcContract, gateway);
+    registerInboxAgentTools(bb, gateway);
+    for (const account of Object.keys(registry)) {
+      bb.background.service(`refresh-${account}`, {
+        start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
+      });
+    }
+    bb.ui.registerMentionProvider({
+      id: MENTION_PROVIDER,
+      label: 'Inbox',
+      triggers: ['#'],
+      search({ query }) {
+        const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        return cache.list()
+          .filter(item => registered.has(item.account))
+          .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
+          .sort((a, b) => b.date - a.date)
+          .slice(0, 20)
+          .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${registry[item.account].source.label} · ${item.preview}`.slice(0, 140), icon: registry[item.account].source.icon }));
+      },
+      async resolve(mention) {
+        const { account, id } = parseMentionId(mention, registered);
+        const listed = cache.list().find(item => item.account === account && item.id === id);
+        const cached = z.array(message).safeParse(cache.readThread(account, id) ?? []);
+        let messages: MentionMessage[] = cached.success ? cached.data : [];
+        if (!messages.length) {
+          try { messages = (await registry[account].open(id)).messages; } catch { /* the mention still names the conversation */ }
+        }
+        return { context: inboxMentionContext({ account, label: registry[account].source.label, id, title: listed?.title, preview: listed?.preview, messages }) };
+      },
+    });
+  })();
   // The socket is the other half of the WhatsApp transport: it ingests what arrives, so the next
   // read has something to answer from. Opened at boot only when an account state exists — an
   // unpaired source is a state, not a socket waiting on a QR (R5), and the pairing card opens it when
@@ -272,11 +305,11 @@ export default function plugin(bb: BbPluginApi) {
       }
       if (argv[0] === 'import-gws-account') {
         const account = argv[1];
-        if (!gmailAccounts.includes(account as GmailAccount)) {
+        if (!account || !isLegacyGmailAccount(account)) {
           return { exitCode: 1, stderr: `Usage: bb unified-inbox import-gws-account <${gmailAccounts.join('|')}> [--force]\n` };
         }
         try {
-          const imported = await importGwsAccount({ account: account as GmailAccount, force: argv.includes('--force') });
+          const imported = await importGwsAccount({ account, force: argv.includes('--force') });
           return { exitCode: 0, stdout: `${imported.replaced ? 'Replaced' : 'Imported'} ${imported.account} from gws into ${imported.path} (source gws-import).\n` };
         } catch (error) {
           // Every message the import throws is already secret-free; it names the account, not the token.
@@ -300,32 +333,6 @@ export default function plugin(bb: BbPluginApi) {
         return await runWhatsAppLink(parsed.phone, parsed.waitSeconds, whatsappStore);
       }
       return { exitCode: 1, stderr: 'Usage: bb unified-inbox <linkedin-signin|import-gws-account|send-audit|whatsapp-link>' };
-    },
-  });
-
-  bb.ui.registerMentionProvider({
-    id: MENTION_PROVIDER,
-    label: 'Inbox',
-    triggers: ['#'],
-    search({ query }) {
-      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      return cache.list()
-        .filter(item => isSourceAccount(item.account))
-        .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
-        .sort((a, b) => b.date - a.date)
-        .slice(0, 20)
-        // The name and the icon are the source's own declaration, not a table kept here.
-        .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${registry[item.account].source.label} · ${item.preview}`.slice(0, 140), icon: registry[item.account].source.icon }));
-    },
-    async resolve(mention) {
-      const { account, id } = parseMentionId(mention);
-      const listed = cache.list().find(item => item.account === account && item.id === id);
-      const cached = z.array(message).safeParse(cache.readThread(account, id) ?? []);
-      let messages: MentionMessage[] = cached.success ? cached.data : [];
-      if (!messages.length) {
-        try { messages = (await registry[account].open(id)).messages; } catch { /* the mention still names the conversation */ }
-      }
-      return { context: inboxMentionContext({ account, label: registry[account].source.label, id, title: listed?.title, preview: listed?.preview, messages }) };
     },
   });
 }

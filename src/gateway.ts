@@ -9,9 +9,7 @@ import type { AttentionVerdict } from './attention.ts';
 import type { InboxCache } from './adapters/deps.ts';
 import { registryCapabilities, registrySources } from './adapters/index.ts';
 import { approvalFor, type SendGate } from './adapters/policy.ts';
-import { accounts } from './adapters/types.ts';
 import type { Account, Adapter, Conversation } from './adapters/types.ts';
-import { isSourceAccount } from './inbox-mention.ts';
 import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord } from './linkedin-ui.ts';
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
@@ -100,6 +98,8 @@ export interface GatewayDeps {
   /** Put back the Needed label from the clear just made. */
   restoreAttention?: (account: Account, id: string) => boolean;
   note?: Note;
+  /** The mailbox list and the legacy-id map a panel reads after startup. */
+  mailboxes?: { accounts: string[]; legacy: Record<string, string>; conflicts: { account: string; address: string }[] };
 }
 
 /**
@@ -109,7 +109,7 @@ export interface GatewayDeps {
  * (src/adapters/policy.ts), so the refusal and the audit record are owned in one place. How a
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -118,9 +118,10 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     error: (account, cause) => listError(registry, account, cause, note),
     now,
   });
-  const freshness = () => Object.fromEntries(accounts.map(account => [account, cache.freshness(account)])) as Record<Account, ReturnType<InboxCache['freshness']>>;
-  /** Rows the cache holds for a source this build understands. */
-  const cachedRows = () => cache.list().filter(row => isSourceAccount(row.account)) as Conversation[];
+  const registered = () => Object.keys(registry);
+  const freshness = () => Object.fromEntries(registered().map(account => [account, cache.freshness(account)])) as Record<Account, ReturnType<InboxCache['freshness']>>;
+  /** Rows the cache holds for a source this process still registers. */
+  const cachedRows = () => cache.list().filter(row => registry[row.account]) as Conversation[];
 
   /** A source's cache-only decoration (WhatsApp group participants) is applied wherever rows leave the gateway. */
   const decorated = (rows: Conversation[]) => rows.map(row => {
@@ -139,7 +140,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
    */
   const olderCursor: Partial<Record<Account, string | null>> = {};
   /** Whether any source still holds rows older than the newest page it showed. */
-  const hasOlder = () => accounts.some(name => typeof olderCursor[name] === 'string');
+  const hasOlder = () => registered().some(name => typeof olderCursor[name] === 'string');
 
   /**
    * A search answers with the row it matched, not only its id: a hit can be a conversation the list
@@ -152,7 +153,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     const ids = ranked.slice(0, 50).flatMap(row => {
       const split = row.id.indexOf('\u0000');
       const name = row.id.slice(0, split);
-      if (!isSourceAccount(name)) return [];
+      if (!registry[name]) return [];
       return [{ account: name, id: row.id.slice(split + 1), score: row.score }];
     });
     const cached = new Map(cachedRows().map(row => [`${row.account}\u0000${row.id}`, row]));
@@ -170,8 +171,11 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     sources() {
       return registrySources(registry);
     },
+    mailbox_status() {
+      return mailboxes ?? { accounts: registered().filter(account => account !== 'whatsapp' && account !== 'imessage' && account !== 'linkedin'), legacy: {}, conflicts: [] };
+    },
     cached() {
-      return { items: decorated(cachedRows()), freshness: freshness(), more: Object.fromEntries(accounts.map(account => [account, typeof olderCursor[account] === 'string'])) as Record<Account, boolean> };
+      return { items: decorated(cachedRows()), freshness: freshness(), more: Object.fromEntries(registered().map(account => [account, typeof olderCursor[account] === 'string'])) as Record<Account, boolean> };
     },
     freshness() { return freshness(); },
     search({ query }) {
@@ -194,6 +198,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       return { needsAttention: 'yes' as const };
     },
     async sync({ account, limit }) {
+      if (!registry[account]) throw new Error('That mailbox is not connected.');
       const { cursor, ...result } = await refresh.refresh(account, limit);
       // The newest page is what seeds the walk; once `older` has advanced it, a refresh leaves it
       // alone, or every poll would drop the owner back to page two.
@@ -313,15 +318,16 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async mail_approval_policy() { return gate.mailPolicy(); },
     async mail_approval_status(input) { return gate.mailStatus(input); },
     async send_gmail(input) {
-      const deliver = registry[input.account].send;
-      if (!deliver) throw new Error('This source cannot send from the inbox.');
+      const deliver = registry[input.account]?.send;
+      if (!deliver) throw new Error('That mailbox is not connected.');
       const result = await gate.mail(input, mail => deliver({ kind: 'gmail', ...mail }, {}));
       if (input.threadId) cache.setSentSnippet(input.account, input.threadId, input.text);
       return result;
     },
     async list(options) {
       const older = options?.older === true;
-      const scope = options?.account ? [options.account] : accounts;
+      if (options?.account && !registry[options.account]) throw new Error('That mailbox is not connected.');
+      const scope = options?.account ? [options.account] : registered();
       // A source that already answered "nothing older" is not asked again.
       const names = older ? scope.filter(name => typeof olderCursor[name] === 'string') : scope;
       // How many rows one older page is worth is the source's own declaration: it is the one that

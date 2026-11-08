@@ -164,3 +164,47 @@ test('drafts stored under the old gmail account ids are renamed', () => {
   assert.equal(readMailDraft(storage, kept)?.text, 'Stay');
   assert.equal(storage.getItem(oldMail), null);
 });
+
+function keyedStorage() {
+  const values = new Map<string, string>();
+  return {
+    values,
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+    get length() { return values.size; },
+    key: (index: number) => [...values.keys()][index] ?? null,
+  };
+}
+
+test('a legacy draft is copied with the key helpers and the old key is removed after the copy', () => {
+  const storage = keyedStorage();
+  const reply = inboxDraftKey({ account: 'gmail-personal', id: 'thread 1' });
+  const mail = mailDraftKey({ account: 'gmail-personal', threadId: 't1' });
+  storage.setItem(reply, 'see you');
+  storage.setItem(mail, JSON.stringify({ account: 'gmail-personal', to: 'bob@example.com', cc: '', bcc: '', subject: 'Hi', text: 'Hello' }));
+  migrateDraftAccountIds(storage, { 'gmail-personal': 'ada@example.com' });
+  assert.equal(readInboxDraft(storage, inboxDraftKey({ account: 'ada@example.com', id: 'thread 1' })), 'see you');
+  assert.equal(storage.getItem(reply), null);
+  assert.equal(readMailDraft(storage, mailDraftKey({ account: 'ada@example.com', threadId: 't1' }))?.account, 'ada@example.com');
+  assert.equal(storage.getItem(mail), null);
+});
+
+test('a failed draft copy leaves the old key', () => {
+  const values = new Map<string, string>();
+  const reply = inboxDraftKey({ account: 'gmail-personal', id: 'thread 1' });
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      if (key.includes('ada%40')) throw new Error('disk full');
+      values.set(key, value);
+    },
+    removeItem: (key: string) => { values.delete(key); },
+    get length() { return values.size; },
+    key: (index: number) => [...values.keys()][index] ?? null,
+  };
+  storage.setItem(reply, 'see you');
+  migrateDraftAccountIds(storage, { 'gmail-personal': 'ada@example.com' });
+  assert.equal(storage.getItem(reply), 'see you');
+  assert.equal(storage.getItem(inboxDraftKey({ account: 'ada@example.com', id: 'thread 1' })), null);
+});

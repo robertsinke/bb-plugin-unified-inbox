@@ -8,7 +8,7 @@
 import type { ReactNode } from 'react';
 import { experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
 
-import type { Account, SourceMap } from './adapters/types.ts';
+import { isMailboxAddress, legacyGmailAccounts, type Account, type SourceMap } from './adapters/types.ts';
 import { attentionWords, type AttentionVerdict } from './attention-label.ts';
 import type { InboxFilter } from './inbox-session.ts';
 import { sourceLabel } from './source-label.ts';
@@ -39,6 +39,14 @@ export function filterLabel(sources: SourceMap | null, filter: InboxFilter): str
 /** The filter entries, in one fixed order: everything, the unread, then each source as it declares itself. */
 export const FILTER_ORDER: readonly Account[] = ['whatsapp', 'gmail-personal', 'gmail-business', 'imessage', 'linkedin'];
 
+/** Chat ids keep their places. Mailboxes are listed in address order after any legacy id that is still registered. */
+export function filterAccountOrder(sources: SourceMap | null): Account[] {
+  const ids = sources ? Object.keys(sources) : [...FILTER_ORDER];
+  const legacy = legacyGmailAccounts.filter(id => ids.includes(id));
+  const emails = ids.filter(id => isMailboxAddress(id)).sort((a, b) => a.localeCompare(b));
+  return ['whatsapp', ...legacy, ...emails, 'imessage', 'linkedin'].filter(id => ids.includes(id));
+}
+
 export function filterActions({ filter, onFilter, sources, sourceIcon }: {
   filter: InboxFilter;
   onFilter: (next: InboxFilter) => void;
@@ -55,7 +63,7 @@ export function filterActions({ filter, onFilter, sources, sourceIcon }: {
       pressed: filter === verdict,
       run: () => onFilter(verdict),
     })),
-    ...FILTER_ORDER.map(account => ({
+    ...filterAccountOrder(sources).map(account => ({
       label: sourceLabel(sources, account),
       icon: sourceIcon(account),
       pressed: filter === account,
