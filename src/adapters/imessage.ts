@@ -1,7 +1,7 @@
 // Messages adapter (Migration state 3). It owns the imsg shapes: chats, history
-// with attachment slots, the permitted mutations (`send` and `tapback`), local
-// read state, and the attachment payload. Every other write stays refused by
-// the client and by this adapter's capabilities.
+// with attachment slots, the permitted mutations (`send`, `tapback`, and `read`),
+// and the attachment payload. Mark-unread stays a local mark. Every other write
+// stays refused by the client and by this adapter's capabilities.
 import { IMSG_CHAT_LIMIT, findImsgAttachment, imsgChatId, mapImsgChats, mapImsgHistory } from '../imsg-mapping.ts';
 import { readImsgImage } from '../imsg-media.ts';
 import { sendImsgTapback, sendImsgText } from '../imsg-send.ts';
@@ -108,6 +108,10 @@ export function createIMessageAdapter(deps: RegistryDeps): Adapter {
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
       if (canChange(CAPABILITIES, kind)) {
         if (kind === 'read') {
+          // Messages keeps the unread count. A local clear is overwritten by the next
+          // `chats.list`, which paints `unread_count`. Tell Messages first.
+          await deps.imsg.request('read', { chat_id: imsgChatId(id) });
+          chatDatabase = null;
           cache.dropUnread(ACCOUNT, id);
           return { status: 'Marked read.' };
         }

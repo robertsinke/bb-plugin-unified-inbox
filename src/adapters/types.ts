@@ -425,7 +425,7 @@ export interface SendReceipt {
  * Non-send operations (rpcContract `action`). Per-provider support today:
  * - gmail (gmail-personal, gmail-business): read, unread, archive
  * - whatsapp: read, unread, reply (sent over the plugin's own socket)
- * - imessage: read, unread (local state), reply (sends through `imsg send`)
+ * - imessage: read (through `imsg read`), unread (a local mark), reply (sends through `imsg send`)
  * - linkedin: read, unread, reply, confirm / reject (an invitation answer)
  * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,
  * and those two kinds now carry LinkedIn's accept / ignore of an invitation.
