@@ -80,9 +80,9 @@ here restricts who may write to one.
   `send_gmail` call with that rule's reason. The capability is honest about the
   adapter; the policy narrows it at the transport boundary. The gate is a choke
   point and an audit trail, not containment — OQ-1 owns that.
-- **Messages mark-unread is local.** `action('read')` calls `imsg` `read` with the
-  chat id, so the next `chats.list` can keep the row read. A refused read leaves
-  the row unread. `action('unread')` still updates `inbox-cache` only.
+- **Messages read state stays in this inbox.** `action('read')` clears the dot here
+  and a later `chats.list` keeps it clear until a newer message. Messages itself
+  still shows the chat as unread. `action('unread')` is a local mark.
 - **One media entry point.** WhatsApp, Gmail and Messages answer `media()` with a
   request that says how the file is addressed: a `message` slot, an `imsg` slot,
   or an `attachment` name. A source refuses a kind it cannot serve, so a caller

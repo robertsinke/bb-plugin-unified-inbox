@@ -1,6 +1,6 @@
-// Messages: send and mark-read are enabled; unread is a local mark; archive is
-// refused. Media and attachments open through the Messages-specific entry point.
-// The imsg client is stubbed and the attachment is a temporary file, never a real one.
+// Messages: send is enabled; the inbox read dot is local; archive is refused.
+// Media and attachments open through the Messages-specific entry point. The imsg
+// client is stubbed and the attachment is a temporary file, never a real one.
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -65,13 +65,14 @@ test('Messages: declared capabilities match what action and its attachment entry
     assert.deepEqual(await adapter.action('reply', IMSG_ID, { text: 'On my way' }), { status: 'Sent.' });
     assert.deepEqual(h.calls, ['imsg:send']);
 
-    // markRead: true — read reaches imsg. Unread stays a local mark.
+    // markRead: true — the inbox dot only. Messages is not asked to mark the chat read.
     h.calls.length = 0;
     assert.deepEqual(await adapter.action('read', IMSG_ID), { status: 'Marked read.' });
+    assert.equal(h.cache.heldRead('imessage', IMSG_ID), true);
     assert.equal(h.cache.keptUnread('imessage', IMSG_ID), false);
-    assert.deepEqual(h.calls, ['imsg:read']);
-    h.calls.length = 0;
+    assert.deepEqual(h.calls, []);
     assert.deepEqual(await adapter.action('unread', IMSG_ID), { status: 'Marked unread.' });
+    assert.equal(h.cache.heldRead('imessage', IMSG_ID), false);
     assert.equal(h.cache.keptUnread('imessage', IMSG_ID), true);
     assert.deepEqual(h.calls, []);
 
@@ -161,31 +162,27 @@ test('Messages: an older page is a slice of the whole chat database, and the end
   }
 });
 
-/** One `chats.list` row. `unreadCount` is what the next sync will paint. */
-function listedChat(unreadCount: number) {
+/** One `chats.list` row. `at` is the chat date the next sync will paint. */
+function listedChat(unreadCount: number, at = '2024-01-01T00:00:00Z') {
   return {
     chats: [{
       id: 50, name: 'Ada', display_name: null, identifier: null, service: 'iMessage',
-      last_message_at: '2024-01-01T00:00:00Z', unread_count: unreadCount,
+      last_message_at: at, unread_count: unreadCount,
     }],
   };
 }
 
-test('Messages: marking read tells imsg, and the next sync keeps the chat read', async () => {
+test('Messages: marking read keeps the inbox dot clear while Messages still says unread', async () => {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
-  let unreadCount = 1;
-  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const calls: string[] = [];
+  let at = '2024-01-01T00:00:00Z';
   const adapter = createIMessageAdapter({
     cache,
     imsg: {
-      request: async (method: string, params?: Record<string, unknown>) => {
-        calls.push({ method, params });
-        if (method === 'chats.list') return listedChat(unreadCount);
-        if (method === 'read') {
-          unreadCount = 0;
-          return { ok: true };
-        }
+      request: async (method: string) => {
+        calls.push(method);
+        if (method === 'chats.list') return listedChat(1, at);
         throw new Error(`unexpected Messages call: ${method}`);
       },
     },
@@ -193,30 +190,12 @@ test('Messages: marking read tells imsg, and the next sync keeps the chat read',
   try {
     assert.equal((await adapter.sync({ limit: 20 })).items[0].unread, true);
     assert.deepEqual(await adapter.action('read', '50'), { status: 'Marked read.' });
-    assert.deepEqual(calls.filter(call => call.method === 'read'), [{ method: 'read', params: { chat_id: 50 } }]);
-    assert.equal(cache.list().find(row => row.id === '50')?.unread, false);
-    assert.equal((await adapter.sync({ limit: 20 })).items[0].unread, false, 'Messages has marked the chat, so the next sync keeps it read');
-  } finally { db.close(); }
-});
-
-test('Messages: a refused read leaves the chat unread', async () => {
-  const db = new Database(':memory:');
-  const cache = createInboxCache(db);
-  const adapter = createIMessageAdapter({
-    cache,
-    imsg: {
-      request: async (method: string) => {
-        if (method === 'chats.list') return listedChat(1);
-        if (method === 'read') throw new Error('Messages request failed (code -32003): the bridge is required');
-        throw new Error(`unexpected Messages call: ${method}`);
-      },
-    },
-  } as RegistryDeps);
-  try {
-    await adapter.sync({ limit: 20 });
-    await assert.rejects(adapter.action('read', '50'), /bridge is required/);
-    assert.equal(cache.list().find(row => row.id === '50')?.unread, true);
-    assert.equal((await adapter.sync({ limit: 20 })).items[0].unread, true);
+    assert.equal(calls.includes('read'), false);
+    assert.equal((await adapter.sync({ limit: 20 })).items[0].unread, false, 'the same chat stays read in the inbox');
+    assert.equal(cache.heldRead('imessage', '50'), true);
+    at = '2024-01-02T00:00:00Z';
+    assert.equal((await adapter.sync({ limit: 20 })).items[0].unread, true, 'a newer message shows the dot again');
+    assert.equal(cache.heldRead('imessage', '50'), false);
   } finally { db.close(); }
 });
 
