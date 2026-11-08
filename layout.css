@@ -171,7 +171,6 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-filter-dot{width:8px;height:8px;border-radius:50%;flex:none}
 .ui-filter-dot[data-attention=yes]{background:#f07474}
 .ui-filter-dot[data-attention=no]{background:#28bd69}
-.ui-filter-dot[data-attention=unsettled]{background:#f0b429}
 .ui-older{margin:4px 0 12px;text-align:center;font-size:12px;opacity:.55}
 .ui-row-open .ui-menu{pointer-events:auto}
 .ui-send-ask{display:flex;flex:none;flex-direction:column;gap:10px;margin:0 12px 8px;padding:12px 14px;border:1px solid color-mix(in srgb, currentColor 14%, transparent);border-radius:14px;background:var(--background, #fff);box-shadow:0 8px 24px color-mix(in srgb, currentColor 12%, transparent)}

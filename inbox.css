@@ -7,7 +7,6 @@
 .ui-chip[data-attention]{opacity:1}
 .ui-chip[data-attention=yes]{color:#f07474;background:#ef444430;border-color:#ef444480}
 .ui-chip[data-attention=no]{color:#28bd69;background:#22c55e30;border-color:#22c55e80}
-.ui-chip[data-attention=unsettled]{color:#f0b429;background:#f59e0b30;border-color:#f59e0b80}
 .ui-inbox button.ui-chip{appearance:none;position:relative;font-size:10px;font-weight:650;letter-spacing:.02em;line-height:inherit;padding:1px 6px}
 .ui-chip-word{transition:opacity 180ms ease}
 .ui-chip-check{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity 180ms ease 140ms}

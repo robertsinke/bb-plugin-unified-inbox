@@ -7,8 +7,9 @@ import { isInvitationId } from './linkedin-inbox.ts';
 
 export type { AttentionVerdict } from './attention-label.ts';
 
-/** Yes above this probability. No below the matching low threshold. The band between is unsettled. */
+/** Needed at this probability or above. Every lower score is None. */
 const YES_AT = 0.7;
+/** A reply you sent at or below this score closes the conversation. */
 const NO_AT = 0.3;
 /** Stored score format. A wording change is the `q` field, not a new version. */
 const RULES = 4;
@@ -22,9 +23,7 @@ const WINDOW = 32;
 const SCORED_TAIL = 8;
 
 export function attentionVerdict(noul: number): AttentionVerdict {
-  if (noul >= YES_AT) return 'yes';
-  if (noul <= NO_AT) return 'no';
-  return 'unsettled';
+  return noul >= YES_AT ? 'yes' : 'no';
 }
 
 export interface AttentionWording {
@@ -268,10 +267,10 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
   return {
     get(account, id) {
       if (account === 'linkedin' && isInvitationId(id)) return null;
-      const row = read.get(account, id) as { verdict: AttentionVerdict; noul: number; stateHash: string; lines: string | null } | undefined;
+      const row = read.get(account, id) as { verdict: string; noul: number; stateHash: string; lines: string | null } | undefined;
       if (!row || (row.verdict !== 'yes' && row.verdict !== 'no' && row.verdict !== 'unsettled')) return null;
       const parsed = parseLines(row.lines);
-      return { verdict: row.verdict, noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null };
+      return { verdict: attentionVerdict(row.noul), noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null };
     },
     put(account, id, record) {
       const lines = record.lines && Object.keys(record.lines).length > 0

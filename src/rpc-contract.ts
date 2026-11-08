@@ -12,7 +12,7 @@ import { isReactionEmoji } from './reaction-set.ts';
 
 /** A chat id, a legacy Gmail id, or a mailbox address. The registry still rejects an id it does not hold. */
 const account = z.string().min(1).max(320).refine(isAccountId, 'Unknown account');
-export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no', 'unsettled']).optional(), attentionDismissed: z.boolean().optional() });
+export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no']).optional(), attentionDismissed: z.boolean().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const quote = z.object({ targetId: z.string().optional(), sender: z.string().optional(), text: z.string().optional() });

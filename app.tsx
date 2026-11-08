@@ -15,7 +15,7 @@ import { siGmail, siWhatsapp } from 'simple-icons';
 import { createMediaCache } from './src/media-cache';
 import { isInvitationId } from './src/linkedin-inbox';
 import { migrateDraftAccountIds } from './src/inbox-drafts';
-import { attentionTitle, attentionWords } from './src/attention-label';
+import { attentionTitle, attentionWords, type AttentionVerdict } from './src/attention-label';
 import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps, type MailDraft } from './src/inbox-session';
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterAccountOrder, filterActions, menuTrigger } from './src/inbox-menu.tsx';
@@ -574,7 +574,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const refreshTitle=latestRefresh?`Last refresh ${new Date(latestRefresh).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}; LinkedIn reads only from an already-open BB Browser tab`:'Refresh inbox; LinkedIn reads only from an already-open BB Browser tab';
   /* A search shows what it matched: a hit is a row, so it is drawn even when this list never loaded
      it. The filter is the owner's, so it still narrows both. */
-  const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:filter==='yes'||filter==='no'||filter==='unsettled'?i.needsAttention===filter:i.account===filter);
+  const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:filter==='yes'||filter==='no'?i.needsAttention===filter:i.account===filter);
   const shown=(hits??items).filter(matches);
   function maybeOlder() {
     const el=listScroll.current;
@@ -650,7 +650,7 @@ function isConversationRow(item: Item): boolean {
   return !(item.account === 'linkedin' && isInvitationId(item.id));
 }
 
-function AttentionChip({ verdict, dismissed, onClear, onRestore }: { verdict: 'yes' | 'no' | 'unsettled'; dismissed?: boolean; onClear: () => void; onRestore: () => void }) {
+function AttentionChip({ verdict, dismissed, onClear, onRestore }: { verdict: AttentionVerdict; dismissed?: boolean; onClear: () => void; onRestore: () => void }) {
   const [armed, setArmed] = useState(false);
   const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (wait.current) clearTimeout(wait.current); }, []);

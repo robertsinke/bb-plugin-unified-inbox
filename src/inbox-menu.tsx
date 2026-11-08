@@ -27,12 +27,12 @@ export type MenuAction = {
 export type MenuGroup = { heading: string; actions: MenuAction[] };
 
 /** What the list is narrowed to, in the words both the trigger and the entries use. */
-const ATTENTION: readonly AttentionVerdict[] = ['yes', 'no', 'unsettled'];
+const ATTENTION: readonly AttentionVerdict[] = ['yes', 'no'];
 
 export function filterLabel(sources: SourceMap | null, filter: InboxFilter): string {
   if (filter === 'all') return 'all conversations';
   if (filter === 'unread') return 'unread';
-  if (filter === 'yes' || filter === 'no' || filter === 'unsettled') return attentionWords(filter);
+  if (filter === 'yes' || filter === 'no') return attentionWords(filter);
   return sourceLabel(sources, filter);
 }
 
