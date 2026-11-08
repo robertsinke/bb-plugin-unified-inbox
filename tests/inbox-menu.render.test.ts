@@ -64,7 +64,7 @@ const click = (document: Document, element: any) => element.dispatchEvent(new (d
 test('the filter is the menu’s first group: the sources, the attention labels, then the actions', () => {
   const { document, done } = mount();
   try {
-    assert.deepEqual(entries(document), ['All', 'Unread', 'Needed', 'None', 'Unclear', 'WhatsApp', 'Personal Gmail', 'Inhouse Gmail', 'Messages', 'LinkedIn', 'New', 'Refresh'], 'the filter entries lead, then the actions, in one list');
+    assert.deepEqual(entries(document), ['All', 'Unread', 'Needed', 'None', 'WhatsApp', 'Personal Gmail', 'Inhouse Gmail', 'Messages', 'LinkedIn', 'New', 'Refresh'], 'the filter entries lead, then the actions, in one list');
     const menu = document.querySelector('[role="menu"]')!;
     assert.deepEqual([...menu.children].map(child => child.className || child.getAttribute('role') || child.tagName), ['ui-menu-group', 'ui-menu-sep', 'ui-menu-item', 'ui-menu-item'], 'a group the owner can tell apart from the actions below it');
     assert.equal(menu.querySelector('[role="group"]')?.getAttribute('aria-label'), 'Filter');

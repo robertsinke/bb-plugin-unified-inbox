@@ -300,7 +300,7 @@ export interface Conversation {
   attachments?: string[];
   participants?: string[];
   /** The decision model's yes/no for this conversation. Absent until a new message has been judged. */
-  needsAttention?: 'yes' | 'no' | 'unsettled';
+  needsAttention?: 'yes' | 'no';
   /** The owner cleared Needed, and that clear can still be undone. */
   attentionDismissed?: boolean;
 }

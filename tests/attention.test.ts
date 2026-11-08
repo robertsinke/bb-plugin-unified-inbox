@@ -13,12 +13,13 @@ const row = (preview: string, date = 2) => ({
   unread: true,
 });
 
-test('yes, no, and the unsettled band', () => {
+test('a score of 0.7 or more is needed, and every lower score is none', () => {
   assert.equal(attentionVerdict(0.7), 'yes');
   assert.equal(attentionVerdict(0.91), 'yes');
+  assert.equal(attentionVerdict(0.69), 'no');
+  assert.equal(attentionVerdict(0.5), 'no');
   assert.equal(attentionVerdict(0.3), 'no');
   assert.equal(attentionVerdict(0.1), 'no');
-  assert.equal(attentionVerdict(0.5), 'unsettled');
   assert.throws(() => attentionFromAnswer({}), /no yes\/no answer/);
   assert.deepEqual(attentionFromAnswer({ line_1: { noul: 0.2 }, line_2: { noul: 0.91 } }), { verdict: 'yes', noul: 0.91 });
   assert.deepEqual(attentionFromAnswer({ line_1: { noul: 0.1 }, line_2: { noul: 0.2 } }), { verdict: 'no', noul: 0.2 });
@@ -34,6 +35,20 @@ test('yes, no, and the unsettled band', () => {
   const grown = focusMessages([...older, ...recent, { n: 19, text: 'just arrived', mine: false }], saved, anchor);
   assert.equal(grown[0].text, recent[0].text);
   assert.equal(grown.at(-1)?.text, 'just arrived');
+});
+
+test('a stored unclear row is read as needed or none from its score', () => {
+  const db = new Database(':memory:');
+  const store = createAttentionStore(db);
+  try {
+    const insert = db.prepare('INSERT INTO inbox_attention (account, id, verdict, noul, state_hash) VALUES (?, ?, ?, ?, ?)');
+    insert.run('whatsapp', 'low', 'unsettled', 0.55, 'h');
+    insert.run('whatsapp', 'high', 'unsettled', 0.8, 'h');
+    assert.equal(store.get('whatsapp', 'low')?.verdict, 'no');
+    assert.equal(store.get('whatsapp', 'high')?.verdict, 'yes');
+  } finally {
+    db.close();
+  }
 });
 
 test('clearing a needed label stays none until a new line arrives', () => {
@@ -69,7 +84,7 @@ test('a closing reply you already sent is kept without asking again', async () =
   cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'Definitely!', date: 2, unread: false }]);
   cache.saveThread('whatsapp', 'chat', [open, done]);
   store.put('whatsapp', 'chat', {
-    verdict: 'unsettled',
+    verdict: 'yes',
     noul: 0.58,
     stateHash: 'old',
     lines: { [lineKey(open.text, false)]: 0.58, [lineKey(done.text, true)]: 0.09 },
