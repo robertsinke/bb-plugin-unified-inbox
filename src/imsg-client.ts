@@ -1,11 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
-// Reads stay the default. `send` and `tapback` are the mutations this adapter exposes.
-// `react` targets the last message, and `send.rich` is a different bridge method.
-// Every other write method is still refused here.
+// Reads stay the default. `send`, `tapback`, and `read` are the mutations this adapter exposes.
+// `read` marks one chat read in Messages. `react` targets the last message, and `send.rich`
+// is a different bridge method. Every other write method is still refused here.
 const READ_METHODS = new Set(['initialize', 'status', 'chats.list', 'messages.history']);
-const MUTATION_METHODS = new Set(['send', 'tapback']);
+const MUTATION_METHODS = new Set(['send', 'tapback', 'read']);
 const MAX_FRAME = 8 * 1024 * 1024;
 const MAX_PENDING = 64;
 

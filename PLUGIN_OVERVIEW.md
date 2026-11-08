@@ -27,7 +27,7 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   QR, replies to a person or a group, photos, stickers, video, documents, and
   mark-read.
 - Local Messages through `imsg`: the latest conversations, their messages and
-  attachments, and a reply into an open conversation.
+  attachments, a reply into an open conversation, and mark-read.
 - LinkedIn: DMs, InMail and pending invitations, with reply, read mark, and
   invitation accept or ignore.
 - A new message asks the Decisions plugin one yes/no per recent line, then

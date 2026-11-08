@@ -56,6 +56,7 @@ function imsg(method: string): unknown {
   if (method === 'messages.history') {
     return { messages: [{ id: 1, guid: 'g-1', sender: '+15551234567', sender_name: 'Ada', chat_name: null, text: 'Hello', created_at: '2024-01-01T00:00:00Z', is_from_me: false, attachments: [], reactions: [] }] };
   }
+  if (method === 'read') return { ok: true };
   throw new Error(`unexpected Messages call: ${method}`);
 }
 
@@ -211,7 +212,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   } finally { f.done(); }
 });
 
-test('Messages lists, opens and keeps its read state locally', async () => {
+test('Messages lists, opens, and marks a chat read through imsg', async () => {
   const f = fixture();
   try {
     const adapter = f.registry.imessage;
@@ -223,6 +224,7 @@ test('Messages lists, opens and keeps its read state locally', async () => {
 
     assert.equal((await adapter.open('50')).messages[0].text, 'Hello');
     assert.deepEqual(await adapter.action('read', '50'), { status: 'Marked read.' });
+    assert.ok(f.calls.includes('imsg:read'));
     assert.equal(f.cache.keptUnread('imessage', '50'), false);
 
     assert.equal(canChange(caps, 'archive'), false);
