@@ -16,6 +16,7 @@ import { createMediaCache } from './src/media-cache';
 import { isInvitationId } from './src/linkedin-inbox';
 import { migrateDraftAccountIds } from './src/inbox-drafts';
 import { attentionTitle, attentionWords, type AttentionVerdict } from './src/attention-label';
+import { startInboxHeartbeat } from './src/inbox-heartbeat';
 import { createInboxSession, type InboxItem, type InboxSession, type InboxSessionDeps, type MailDraft } from './src/inbox-session';
 import { InboxErrors, errorLine } from './src/inbox-errors.tsx';
 import { ItemMenu, filterAccountOrder, filterActions, menuTrigger } from './src/inbox-menu.tsx';
@@ -512,17 +513,13 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const [mailFocus,setMailFocus]=useState(0);
   const threadScroll=useRef<HTMLDivElement>(null); const pinnedBottom=useRef(true); const activeThread=useRef('');
   const listScroll=useRef<HTMLDivElement>(null); const olderKey=useRef('');
-  // The one heartbeat: `tick` runs every due list refresh, thread watch, search
-  // debounce and draft write. A hidden panel ticks nothing, so a draft still inside
-  // its debounce is written when the panel hides or goes away instead.
+  // The one heartbeat. `tick` runs every due list refresh, thread watch, search
+  // debounce and draft write. When this panel goes away, a draft still inside
+  // its debounce is written here. The beat itself lives in `startInboxHeartbeat`.
   useEffect(()=>{
     session.start();
-    const timer=window.setInterval(()=>{if(document.visibilityState==='visible')void session.tick(Date.now());},1000);
-    const flushDrafts=()=>session.flush();
-    const flushOnHide=()=>{if(document.visibilityState==='hidden')flushDrafts();};
-    window.addEventListener('pagehide',flushDrafts);
-    document.addEventListener('visibilitychange',flushOnHide);
-    return()=>{window.clearInterval(timer);window.removeEventListener('pagehide',flushDrafts);document.removeEventListener('visibilitychange',flushOnHide);flushDrafts();};
+    const stop=startInboxHeartbeat(session, window);
+    return()=>{stop();session.flush();};
   },[session]);
   useLayoutEffect(()=>{
     const scroller=threadScroll.current;
