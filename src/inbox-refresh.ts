@@ -10,6 +10,14 @@ export interface SourceFreshness {
 
 export const unknownFreshness = (): SourceFreshness => ({ lastAttemptAt: null, lastSuccessAt: null, lastError: null, cacheFallback: false });
 
+const SERVICE_NAME = /^[a-zA-Z0-9_-]+$/;
+
+/** BB accepts letters, digits, "-" and "_" in a service name. A mailbox id is not that shape. */
+export function refreshServiceName(account: string): string {
+  const body = SERVICE_NAME.test(account) ? account : Buffer.from(account, 'utf8').toString('hex');
+  return `refresh-${body}`;
+}
+
 /** Manual and background refresh share one flight per source. Failures never advance success. */
 export function createInboxRefresh(deps: {
   sync(account: Account, limit?: number): Promise<SyncResult>;
