@@ -265,6 +265,54 @@ test('a driver that refuses the click writes no row', async () => {
   assert.deepEqual(f.auditRows, []);
 });
 
+test('a LinkedIn browser miss keeps the older cursor so the next press retries that page', async () => {
+  const f = fixture();
+  const asked: (string | undefined)[] = [];
+  const row: Conversation = { account: 'linkedin', id: 'c1', title: 'Ada', preview: '', date: NOW, unread: false };
+  const older: Conversation = { ...row, id: 'c0', date: NOW - 1000 };
+  let olderCalls = 0;
+  f.registry.linkedin.list = async cursor => {
+    asked.push(cursor);
+    if (cursor === undefined) return { items: [row], errors: [], cursor: 'start' };
+    olderCalls += 1;
+    if (olderCalls === 1) return { items: [older], errors: [], cursor: 'page-3' };
+    if (olderCalls === 2) throw new Error('The LinkedIn browser did not answer Runtime.evaluate.');
+    return { items: [{ ...older, id: 'c-1' }], errors: [], cursor: 'page-4' };
+  };
+
+  await f.gateway.list({ account: 'linkedin' });
+  await f.gateway.list({ older: true, account: 'linkedin' });
+  const missed = await f.gateway.list({ older: true, account: 'linkedin' });
+  assert.equal(missed.more, true, 'the walk still has a page to read');
+  assert.match(missed.errors[0], /unavailable/);
+  await f.gateway.sync({ account: 'linkedin' });
+  const retried = await f.gateway.list({ older: true, account: 'linkedin' });
+  assert.deepEqual(asked, [undefined, 'start', 'page-3', 'page-3'], 'the refresh does not send the walk back to the start');
+  assert.equal(retried.items[0].id, 'c-1');
+});
+
+test('a LinkedIn older page the source rejects forgets its cursor', async () => {
+  const f = fixture();
+  const asked: (string | undefined)[] = [];
+  const row: Conversation = { account: 'linkedin', id: 'c1', title: 'Ada', preview: '', date: NOW, unread: false };
+  let olderCalls = 0;
+  f.registry.linkedin.list = async cursor => {
+    asked.push(cursor);
+    if (cursor === undefined) return { items: [row], errors: [], cursor: 'start' };
+    olderCalls += 1;
+    if (olderCalls === 1) return { items: [{ ...row, id: 'c0' }], errors: [], cursor: 'page-3' };
+    throw new Error('LinkedIn did not return a usable response.');
+  };
+
+  await f.gateway.list({ account: 'linkedin' });
+  await f.gateway.list({ older: true, account: 'linkedin' });
+  const rejected = await f.gateway.list({ older: true, account: 'linkedin' });
+  assert.equal(rejected.more, false);
+  const again = await f.gateway.list({ older: true, account: 'linkedin' });
+  assert.equal(again.more, false);
+  assert.deepEqual(asked, [undefined, 'start', 'page-3'], 'a rejected page is not asked again');
+});
+
 test('one failing source becomes one line and the rest still list', async () => {
   const f = fixture({ pages: { newest: { items: [FIRST], cursor: 'page-2' }, older: { items: [SECOND] } }, fail: 'whatsapp' });
 

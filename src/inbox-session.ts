@@ -540,10 +540,30 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     try {
       await Promise.all(sources.map(async account => {
         try {
-          const page = await deps.rpc.call('list', { older: true, account });
+          let page = await deps.rpc.call('list', { older: true, account });
           // A round the ceiling gave up on has already told the owner; its late rows are dropped
           // rather than appearing under a message that says they did not.
           if (seq !== olderSeq) return;
+          // The first primary page can be the rows already shown. One more ask reaches the page
+          // behind them. A second page of the same rows is the line below.
+          const shown = new Set(state.items.map(rowKey));
+          if (!page.errors.length && page.more === true && page.items.every(item => shown.has(rowKey(item)))) {
+            page = await deps.rpc.call('list', { older: true, account });
+            if (seq !== olderSeq) return;
+          }
+          // An empty item list with `more` still set is a read that failed, not a page of rows the
+          // list already has. Saying "already on screen" there sends the owner after a page that
+          // never arrived.
+          if (page.errors.length) {
+            failed = true;
+            const detail = page.errors.join(' ');
+            dropErrors(line => line.kind === 'older');
+            state.errors = [...state.errors, { account, kind: 'older', message: `could not load older conversations. ${detail} The rows already shown are unchanged.` }];
+            olderLeft.set(account, page.more === true);
+            state.hasOlder = [...olderLeft.values()].some(Boolean);
+            notify();
+            return;
+          }
           const seen = new Set(state.items.map(rowKey));
           const fresh: InboxItem[] = page.items.filter((item: InboxItem) => !seen.has(rowKey(item)));
           const rows = olderRows.get(account) ?? [];

@@ -209,31 +209,32 @@ test('an older page asks the pinned paged query for the cursor it was handed', a
   }]);
 });
 
-test('the walk starts by asking the newest page where the page behind it begins', async () => {
+test('the first older press returns the first primary page and the cursor it handed back', async () => {
   const expression = linkedinPageExpression({ mode: 'older', cursor: 'start', count: 20 });
   const { payload, requested } = await readOlder(expression, url => {
     if (url.includes('/voyager/api/me')) return ME;
-    if (url.includes('nextCursor:')) return olderPage([OLDER_ID], '');
+    if (url.includes('nextCursor:')) throw new Error('the first press must not skip this page');
     if (url.includes(OLDER_QUERY)) return olderPage([NEWEST_ID], 'CUR+/=');
     throw new Error(`unexpected URL ${url}`);
   });
-  // The newest page is asked only for its cursor: its rows are the ones the cache already shows.
-  assert.equal(requested.length, 3);
+  // The sync-token page is a different window. This page can hold primary conversations that
+  // window never showed, so its rows are the answer. The panel drops the ones it already has.
+  assert.equal(requested.length, 2);
   assert.doesNotMatch(requested[1].split('?')[1], /nextCursor/, 'the first read carries no cursor');
-  assert.ok(requested[2].includes(`nextCursor:${encodeURIComponent('CUR+/=')}`), requested[2]);
-  assert.deepEqual(payload.conversations.map((row: { id: string }) => row.id), [OLDER_ID], 'the rows returned are the ones behind the newest page');
-  assert.equal(payload.nextCursor, '');
+  assert.deepEqual(payload.conversations.map((row: { id: string }) => row.id), [NEWEST_ID]);
+  assert.equal(payload.nextCursor, 'CUR+/=');
 });
 
-test('a walk with nothing behind the newest page ends without a second read', async () => {
+test('a first page with no further cursor returns its rows and ends the walk', async () => {
   const expression = linkedinPageExpression({ mode: 'older', cursor: 'start', count: 20 });
   const { payload, requested } = await readOlder(expression, url => {
     if (url.includes('/voyager/api/me')) return ME;
     if (url.includes(OLDER_QUERY)) return olderPage([NEWEST_ID], '');
     throw new Error(`unexpected URL ${url}`);
   });
-  assert.equal(requested.length, 2, 'the newest page carried no cursor, so nothing more was asked');
-  assert.deepEqual(payload, { conversations: [], nextCursor: '' });
+  assert.equal(requested.length, 2, 'one page, and nothing after it');
+  assert.deepEqual(payload.conversations.map((row: { id: string }) => row.id), [NEWEST_ID]);
+  assert.equal(payload.nextCursor, '');
 });
 
 test('a cursor or a page size LinkedIn could not quote is refused before the page runs', () => {

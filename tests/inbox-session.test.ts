@@ -774,6 +774,54 @@ test('an older page that misses its ceiling is given up with a line, and the row
   assert.equal(session.snapshot().hasOlder, true, 'and the source can still be asked again');
 });
 
+test('a first older page that is already on screen is followed once, and the page behind it lands', async () => {
+  const newest = row({ account: 'linkedin', id: 't1', date: 30 });
+  const shown = row({ account: 'linkedin', id: 't2', date: 20 });
+  const behind = row({ account: 'linkedin', id: 't3', date: 10 });
+  let calls = 0;
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest, shown], more: { linkedin: true } }),
+    sync: input => ({ items: input.account === 'linkedin' ? [newest, shown] : [], more: input.account === 'linkedin' }),
+    list: () => {
+      calls += 1;
+      return calls === 1
+        ? { items: [newest, shown], errors: [], more: true }
+        : { items: [behind], errors: [], more: true };
+    },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  await session.more();
+  const snapshot = session.snapshot();
+  assert.equal(calls, 2, 'the repeated page is asked once more');
+  assert.deepEqual(snapshot.items.map(item => item.id), ['t1', 't2', 't3']);
+  assert.equal(snapshot.errors.length, 0, 'the page behind the repeated one is the answer');
+  assert.equal(snapshot.hasOlder, true);
+});
+
+test('an older read the browser did not answer keeps the button and names the failure', async () => {
+  const newest = row({ account: 'linkedin', id: 't1', date: 30 });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest], more: { linkedin: true } }),
+    sync: input => ({ items: input.account === 'linkedin' ? [newest] : [], more: input.account === 'linkedin' }),
+    list: () => ({ items: [], errors: ['The LinkedIn browser did not answer Runtime.evaluate.'], more: true }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+
+  await session.more();
+  const snapshot = session.snapshot();
+  assert.deepEqual(snapshot.items.map(item => item.id), ['t1'], 'a missed answer adds nothing');
+  assert.ok(
+    snapshot.errors.some(error => error.account === 'linkedin' && error.message.includes('did not answer') && !error.message.includes('already on screen')),
+    'the line names the missed answer',
+  );
+  assert.equal(snapshot.hasOlder, true, 'the same page can be asked again');
+});
+
 test('a page that adds nothing while the source says more is a line, not a silent click', async () => {
   const newest = row({ account: 'gmail-personal', id: 't1', date: 30 });
   const shown = row({ account: 'gmail-personal', id: 't2', date: 20 });
