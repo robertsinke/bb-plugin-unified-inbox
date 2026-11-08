@@ -18,15 +18,15 @@
 // It never prints, returns or throws a client secret or a refresh token: the outcome names the
 // account, the path and whether it replaced something, and the CLI prints exactly that.
 //
-// The import writes credentials only. It does not construct a client, probe the mailbox, or refresh a
-// token — that is `GmailTransport`'s job once the record exists.
+// The import writes credentials only. It reads the profile before it chooses the file name, and it
+// writes nothing when that read fails. It does not construct a Gmail client.
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { redactProviderText } from './adapters/provider-error.ts';
-import type { GmailAccount } from './adapters/types.ts';
-import { createGmailCredentials, gmailCredentialPath, type GmailCredentialRecord } from './gmail-oauth.ts';
+import { isMailboxAddress, type LegacyGmailAccount } from './adapters/types.ts';
+import { createGmailCredentials, gmailCredentialPath, gmailProfileAddress, requestAccessGrant, type GmailCredentialRecord, type TokenFetch } from './gmail-oauth.ts';
 
 const exec = promisify(execFile);
 
@@ -37,7 +37,7 @@ const GWS_BINARY = '/usr/local/bin/gws';
  * Google Workspace CLI credential directory, one per Gmail account. It lived in the CLI runner
  * until that was deleted; this mapping has to outlive it by exactly one run.
  */
-export function gwsConfigDir(account: GmailAccount): string {
+export function gwsConfigDir(account: LegacyGmailAccount): string {
   return join(homedir(), account === 'gmail-business' ? '.config/gws-inhouse' : '.config/gws');
 }
 
@@ -54,7 +54,7 @@ export interface GwsExport {
  */
 const MASKED = /\.\.\.|…/;
 
-function field(payload: Record<string, unknown>, name: keyof GwsExport, account: GmailAccount): string {
+function field(payload: Record<string, unknown>, name: keyof GwsExport, account: LegacyGmailAccount): string {
   const value = payload[name];
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`gws auth export for ${account} has no ${name}; nothing was written.`);
@@ -69,7 +69,7 @@ function field(payload: Record<string, unknown>, name: keyof GwsExport, account:
  * A `gws auth export` payload, or a reason it cannot be stored. Never echoes a field value: a raw
  * payload is exactly what must not reach a terminal or a log.
  */
-export function parseGwsExport(payload: string, account: GmailAccount): GwsExport {
+export function parseGwsExport(payload: string, account: LegacyGmailAccount): GwsExport {
   let parsed: unknown;
   try {
     parsed = JSON.parse(payload);
@@ -91,7 +91,7 @@ export function parseGwsExport(payload: string, account: GmailAccount): GwsExpor
 }
 
 /** The one shell-out. Its stderr is scrubbed first, because a failed tool can print anything. */
-async function gwsAuthExport(account: GmailAccount): Promise<string> {
+async function gwsAuthExport(account: LegacyGmailAccount): Promise<string> {
   try {
     const { stdout } = await exec(GWS_BINARY, ['auth', 'export', '--unmasked'], {
       env: { ...process.env, GOOGLE_WORKSPACE_CLI_CONFIG_DIR: gwsConfigDir(account) },
@@ -106,14 +106,16 @@ async function gwsAuthExport(account: GmailAccount): Promise<string> {
 }
 
 export interface ImportAccountRequest {
-  account: GmailAccount;
-  /** Replace a record that is already there. Without this the import refuses, and says whose it is. */
+  /** Selector for one local gws directory. Not the stored id once the profile address is known. */
+  account: LegacyGmailAccount;
+  /** Replace the mailbox file at that address. Without this the import refuses, and says whose it is. */
   force?: boolean;
 }
 
 /** What the CLI may print: no secret, no token, and enough to know what changed. */
 export interface ImportedAccount {
-  account: GmailAccount;
+  /** The profile address. The selector is not the stored id. */
+  account: string;
   /** Where the record now lives. A path, not a credential. */
   path: string;
   replaced: boolean;
@@ -123,23 +125,41 @@ export interface AccountImportOptions {
   /** The credential store directory; defaults to the plugin data directory. */
   dir?: string;
   /** The CLI call, injectable so a test supplies a fixture payload instead of running `gws`. */
-  readExport?: (account: GmailAccount) => Promise<string>;
+  readExport?: (account: LegacyGmailAccount) => Promise<string>;
+  /** Token endpoint. The profile read needs one access token and writes nothing if it fails. */
+  fetch?: TokenFetch;
+  /** Profile email for that access token. Default reads Gmail's profile endpoint. */
+  profile?: (token: string) => Promise<string | undefined>;
 }
 
 /**
- * Store one account's credential from its `gws` config directory. Reads the export only after
- * refusing to overwrite, so a refused run never starts the CLI.
+ * Store one exported credential under the profile address.
+ * A masked export is rejected before a write. A profile failure writes nothing.
+ * `--force` replaces the address file and no other file.
  */
 export async function importGwsAccount(request: ImportAccountRequest, options: AccountImportOptions = {}): Promise<ImportedAccount> {
   const { account, force = false } = request;
-  const credentials = createGmailCredentials({ dir: options.dir });
-  const path = gmailCredentialPath(account, options.dir);
-  const existing = await credentials.status(account);
-  if (existing.present && !force) {
-    throw new Error(`${account} already has a credential at ${path}; pass --force to replace it.`);
-  }
+  const credentials = createGmailCredentials({ dir: options.dir, fetch: options.fetch });
   const payload = parseGwsExport(await (options.readExport ?? gwsAuthExport)(account), account);
+  const fetchToken = options.fetch ?? (fetch as unknown as TokenFetch);
+  let address = '';
+  try {
+    const grant = await requestAccessGrant(payload, fetchToken, Date.now);
+    const reported = await (options.profile ?? ((token: string) => gmailProfileAddress(token)))(grant.access_token);
+    address = typeof reported === 'string' ? reported.trim().toLowerCase() : '';
+  } catch {
+    address = '';
+  }
+  if (!isMailboxAddress(address)) {
+    throw new Error(`gws import for ${account} could not read the mailbox address; nothing was written.`);
+  }
+  const path = gmailCredentialPath(address, options.dir);
+  const existing = await credentials.status(address);
+  if (existing.present && !force) {
+    throw new Error(`${address} already has a credential at ${path}; pass --force to replace it.`);
+  }
+  // The refresh token belongs to the client in the export. Settings are not copied onto this file.
   const record: GmailCredentialRecord = { ...payload, source: 'gws-import' };
-  await credentials.write(account, record);
-  return { account, path, replaced: existing.present };
+  await credentials.write(address, record);
+  return { account: address, path, replaced: existing.present };
 }

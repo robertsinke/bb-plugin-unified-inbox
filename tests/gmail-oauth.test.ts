@@ -73,6 +73,8 @@ test('a token inside the expiry margin is refreshed, and the new token and expir
   assert.equal(calls[0]?.url, 'https://oauth2.googleapis.com/token');
   assert.match(calls[0]?.body ?? '', /grant_type=refresh_token/);
   assert.match(calls[0]?.body ?? '', /refresh_token=refresh-123/);
+  assert.match(calls[0]?.body ?? '', /client_id=client-123/);
+  assert.match(calls[0]?.body ?? '', /client_secret=secret-123/);
 
   const stored = JSON.parse(await readFile(path, 'utf8')) as GmailCredentialRecord;
   assert.equal(stored.access_token, 'ya29.fresh');
@@ -381,4 +383,15 @@ test('two legacy files for one address keep the first and report the loser', asy
     assert.deepEqual(again.accounts, ['ada@example.com']);
     assert.equal(again.conflicts.length, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('remove deletes one mailbox file and leaves the other', async () => {
+  const dir = await tempDir();
+  await seed(dir);
+  await writeFile(gmailCredentialPath('ada@example.com', dir), JSON.stringify(record()), { mode: 0o600 });
+  const credentials = createGmailCredentials({ dir, now: () => NOW });
+  await credentials.remove('ada@example.com');
+  assert.equal(existsSync(gmailCredentialPath('ada@example.com', dir)), false);
+  assert.equal(existsSync(gmailCredentialPath('gmail-personal', dir)), true);
+  await credentials.remove('ada@example.com');
 });

@@ -19,8 +19,9 @@ import { join } from 'node:path';
 import { redactProviderText } from './adapters/provider-error.ts';
 import { isLegacyGmailAccount, isMailboxAddress, legacyGmailAccounts, type GmailAccount } from './adapters/types.ts';
 
-const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+export const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const PROFILE_ENDPOINT = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
+const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';
 const LEGACY_MAP_FILE = 'legacy-map.json';
 const PROFILE_TIMEOUT_MS = 20_000;
 
@@ -111,6 +112,8 @@ export interface GmailCredentials {
    * The client id and secret are the ones stored on that file.
    */
   exchange(account: GmailAccount): Promise<{ record: GmailCredentialRecord; access_token: string; expires_at: number; scopes?: string[] }>;
+  /** Delete one mailbox file. A missing file is already gone. Other accounts stay. */
+  remove(account: GmailAccount): Promise<void>;
 }
 
 export interface GmailCredentialsOptions {
@@ -188,33 +191,8 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
   }
 
   /** The token endpoint, using the client id and secret stored on the record. Writes nothing. */
-  async function requestGrant(record: GmailCredentialRecord): Promise<{ access_token: string; expires_at: number; scopes?: string[] }> {
-    const body = new URLSearchParams({
-      client_id: record.client_id,
-      client_secret: record.client_secret,
-      refresh_token: record.refresh_token,
-      grant_type: 'refresh_token',
-    }).toString();
-    const response = await fetchToken(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      const reason = typeof answer.error === 'string' ? answer.error : undefined;
-      const description = typeof answer.error_description === 'string' ? answer.error_description : undefined;
-      throw new GmailCredentialError(response.status, reason, description);
-    }
-    const token = typeof answer.access_token === 'string' ? answer.access_token : '';
-    if (!token) throw new GmailCredentialError(response.status, 'missing_access_token');
-    const seconds = Number(answer.expires_in);
-    const scopes = typeof answer.scope === 'string' ? answer.scope.split(' ').filter(Boolean) : undefined;
-    return {
-      access_token: token,
-      expires_at: now() + (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : FALLBACK_TTL_MS),
-      ...(scopes ? { scopes } : {}),
-    };
+  function requestGrant(record: GmailCredentialRecord) {
+    return requestAccessGrant(record, fetchToken, now);
   }
 
   async function exchange(account: GmailAccount) {
@@ -259,6 +237,13 @@ export function createGmailCredentials(options: GmailCredentialsOptions = {}): G
       };
     },
     exchange,
+    async remove(account) {
+      try {
+        await unlink(gmailCredentialPath(account, dir));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    },
     async accessToken(account, opts = {}) {
       const record = await read(account);
       if (clientIsDeleted(record)) throw new GmailCredentialError(401, 'deleted_client', 'The OAuth client was deleted.');
@@ -356,12 +341,73 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+/**
+ * A refresh-token grant. Posts the client id and secret on `record` and writes nothing.
+ * Sign-in uses a different grant; this is the one a stored mailbox file already has.
+ */
+export async function requestAccessGrant(
+  record: Pick<GmailCredentialRecord, 'client_id' | 'client_secret' | 'refresh_token'>,
+  fetchToken: TokenFetch,
+  now: () => number,
+): Promise<{ access_token: string; expires_at: number; scopes?: string[] }> {
+  const body = new URLSearchParams({
+    client_id: record.client_id,
+    client_secret: record.client_secret,
+    refresh_token: record.refresh_token,
+    grant_type: 'refresh_token',
+  }).toString();
+  const response = await fetchToken(TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const reason = typeof answer.error === 'string' ? answer.error : undefined;
+    const description = typeof answer.error_description === 'string' ? answer.error_description : undefined;
+    throw new GmailCredentialError(response.status, reason, description);
+  }
+  const token = typeof answer.access_token === 'string' ? answer.access_token : '';
+  if (!token) throw new GmailCredentialError(response.status, 'missing_access_token');
+  const seconds = Number(answer.expires_in);
+  const scopes = typeof answer.scope === 'string' ? answer.scope.split(' ').filter(Boolean) : undefined;
+  return {
+    access_token: token,
+    expires_at: now() + (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : FALLBACK_TTL_MS),
+    ...(scopes ? { scopes } : {}),
+  };
+}
+
 export async function gmailProfileAddress(token: string, fetchImpl: typeof fetch = fetch): Promise<string | undefined> {
   const response = await fetchImpl(PROFILE_ENDPOINT, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
   const body = await response.json().catch(() => ({})) as { emailAddress?: unknown };
   if (!response.ok) throw new Error(`Gmail profile failed (${response.status})`);
   const email = typeof body.emailAddress === 'string' ? body.emailAddress.trim().toLowerCase() : '';
   return isMailboxAddress(email) ? email : undefined;
+}
+
+/** The OpenID email on the same grant, used only when the Gmail profile has no address. */
+export async function gmailUserinfoEmail(token: string, fetchImpl: typeof fetch = fetch): Promise<string | undefined> {
+  const response = await fetchImpl(USERINFO_ENDPOINT, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+  const body = await response.json().catch(() => ({})) as { email?: unknown };
+  if (!response.ok) throw new Error(`Gmail userinfo failed (${response.status})`);
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  return isMailboxAddress(email) ? email : undefined;
+}
+
+/** Status lines for every mailbox file. No token and no client secret. */
+export async function listGmailCredentialStates(dir = gmailCredentialDir()): Promise<GmailCredentialState[]> {
+  const listed = await listGmailCredentials(dir);
+  return listed
+    .filter(file => isMailboxAddress(file.id) || isLegacyGmailAccount(file.id))
+    .map(file => ({
+      account: file.id,
+      present: true,
+      hasRefreshToken: file.record.refresh_token.length > 0,
+      ...(typeof file.record.expires_at === 'number' ? { expiresAt: file.record.expires_at } : {}),
+      source: file.record.source,
+      ...(file.record.lastError ? { lastError: { at: file.record.lastError.at, message: file.record.lastError.message } } : {}),
+    }));
 }
 
 export interface SettleLegacyOptions {

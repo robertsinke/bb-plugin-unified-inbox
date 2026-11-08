@@ -27,7 +27,8 @@ import { toProviderError } from './src/adapters/provider-error';
 import { createSendGate } from './src/adapters/policy';
 import { createGateway } from './src/gateway';
 import { createGmailClient } from './src/gmail-client';
-import { createGmailCredentials, settleLegacyGmailAccounts } from './src/gmail-oauth';
+import { createGmailCredentials, listGmailCredentialStates, settleLegacyGmailAccounts } from './src/gmail-oauth';
+import { cancelGmailLogin, connectGmailMailbox, openSystemBrowser } from './src/gmail-login';
 import { gmailAccounts, isLegacyGmailAccount, legacyGmailAccounts, type GmailAccount } from './src/adapters/types';
 import { importGwsAccount } from './src/account-import';
 import { runInboxRefresh } from './src/inbox-refresh';
@@ -140,7 +141,12 @@ export default function plugin(bb: BbPluginApi) {
     mailApprovalKeyIds: { type: 'string', label: 'Enrolled mail signing key ids', default: '', experimental_multiline: true,
       description: 'Deliberately configure trusted SHA-256 key ids. Empty authorizes no signing keys.',
       experimental_schema: z.string().refine(value => { try { parseMailKeyIds(value); return true; } catch { return false; } }, 'Use lowercase SHA-256 ids separated by commas or whitespace') },
+    gmailClientId: { type: 'string', label: 'Gmail OAuth client id', default: '',
+      description: 'Desktop OAuth client id from your own Google Cloud project.' },
+    gmailClientSecret: { type: 'string', label: 'Gmail OAuth client secret', secret: true,
+      description: 'Desktop OAuth client secret. It stays on this server.' },
   });
+  bb.onDispose(() => cancelGmailLogin());
   const mailboxes = new Set<string>();
   const sendGate = createSendGate({ now, store: sendAudit, mailboxes: () => mailboxes, mail: { db, lastRefusal: sendAudit.lastMailRefusal, policy: async () => {
     const settings = await mailSettings.get();
@@ -214,6 +220,30 @@ export default function plugin(bb: BbPluginApi) {
       mailboxes: settlement,
       pairing: async request => (await whatsappPairing()).handle(request),
       note: (level, line) => bb.log[level](line),
+      gmail: {
+        clientConfigured: async () => {
+          const settings = await mailSettings.get();
+          return settings.gmailClientId.trim() !== '' && (settings.gmailClientSecret ?? '').trim() !== '';
+        },
+        mailboxes: () => listGmailCredentialStates(),
+        connect: async ({ replace }) => {
+          const settings = await mailSettings.get();
+          const result = await connectGmailMailbox({
+            clientId: settings.gmailClientId,
+            clientSecret: settings.gmailClientSecret ?? '',
+            replace,
+            open: openSystemBrowser,
+          });
+          if (!result.alreadyConnected) mailboxes.add(result.account);
+          // shortcut: the live registry is built at startup, a mailbox added here is listed after the next start.
+          return result;
+        },
+        remove: async account => {
+          await createGmailCredentials().remove(account);
+          mailboxes.delete(account);
+          delete registry[account];
+        },
+      },
       attentionOf: (account, id) => attention.get(account, id)?.verdict ?? null,
       attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
       clearAttention: (account, id) => { attention.dismiss(account, id); },

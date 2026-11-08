@@ -159,6 +159,28 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       return row?.updated_at ?? null;
     },
     clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); db.prepare('DELETE FROM inbox_read_hold').run(); for (const clear of alsoClear) clear(); emit({kind:'clear'}); },
+    /**
+     * Drop one account's cached rows. Does not call the all-source clear, so WhatsApp
+     * and LinkedIn files stay. Panel drafts live in localStorage; this cannot see them.
+     * shortcut: local drafts are dropped when the settings page handles remove, until then a removed mailbox can still have a draft in the panel.
+     */
+    forget(account: string) {
+      const tables = ['inbox_cache', 'inbox_sync', 'inbox_freshness', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'gmail_faces'];
+      const exists = (name: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
+      db.transaction(() => {
+        for (const table of tables) {
+          if (exists(table)) db.prepare(`DELETE FROM ${table} WHERE account = ?`).run(account);
+        }
+        if (!exists('inbox_search')) return;
+        const rows = db.prepare('SELECT id FROM inbox_search').all() as { id: string }[];
+        const drop = db.prepare('DELETE FROM inbox_search WHERE id = ?');
+        const prefix = `${account}\u0000`;
+        for (const row of rows) {
+          if (row.id === account || row.id.startsWith(prefix)) drop.run(row.id);
+        }
+      })();
+      emit({ kind: 'items', account });
+    },
     keepUnread(account: CachedItem['account'], id: string) {
       db.prepare('INSERT INTO inbox_unread_mark (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
       db.prepare('UPDATE inbox_cache SET unread = 1 WHERE account = ? AND id = ?').run(account, id);

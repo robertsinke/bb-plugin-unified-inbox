@@ -19,6 +19,8 @@ import { message, rpcContract } from './rpc-contract.ts';
 import type { WhatsAppPairingRequest, WhatsAppPairingSnapshot } from './rpc-contract.ts';
 import type { createSearchIndex } from './search-index.ts';
 import type { createSendAudit } from './send-audit.ts';
+import type { GmailCredentialState } from './gmail-oauth.ts';
+import type { GmailLoginResult } from './gmail-login.ts';
 
 /**
  * Failure text a source already phrased for a person, or one the provider-error factory scrubbed.
@@ -77,7 +79,7 @@ export interface GatewayDriver {
 export type Note = (level: 'info' | 'warn', line: string) => void;
 
 export interface GatewayDeps {
-  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet'>;
+  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'forget' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm' | 'row'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
@@ -100,6 +102,16 @@ export interface GatewayDeps {
   note?: Note;
   /** The mailbox list and the legacy-id map a panel reads after startup. */
   mailboxes?: { accounts: string[]; legacy: Record<string, string>; conflicts: { account: string; address: string }[] };
+  /**
+   * Desktop sign-in and the credential files. Absent in a test that never connects.
+   * `remove` deletes the credential file only. The gateway drops that account's cache rows.
+   */
+  gmail?: {
+    clientConfigured: () => boolean | Promise<boolean>;
+    mailboxes: () => GmailCredentialState[] | Promise<GmailCredentialState[]>;
+    connect: (input: { replace: boolean }) => Promise<GmailLoginResult>;
+    remove: (account: string) => Promise<void>;
+  };
 }
 
 /**
@@ -109,7 +121,9 @@ export interface GatewayDeps {
  * (src/adapters/policy.ts), so the refusal and the audit record are owned in one place. How a
  * source lists, opens, serves media and acts lives in src/adapters/ — never here.
  */
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+const MESSAGES_HINT = 'Check that imsg is installed and BB has Full Disk Access.';
+
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes, gmail }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -173,6 +187,38 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     },
     mailbox_status() {
       return mailboxes ?? { accounts: registered().filter(account => account !== 'whatsapp' && account !== 'imessage' && account !== 'linkedin'), legacy: {}, conflicts: [] };
+    },
+    async gmail_connect(input) {
+      if (!gmail) throw new Error('Gmail sign-in is not available.');
+      return gmail.connect({ replace: input?.replace === true });
+    },
+    async gmail_remove({ account }) {
+      if (!gmail) throw new Error('Gmail removal is not available.');
+      await gmail.remove(account);
+      // shortcut: panel drafts live in localStorage, drop them when the settings page handles remove.
+      cache.forget(account);
+      return { removed: true as const };
+    },
+    async connection_status() {
+      const rows = gmail ? await gmail.mailboxes() : [];
+      // A read of the pairing state. This does not call ensure() and does not open a socket.
+      const whatsapp = await pairing({});
+      const linkedin = cache.freshness('linkedin');
+      const messagesError = cache.freshness('imessage').lastError;
+      return {
+        clientConfigured: gmail ? await gmail.clientConfigured() : false,
+        mailboxes: rows.map(row => ({
+          account: row.account,
+          present: row.present,
+          hasRefreshToken: row.hasRefreshToken,
+          ...(row.expiresAt !== undefined ? { expiresAt: row.expiresAt } : {}),
+          ...(row.source ? { source: row.source } : {}),
+          ...(row.lastError ? { lastError: { at: row.lastError.at, message: row.lastError.message } } : {}),
+        })),
+        whatsapp,
+        linkedin,
+        messages: messagesError ? `${messagesError} ${MESSAGES_HINT}` : MESSAGES_HINT,
+      };
     },
     cached() {
       return { items: decorated(cachedRows()), freshness: freshness(), more: Object.fromEntries(registered().map(account => [account, typeof olderCursor[account] === 'string'])) as Record<Account, boolean> };

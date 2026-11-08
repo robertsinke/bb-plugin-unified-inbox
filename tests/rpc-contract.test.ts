@@ -130,7 +130,7 @@ test('a source refresh may say it has an older page, and may say nothing at all'
 test('a call that takes nothing parses as null and as an empty object', () => {
   // The same calls arrive both ways in the log: the panel and the CLI pass null, a client that always
   // sends a body passes {}. A refusal on the shape alone is a failure the caller cannot act on.
-  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources', 'mailbox_status'] as const;
+  const noArg = ['cached', 'freshness', 'search_status', 'clear_cache', 'linkedin_writes', 'linkedin_signin', 'mail_approval_policy', 'capabilities', 'sources', 'mailbox_status', 'connection_status'] as const;
   for (const method of noArg) {
     assert.equal(rpcContract[method].input.safeParse(null).success, true, `${method} answers a null call`);
     assert.equal(rpcContract[method].input.safeParse({}).success, true, `${method} answers an empty-body call`);
@@ -158,6 +158,20 @@ test('a mailbox address is an account id, and the schema is not the two legacy s
     'ada@example.com': { lastAttemptAt: 1, lastSuccessAt: null, lastError: 'gmail ada@example.com request failed (401; invalid, token)', cacheFallback: false },
   });
   assert.equal(described.success, true, 'an email-shaped account id survives the freshness record');
+});
+
+test('gmail connect accepts only replace, and remove names a mailbox', () => {
+  assert.equal(rpcContract.gmail_connect.input.safeParse(null).success, true);
+  assert.equal(rpcContract.gmail_connect.input.safeParse({}).success, true);
+  assert.equal(rpcContract.gmail_connect.input.safeParse({ replace: true }).success, true);
+  for (const field of ['code', 'state', 'verifier', 'redirect', 'tokenUrl', 'account', 'clientId', 'clientSecret', 'scopes']) {
+    assert.equal(rpcContract.gmail_connect.input.safeParse({ [field]: 'x' }).success, false, field);
+  }
+  assert.equal(rpcContract.gmail_remove.input.safeParse({ account: 'ada@example.com' }).success, true);
+  assert.equal(rpcContract.gmail_remove.input.safeParse({ account: 'gmail-personal' }).success, true);
+  assert.equal(rpcContract.gmail_remove.input.safeParse({ account: 'whatsapp' }).success, false);
+  assert.equal(rpcContract.gmail_remove.input.safeParse({ account: 'ada@example.com', token: 'x' }).success, false);
+  assert.equal(rpcContract.connection_status.input.safeParse({ ensure: true }).success, false);
 });
 
 test('the pairing call reads with nothing and acts with one of four words', () => {
