@@ -9,7 +9,7 @@
 // they never tick. Two independent sessions each ticking their own clock are
 // two inboxes, which is correct; the latch lives on the session.
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
-import { messagesAfterSend } from './sent-message.ts';
+import { messagesAfterMail, messagesAfterSend } from './sent-message.ts';
 import { canMarkRead, canQuoteReply, canReact, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
@@ -922,6 +922,11 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   async function sendMail(): Promise<void> {
     const mail = state.mail;
     if (!mail || state.busy || !mail.to.trim() || (!mail.text.trim() && mail.attachments.length === 0)) return;
+    const account = mail.account;
+    const threadId = mail.threadId;
+    const sent = { text: mail.text, attachmentNames: mail.attachments.map(file => file.name) };
+    const before = state.messages;
+    const stillHere = () => Boolean(threadId && state.selected?.account === account && state.selected.id === threadId);
     state.busy = true;
     // In flight and after success the composer says nothing; the busiest-looking control on it is
     // already disabled, and the draft leaving the panel is the receipt.
@@ -933,7 +938,19 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       state.mailStatus = '';
       state.mail = null;
       state.status = '';
+      const sentAt = clock();
+      // The thread has no watch. Without this line the reply stays missing until the owner leaves and opens it again.
+      if (stillHere()) state.messages = messagesAfterMail(before, before, sent, sentAt);
       notify();
+      if (stillHere() && threadId) {
+        try {
+          const opened = await deps.rpc.call('open', { account, id: threadId });
+          if (stillHere()) {
+            state.messages = messagesAfterMail(before, opened.messages, sent, sentAt);
+            notify();
+          }
+        } catch { /* the line already on screen stays */ }
+      }
     } catch (error) {
       state.mailStatus = error instanceof Error ? error.message : 'Send outcome unknown. Check Gmail Sent before retrying.';
       notify();

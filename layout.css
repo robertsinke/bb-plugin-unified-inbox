@@ -174,3 +174,9 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-filter-dot[data-attention=unsettled]{background:#f0b429}
 .ui-older{margin:4px 0 12px;text-align:center;font-size:12px;opacity:.55}
 .ui-row-open .ui-menu{pointer-events:auto}
+.ui-send-ask{display:flex;flex:none;flex-direction:column;gap:10px;margin:0 12px 8px;padding:12px 14px;border:1px solid color-mix(in srgb, currentColor 14%, transparent);border-radius:14px;background:var(--background, #fff);box-shadow:0 8px 24px color-mix(in srgb, currentColor 12%, transparent)}
+.ui-send-ask p{margin:0;font-size:13px;font-weight:600;line-height:1.4}
+.ui-send-ask-actions{display:flex;justify-content:flex-end;gap:8px}
+.ui-inbox button.ui-send-ask-cancel,.ui-inbox button.ui-send-ask-send{height:32px;padding:0 14px;border:0;border-radius:999px;font:inherit;font-size:13px;cursor:pointer}
+.ui-inbox button.ui-send-ask-cancel{background:color-mix(in srgb, currentColor 10%, transparent);color:inherit}
+.ui-inbox button.ui-send-ask-send{background:var(--foreground);color:var(--background)}
