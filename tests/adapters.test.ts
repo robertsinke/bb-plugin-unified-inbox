@@ -211,7 +211,7 @@ test('WhatsApp lists a chat, refuses what it cannot do, and serves media through
   } finally { f.done(); }
 });
 
-test('Messages lists, opens and keeps its read state locally', async () => {
+test('Messages lists, opens, and clears its unread dot in the inbox', async () => {
   const f = fixture();
   try {
     const adapter = f.registry.imessage;
@@ -223,6 +223,8 @@ test('Messages lists, opens and keeps its read state locally', async () => {
 
     assert.equal((await adapter.open('50')).messages[0].text, 'Hello');
     assert.deepEqual(await adapter.action('read', '50'), { status: 'Marked read.' });
+    assert.equal(f.calls.includes('imsg:read'), false);
+    assert.equal(f.cache.heldRead('imessage', '50'), true);
     assert.equal(f.cache.keptUnread('imessage', '50'), false);
 
     assert.equal(canChange(caps, 'archive'), false);
