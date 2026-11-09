@@ -40,7 +40,7 @@ const ACCOUNT = 'linkedin';
  */
 const PAGE = 20;
 
-const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'MessageCircle', pollIntervalMs: 45_000, pageSize: PAGE };
+const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'linkedin', pollIntervalMs: 45_000, pageSize: PAGE };
 
 /** What an invitation answer needs, kept from the last read: the sharedSecret the page sends as its
  * validationToken, the inviter's profile id, and the person's first name for the toast. */

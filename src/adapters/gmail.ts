@@ -49,7 +49,7 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, 
  * — so the owner saw the WhatsApp page and no mail. Ten fits the panel. The ceiling, not the
  * transport, is the reason: a read is faster now, and the page size stays until someone measures it again.
  */
-const GMAIL_PACE = { icon: 'Mail' as const, pollIntervalMs: 180_000, pageSize: 10 };
+const GMAIL_PACE = { icon: 'gmail' as const, pollIntervalMs: 180_000, pageSize: 10 };
 
 /** Every Gmail mailbox, including a legacy id that has not been renamed, uses this pace. */
 export function gmailSource(account: string): SourceDeclaration {

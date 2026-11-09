@@ -21,7 +21,7 @@ const ACCOUNT = 'imessage';
  * `chats.list` takes a `limit` and no offset, so a page is a slice of the whole chat database, and a
  * page is worth what the newest page is worth.
  */
-const SOURCE: SourceDeclaration = { label: 'Messages', icon: 'MessageCircle', pollIntervalMs: 8_000, watchIntervalMs: 8_000, pageSize: 20 };
+const SOURCE: SourceDeclaration = { label: 'Messages', icon: 'messages', pollIntervalMs: 8_000, watchIntervalMs: 8_000, pageSize: 20 };
 
 export function createIMessageAdapter(deps: RegistryDeps): Adapter {
   const { cache } = deps;

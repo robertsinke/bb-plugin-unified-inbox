@@ -20,7 +20,7 @@ import {
   stopLinkedInBrowser, typeIntoNamedControl,
 } from './src/linkedin-chrome';
 import { createLinkedInPageSession } from './src/linkedin-page-session';
-import { inboxMentionContext, MENTION_PROVIDER, mentionId, parseMentionId, setLegacyAccountMap, type MentionMessage } from './src/inbox-mention';
+import { cachedMentionRows, inboxMentionContext, MENTION_PROVIDER, mentionId, parseMentionId, rankedMentionRows, setLegacyAccountMap, type MentionMessage } from './src/inbox-mention';
 import { message, rpcContract } from './src/rpc-contract';
 import { createRegistry } from './src/adapters/index';
 import { toProviderError } from './src/adapters/provider-error';
@@ -272,14 +272,24 @@ export default async function plugin(bb: BbPluginApi) {
       id: MENTION_PROVIDER,
       label: 'Inbox',
       triggers: ['#'],
-      search({ query }) {
-        const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        return cache.list()
-          .filter(item => registered.has(item.account))
-          .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
-          .sort((a, b) => b.date - a.date)
-          .slice(0, 20)
-          .map(item => ({ id: mentionId(item.account, item.id), title: item.title || item.sender || 'Untitled conversation', subtitle: `${registry[item.account].source.label} · ${item.preview}`.slice(0, 140), icon: registry[item.account].source.icon }));
+      async search({ query }) {
+        const known = (account: string) => registered.has(account);
+        const lookup = (account: string, id: string) =>
+          cache.list().find(item => item.account === account && item.id === id) ?? searchIndex.row(account, id);
+        const ranked = await searchIndex.search(query);
+        const fromIndex = rankedMentionRows(ranked, lookup, known);
+        const rows = fromIndex.length > 0
+          ? fromIndex
+          : cachedMentionRows(cache.list().filter(item => known(item.account)), query);
+        return rows.map(item => {
+          const preview = item.preview.trim();
+          return {
+            id: mentionId(item.account, item.id),
+            title: item.title || item.sender || 'Untitled conversation',
+            ...(preview ? { subtitle: preview.slice(0, 140) } : {}),
+            icon: `${bb.pluginId}/${registry[item.account].source.icon}`,
+          };
+        });
       },
       async resolve(mention) {
         const { account, id } = parseMentionId(mention, registered);
