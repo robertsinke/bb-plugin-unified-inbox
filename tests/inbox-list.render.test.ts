@@ -255,6 +255,65 @@ test('a Gmail refresh failure stays one error line per mailbox', async () => {
   }
 });
 
+test('a new WhatsApp chat asks for a phone number and sends through the existing reply', async () => {
+  const view = mountInbox(name => {
+    if (name === 'whatsapp_resolve') return { jid: '31612345678@s.whatsapp.net' };
+    if (name === 'action') return { status: 'sent' };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const open = [...view.host.querySelectorAll('button')].find(button => button.textContent === 'New');
+    assert.ok(open);
+    view.flush();
+    open.click();
+    view.flush();
+    assert.equal(view.host.textContent?.includes("aren't supported"), false);
+    const phone = view.host.querySelector('.ui-whatsapp-phone');
+    const message = view.host.querySelector('.ui-whatsapp-text');
+    assert.ok(phone);
+    assert.ok(message);
+    view.flush();
+    type(phone, '+31 6 12345678');
+    const area = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set;
+    view.flush();
+    area?.call(message, 'Hello');
+    message.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    view.flush();
+    const send = [...view.host.querySelectorAll('button')].find(button => button.textContent === 'Send');
+    assert.ok(send);
+    send.click();
+    await wait(50);
+    view.flush();
+    assert.deepEqual(view.calls.filter(call => call.name === 'whatsapp_resolve' || call.name === 'action'), [
+      { name: 'whatsapp_resolve', input: { phone: '+31 6 12345678' } },
+      { name: 'action', input: { account: 'whatsapp', id: '31612345678@s.whatsapp.net', action: 'reply', text: 'Hello', allow: 'send' } },
+    ]);
+  } finally {
+    view.done();
+  }
+});
+
+test('an unpaired WhatsApp account shows the settings sentence and no phone field', async () => {
+  const view = mountInbox(name => {
+    if (name === 'whatsapp_pairing') return { state: 'unpaired' };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const open = [...view.host.querySelectorAll('button')].find(button => button.textContent === 'New');
+    assert.ok(open);
+    open.click();
+    view.flush();
+    assert.equal(view.host.textContent?.includes(WHATSAPP_SETTINGS_COPY), true);
+    assert.equal(view.host.querySelector('.ui-whatsapp-phone'), null);
+  } finally {
+    view.done();
+  }
+});
+
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */
 function install(page: JSDOM): void {
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'localStorage'] as const;

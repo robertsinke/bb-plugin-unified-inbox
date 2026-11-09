@@ -56,6 +56,34 @@ function getInboxSession(rpc: InboxSessionDeps['rpc']): InboxSession {
 /** Names BB Settings and this plugin. There is no navigation from a thread tab to that page. */
 const SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect an account.';
 const WHATSAPP_SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect WhatsApp.';
+
+function WhatsAppStart({ unpaired, onSent }: { unpaired: boolean; onSent: () => void }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [phone, setPhone] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const digits = phone.replace(/\D/g, '');
+  if (unpaired) return <p>{WHATSAPP_SETTINGS_COPY}</p>;
+  return <form className="ui-whatsapp-start" onSubmit={event => {
+    event.preventDefault();
+    const body = text.trim();
+    if (digits.length < 7 || digits.length > 15 || !body || busy) return;
+    setBusy(true);
+    setError(null);
+    void rpc.call('whatsapp_resolve', { phone }).then(async ({ jid }) => {
+      await rpc.call('action', { account: 'whatsapp', id: jid, action: 'reply', text: body, allow: 'send' });
+      onSent();
+    }).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : 'Nothing was sent.');
+    }).finally(() => setBusy(false));
+  }}>
+    <label>Phone number<input className="ui-whatsapp-phone" value={phone} onChange={event => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Country code and number" /></label>
+    <label>Message<textarea className="ui-whatsapp-text" value={text} onChange={event => setText(event.target.value)} /></label>
+    <button type="submit" disabled={busy || digits.length < 7 || digits.length > 15 || !text.trim()}>Send</button>
+    {error ? <p role="alert">{error}</p> : null}
+  </form>;
+}
 function emptyInboxCopy(query: string, filter: string, errorCount: number): string {
   if (query.trim()) return 'No conversations match this search.';
   if (filter === 'unread') return 'No unread messages in this view.';
@@ -696,7 +724,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
       </div>
       {ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}{composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk} fromThread={threadAttachments(messages, selected.account)}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}
-    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions">{filterAccountOrder(sources).filter(isMail).map(account => <button key={account} onClick={()=>{session.startMail('new', account);setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources, account)}</button>)}</div><p>New WhatsApp chats aren't supported here yet.</p></div>:mail?<>{ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk}/></>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>,attention:items.some(item=>item.needsAttention)})}} actions={[
+    </section>:(compose||composer==='compose')?<section className="ui-compose-view">{compose?<div className="ui-compose-menu"><strong>Choose an account</strong><div className="ui-actions">{filterAccountOrder(sources).filter(isMail).map(account => <button key={account} onClick={()=>{session.startMail('new', account);setCompose(false);setMailFocus(n=>n+1);}}>{sourceLabel(sources, account)}</button>)}</div><WhatsAppStart unpaired={whatsappUnpaired} onSent={() => setCompose(false)} /></div>:mail?<>{ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk}/></>:null}</section>:<><div className="ui-list" ref={listScroll} onScroll={()=>maybeOlder()}><header className="ui-mail-bar"><span className="ui-search-wrap"><input className="ui-search" value={query} onChange={event=>session.setQuery(event.target.value)} placeholder="Search" aria-label="Search inbox" />{query!==''&&<button type="button" className="ui-search-clear" onClick={()=>session.setQuery('')} aria-label="Clear the search" title="Clear search"><Icon name="CircleX" aria-hidden="true"/></button>}</span><ItemMenu label={trigger.label} marker={trigger.marker} group={{heading:'Filter',actions:filterActions({filter,onFilter:next=>session.setFilter(next),sources,sourceIcon:account=><AppIcon account={account}/>,attention:items.some(item=>item.needsAttention)})}} actions={[
           { label: 'New', run: () => setCompose(!compose) },
           {
             label: auditOpen ? 'Back to inbox' : 'Send log',

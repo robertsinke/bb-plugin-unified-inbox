@@ -91,6 +91,8 @@ export interface GatewayDeps {
    * so the socket — 7.9 MB of client and a lazy import — is only loaded when someone pairs.
    */
   pairing: (request: WhatsAppPairingRequest) => Promise<WhatsAppPairingSnapshot>;
+  /** Chat id for a phone number. Absent in a test that never starts a WhatsApp chat. Does not send. */
+  resolveWhatsApp?: (digits: string) => Promise<string>;
   /** The stored yes/no for a conversation, written when a new message arrives. */
   attentionOf?: (account: Account, id: string) => AttentionVerdict | null;
   /** True when the owner cleared Needed and that clear can still be undone. */
@@ -125,7 +127,7 @@ export interface GatewayDeps {
  */
 const MESSAGES_HINT = 'Check that imsg is installed and BB has Full Disk Access.';
 
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes, gmail }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, resolveWhatsApp, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes, gmail }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -329,6 +331,13 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     // unpaired source answers as a state, so nothing here can turn it into a failure line.
     async whatsapp_pairing(input) {
       return pairing(input ?? {});
+    },
+    async whatsapp_resolve({ phone }) {
+      const { WHATSAPP_BAD_PHONE, WHATSAPP_OFFLINE, whatsAppPhoneDigits } = await import('./whatsapp/phone.ts');
+      const digits = whatsAppPhoneDigits(phone);
+      if (!digits) throw new Error(WHATSAPP_BAD_PHONE);
+      if (!resolveWhatsApp) throw new Error(WHATSAPP_OFFLINE);
+      return { jid: await resolveWhatsApp(digits) };
     },
     // One media path for every source: the request says how the file is addressed, and the
     // adapter that owns the source answers. A shared post answers with a link because its

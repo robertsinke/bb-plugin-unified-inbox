@@ -165,6 +165,11 @@ export const rpcContract = defineRpcContract({
   // One call, four answers: no op reads the state, and the three ops are the only acts that change
   // it. `pair` is the QR path, which is the default one; a code is asked for by phone number.
   whatsapp_pairing: { input: whatsappPairingRequest.nullable(), output: whatsappPairing },
+  /** The chat id for a phone number. This call does not send. */
+  whatsapp_resolve: {
+    input: z.object({ phone: z.string().min(1).max(32) }).strict(),
+    output: z.object({ jid: z.string().min(1) }).strict(),
+  },
   capabilities: { input: noArgs, output: z.record(account, capabilitiesSchema) },
   // What each source *is*, as opposed to what it can do: the name a person knows it by, its icon,
   // and the cadences the panel paces it with. One call, at start; the panel keeps no copy of its

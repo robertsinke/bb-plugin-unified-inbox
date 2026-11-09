@@ -477,6 +477,9 @@ export function createWhatsAppStore(db: Database.Database) {
        phone_jid = COALESCE(excluded.phone_jid, wa_contacts.phone_jid)`,
   );
   const readContact = db.prepare('SELECT * FROM wa_contacts WHERE jid = ?');
+  const readContactByPhone = db.prepare(
+    'SELECT jid, phone_jid FROM wa_contacts WHERE jid = ? OR phone_jid = ?',
+  );
   const readAvatar = db.prepare('SELECT * FROM wa_avatars WHERE jid = ?');
   const insertAvatar = db.prepare(
     `INSERT INTO wa_avatars (jid, url, state, fetched_at, reason)
@@ -712,6 +715,16 @@ export function createWhatsAppStore(db: Database.Database) {
     upsertContact,
     getContact(jid: string): Contact | undefined {
       return readContact.get(jid) as Contact | undefined;
+    },
+    /**
+     * The chat id already stored for these digits. A phone row and a LID row both match. The phone
+     * jid wins when it is a phone, because that is the chat the list already shows. No socket.
+     */
+    findPhoneJid(digits: string): string | undefined {
+      const phone = `${digits}@s.whatsapp.net`;
+      const row = readContactByPhone.get(phone, phone) as { jid: string; phone_jid: string | null } | undefined;
+      if (!row) return undefined;
+      return row.phone_jid?.endsWith('@s.whatsapp.net') ? row.phone_jid : row.jid;
     },
     /**
      * What is known about a person's or a group's picture. Absent means never asked; `failed` means

@@ -140,6 +140,10 @@ export function fakeWhatsAppTransport(
     async sendText() {
       calls.push('whatsapp:sendText');
     },
+    async resolvePhone() {
+      calls.push('whatsapp:resolvePhone');
+      return '15551234567@s.whatsapp.net';
+    },
     async sendReaction() {
       calls.push('whatsapp:sendReaction');
     },
