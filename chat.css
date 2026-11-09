@@ -11,6 +11,8 @@
 .ui-chat-outgoing .ui-reaction-pills{right:10px}
 .ui-reaction-count{margin-left:2px;font-size:10px;opacity:.7}
 .ui-bubble-actions{position:absolute;left:var(--ui-action-x,8px);top:var(--ui-action-y,8px);z-index:2;display:flex;align-items:center;gap:1px;width:max-content;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;background:var(--background,Canvas);box-shadow:0 4px 14px #0004;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity 140ms ease}
+/* A closed bar is still in the scroll width. Pin it to the trailing edge so a short message of yours cannot widen the thread. */
+.ui-chat-outgoing .ui-bubble-actions:not(.is-open){left:auto;right:8px}
 .ui-bubble-actions.is-open,.ui-bubble-actions:has(:focus-visible){opacity:1;pointer-events:auto}
 .ui-reaction-set{display:flex;flex:none}
 .ui-reaction-choice,.ui-reply-choice{flex:none;height:26px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer;white-space:nowrap}
