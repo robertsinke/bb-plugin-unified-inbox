@@ -148,6 +148,11 @@ export interface InboxSession {
   refresh(sources?: Account[]): Promise<void>;
   /** The next older page from every source that still has one. The list calls this as it scrolls. */
   more(): Promise<void>;
+  /**
+   * Listing rows now on screen, in list order. One Gmail thread is read at a time. A row that
+   * leaves the screen is not read. A quota failure leaves the snippet where it is.
+   */
+  showListed(rows: { account: Account; id: string }[]): void;
   setFilter(f: InboxFilter): void;
   setQuery(q: string): void;
   setDraft(t: string): void;
@@ -273,6 +278,11 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   let olderDue: number | null = null;
   /** Bumped when a round is given up, so the answers it was still waiting for are dropped. */
   let olderSeq = 0;
+  /** Listing rows the panel can see, in list order. One read at a time. */
+  let listedWanted: { account: Account; id: string }[] = [];
+  let disclosing = false;
+  /** A row that failed while it stayed on screen. Scrolling it away allows one more try. */
+  const discloseFailed = new Set<string>();
 
   let cacheDue: number | null = null;
   let cacheReading = false;
@@ -495,10 +505,58 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   }
 
   /**
-   * The next older page: one source at a time and merged as each answers, so WhatsApp rows land in
-   * a second while Gmail is still reading its twenty threads. One round at a time, no side effect
-   * from rendering, a source failure in `errors` with the shown rows untouched — and a round that
-   * misses OLDER_TIMEOUT_MS is given up rather than left waiting forever.
+   * A listing row has no date yet. Sit it just under the oldest row this account already shows,
+   * so the page keeps Gmail's order until the real date arrives.
+   */
+  function placeListed(account: Account, items: InboxItem[]): InboxItem[] {
+    const known = state.items.filter(item => item.account === account && item.date > 0).map(item => item.date);
+    let floor = known.length ? Math.min(...known) : clock();
+    return items.map(item => {
+      if (!item.listedOnly || item.date > 0) return item;
+      floor -= 1;
+      return { ...item, date: floor };
+    });
+  }
+
+  function showListed(rows: { account: Account; id: string }[]): void {
+    const visible = new Set(rows.map(rowKey));
+    for (const key of discloseFailed) if (!visible.has(key)) discloseFailed.delete(key);
+    listedWanted = rows;
+    void discloseNext();
+  }
+
+  async function discloseNext(): Promise<void> {
+    if (disclosing) return;
+    const next = listedWanted.find(row => {
+      const item = state.items.find(current => current.account === row.account && current.id === row.id);
+      return item?.listedOnly === true && !discloseFailed.has(rowKey(row));
+    });
+    if (!next) return;
+    disclosing = true;
+    const key = rowKey(next);
+    try {
+      const filled = await deps.rpc.call('disclose', { account: next.account, id: next.id });
+      const current = state.items.find(item => rowKey(item) === key);
+      if (current?.listedOnly) {
+        const { listedOnly: _listed, ...rest } = filled;
+        const row: InboxItem = { ...rest, date: rest.date > 0 ? rest.date : current.date };
+        const kept = olderRows.get(next.account);
+        if (kept) olderRows.set(next.account, kept.map(item => item.id === next.id ? row : item));
+        setItems(state.items.map(item => rowKey(item) === key ? row : item).sort((a, b) => b.date - a.date));
+        notify();
+      }
+    } catch {
+      discloseFailed.add(key);
+    } finally {
+      disclosing = false;
+      void discloseNext();
+    }
+  }
+
+  /**
+   * The next older page: one source at a time and merged as each answers. One round at a time, no
+   * side effect from rendering, a source failure in `errors` with the shown rows untouched — and a
+   * round that misses OLDER_TIMEOUT_MS is given up rather than left waiting forever.
    */
   async function more(): Promise<void> {
     if (state.loadingOlder) return;
@@ -537,7 +595,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
             return;
           }
           const seen = new Set(state.items.map(rowKey));
-          const fresh: InboxItem[] = page.items.filter((item: InboxItem) => !seen.has(rowKey(item)));
+          const fresh = placeListed(account, page.items.filter((item: InboxItem) => !seen.has(rowKey(item))));
           const rows = olderRows.get(account) ?? [];
           const added = fresh.filter(item => !rows.some(row => row.id === item.id));
           if (added.length) olderRows.set(account, [...rows, ...added]);
@@ -1047,6 +1105,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     restoreAttention,
     refresh,
     more,
+    showListed,
     setFilter(f) {
       if (state.filter === f) return;
       state.filter = f;
