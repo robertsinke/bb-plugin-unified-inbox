@@ -13,12 +13,15 @@ test('a message with media of its own names itself only where a control cannot',
   assert.equal(whatsappText('Hear this', 'audio', note), 'Hear this', 'a caption is the message text');
   assert.equal(whatsappText('', 'call'), '[call]', 'a call is not an empty bubble');
   assert.equal(whatsappText('', 'text'), '');
+  assert.equal(whatsappText('Lunch?\nYes\nNo', 'poll'), 'Poll');
+  assert.equal(whatsappText('Lunch?', 'pollCreationV3'), 'Poll', 'a row stored before the poll type still lists as Poll');
 });
 
 test('group previews name the sender, matching WhatsApp', () => {
   assert.equal(groupPreview('Ja', false, 'Marnix'), 'Marnix: Ja');
   assert.equal(groupPreview('Ja', true, ''), 'You: Ja');
   assert.equal(groupPreview('Photo', false, 'Felix'), 'Felix: Photo');
+  assert.equal(groupPreview('Poll', false, 'Ada'), 'Ada: Poll');
 });
 
 test('group previews stay bare without a sender or body', () => {
@@ -55,4 +58,8 @@ test('stub and protocol events are noise, not messages', () => {
   assert.equal(isWhatsAppNoisePreview('[system]'), true);
   assert.equal(isWhatsAppNoisePreview('Beatriz Sgobi: [system]'), true);
   assert.equal(isWhatsAppNoisePreview('Marnix: Ja'), false);
+  assert.equal(isWhatsAppNoise('pollUpdate', ''), true);
+  assert.equal(isWhatsAppNoise('', '[pollUpdate]'), true);
+  assert.equal(isWhatsAppNoisePreview('[pollUpdate]'), true);
+  assert.equal(isWhatsAppNoisePreview('Ada: [pollUpdate]'), true);
 });

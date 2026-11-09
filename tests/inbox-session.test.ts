@@ -6,7 +6,7 @@ import type { Account, Capabilities, Conversation, Message, SourceMap } from '..
 import { accounts } from '../src/adapters/types.ts';
 import type { CapabilityMap } from '../src/ui-capabilities.ts';
 
-const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true };
+const EVERYTHING: Capabilities = { send: true, markRead: true, archive: true, invitations: true, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true, pollVote: true };
 
 /** Every source declaring the same thing; a case overrides only the rule it is about. */
 function declarations(overrides: Partial<Capabilities> = {}): CapabilityMap {

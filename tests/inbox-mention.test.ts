@@ -113,3 +113,20 @@ test('long threads stay inside the context budget', () => {
   assert.match(context, /does not authorize sending/, 'budgeting keeps the safety footer');
   assert.match(context, /text and media placeholders, not media content/, 'budgeting keeps the media notice');
 });
+
+test('a poll mention names the question and the options, not who voted', () => {
+  const context = inboxMentionContext({
+    account: 'whatsapp',
+    label: 'WhatsApp',
+    id: '1555@s.whatsapp.net',
+    title: 'Ada',
+    messages: [{
+      sender: 'Ada',
+      text: '',
+      date: 1_700_000_000_000,
+      poll: { question: 'Lunch?', options: [{ name: 'Yes' }, { name: 'No' }] },
+    }],
+  });
+  assert.match(context, /Ada: Lunch\?, Yes, No/);
+  assert.equal(context.includes('voter'), false);
+});

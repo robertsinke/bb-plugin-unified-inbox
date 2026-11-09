@@ -53,6 +53,7 @@ function sdk(rpc: (method: string, ...args: unknown[]) => Promise<any>) {
   const stub = {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },
     experimental_Icon: () => null,
+    experimental_useAppPanel: () => ({ openTab() {} }),
     ThreadChat: () => null,
     useRpc: () => ({ call: rpc }),
     useSdk: () => ({ threads: { tabs: { get: async () => ({ tabs: [], revision: 1 }), update: async () => ({ tabs: [], revision: 2 }) } } }),

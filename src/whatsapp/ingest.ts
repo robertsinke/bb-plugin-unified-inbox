@@ -18,6 +18,7 @@ import {
   BufferJSON,
   extractMessageContent,
   getContentType,
+  getKeyAuthor,
   isJidGroup,
   jidNormalizedUser,
   proto,
@@ -32,6 +33,7 @@ import {
   type WAMessageUpdate,
 } from 'baileys';
 import { decryptMessageEdit, messageSecretFromRaw } from './message-edit.ts';
+import { decryptPollSelection, isPollUpdateType, pollFacts, pollSearchText, POLL_TYPE } from './poll.ts';
 import {
   isPhoneShapedLabel,
   usableName,
@@ -75,6 +77,8 @@ export type AttachIngestOptions = {
   onMessageUpdated?: (message: Message) => void;
   /** Two chat rows turned out to be the same person and were merged; fired after the commit. */
   onChatsMerged?: (merge: ChatMerge) => void;
+  /** The linked account's jid, used to decrypt a vote this account cast. Absent in tests that only decrypt other people. */
+  meJid?: () => string | undefined;
   /** A handler (or one of its consumer callbacks) threw and was contained. */
   onHandlerError?: (context: { event: string; error: unknown }) => void;
 };
@@ -132,6 +136,13 @@ export function classifyMessageType(msg: WAMessage): string {
     case 'locationMessage':
     case 'liveLocationMessage':
       return 'location';
+    case 'pollCreationMessage':
+    case 'pollCreationMessageV2':
+    case 'pollCreationMessageV3':
+    case 'pollCreationMessageV5':
+      return POLL_TYPE;
+    case 'pollUpdateMessage':
+      return 'pollUpdate';
     default:
       return key.replace(/Message$/, '') || 'unknown';
   }
@@ -376,7 +387,7 @@ function harvestPushName(store: WhatsAppStore, senderJid: string, pushName: stri
 export function ingestBaileysMessage(
   store: WhatsAppStore,
   msg: WAMessage,
-  options: { onChatsMerged?: (merge: ChatMerge) => void } = {},
+  options: { onChatsMerged?: (merge: ChatMerge) => void; meJid?: string } = {},
 ): void {
   const id = msg.key?.id;
   const rawChatJid = chatJidFromMessage(msg);
@@ -425,12 +436,18 @@ export function ingestBaileysMessage(
     return;
   }
 
+  if (isPollUpdateType(type)) {
+    recordPollUpdate(store, msg, chatJid, ts, options.meJid);
+    return;
+  }
+
   // The chat row must exist before the message row (foreign keys are on).
   const existing = store.getChat(chatJid);
   const nextLast = existing?.last_msg_at == null ? ts : Math.max(existing.last_msg_at, ts);
   upsertChatMerged(store, { jid: chatJid, kind: chatKindFromJid(chatJid), last_msg_at: nextLast });
 
   const quote = quoteSnapshot(msg);
+  const facts = type === POLL_TYPE ? pollFacts(msg.message) : undefined;
   store.upsertMessage({
     id,
     chat_jid: chatJid,
@@ -438,7 +455,7 @@ export function ingestBaileysMessage(
     sender,
     ts,
     type,
-    text,
+    text: facts ? pollSearchText(facts) : text,
     quote_target_id: quote?.targetId ?? null,
     quote_sender: quote?.sender ?? null,
     quote_type: quote?.type ?? null,
@@ -446,10 +463,88 @@ export function ingestBaileysMessage(
     // The full WAMessage envelope — required for `getMessage(key)`, media downloads and edits.
     raw: JSON.stringify(msg, BufferJSON.replacer),
   });
+  if (facts) settlePendingPollVotes(store, id, facts);
 }
 
 function reactionActor(key: WAMessageKey | null | undefined, chatJid: string): string {
   return key?.participant ?? key?.participantAlt ?? (key?.fromMe ? 'me' : chatJid);
+}
+
+function recordPollUpdate(store: WhatsAppStore, msg: WAMessage, chatJid: string, ts: number, meJid: string | undefined): void {
+  const update = extractMessageContent(msg.message)?.pollUpdateMessage;
+  const pollId = update?.pollCreationMessageKey?.id;
+  if (!pollId) return;
+  upsertChatMerged(store, { jid: chatJid, kind: chatKindFromJid(chatJid) });
+  const me = meJid ? jidNormalizedUser(meJid) : undefined;
+  const voterJid = getKeyAuthor(msg.key, me);
+  const creatorJid = getKeyAuthor(update.pollCreationMessageKey, me);
+  const actor = store.canonicalChatJid(reactionActor(msg.key, chatJid));
+  const updatedAt = toNumber(update.senderTimestampMs) ?? ts;
+  const payload = update.vote?.encPayload;
+  const iv = update.vote?.encIv;
+  if (!payload || !iv || !voterJid || voterJid === 'me' || !creatorJid) {
+    if (!payload && !iv) store.upsertPollVote({ chat_jid: chatJid, poll_msg_id: pollId, actor, options: [], updated_at: updatedAt });
+    return;
+  }
+  const creation = store.getMessage(pollId);
+  const facts = creation ? pollFactsFromStored(creation.raw) : undefined;
+  const names = facts
+    ? decryptPollSelection({
+      encPayload: payload,
+      encIv: iv,
+      facts,
+      pollMsgId: pollId,
+      pollCreatorJid: creatorJid,
+      voterJid,
+    })
+    : undefined;
+  if (!creation) {
+    store.upsertPollVote({
+      chat_jid: chatJid,
+      poll_msg_id: pollId,
+      actor,
+      pending: {
+        encPayload: Buffer.from(payload).toString('base64'),
+        encIv: Buffer.from(iv).toString('base64'),
+        voterJid,
+        pollCreatorJid: creatorJid,
+      },
+      updated_at: updatedAt,
+    });
+    return;
+  }
+  if (!names) return;
+  store.upsertPollVote({ chat_jid: chatJid, poll_msg_id: pollId, actor, options: names, updated_at: updatedAt });
+}
+
+function pollFactsFromStored(raw: string | null): ReturnType<typeof pollFacts> {
+  if (!raw) return undefined;
+  try {
+    return pollFacts((JSON.parse(raw, BufferJSON.reviver) as WAMessage).message);
+  } catch {
+    return undefined;
+  }
+}
+
+function settlePendingPollVotes(store: WhatsAppStore, pollId: string, facts: NonNullable<ReturnType<typeof pollFacts>>): void {
+  for (const row of store.listPendingPollVotes(pollId)) {
+    if (!row.pending) continue;
+    const names = decryptPollSelection({
+      encPayload: new Uint8Array(Buffer.from(row.pending.encPayload, 'base64')),
+      encIv: new Uint8Array(Buffer.from(row.pending.encIv, 'base64')),
+      facts,
+      pollMsgId: pollId,
+      pollCreatorJid: row.pending.pollCreatorJid,
+      voterJid: row.pending.voterJid,
+    });
+    store.upsertPollVote({
+      chat_jid: row.chat_jid,
+      poll_msg_id: pollId,
+      actor: row.actor,
+      options: names ?? [],
+      updated_at: row.updated_at,
+    });
+  }
 }
 
 function applyReaction(store: WhatsAppStore, targetKey: WAMessageKey, reaction: proto.IReaction): string | undefined {
@@ -558,7 +653,7 @@ export function handleMessagesReaction(store: WhatsAppStore, updates: MessagesRe
 export function handleHistorySet(
   store: WhatsAppStore,
   payload: HistorySetPayload,
-  options: { onChatsMerged?: (merge: ChatMerge) => void } = {},
+  options: { onChatsMerged?: (merge: ChatMerge) => void; meJid?: string } = {},
 ): SyncProgress {
   const merges: ChatMerge[] = [];
   const collect = (merge: ChatMerge | null) => {
@@ -567,7 +662,7 @@ export function handleHistorySet(
   store.transaction(() => {
     for (const chat of payload.chats) ingestBaileysChat(store, chat);
     for (const contact of payload.contacts) collect(ingestBaileysContact(store, contact));
-    for (const message of payload.messages) ingestBaileysMessage(store, message, { onChatsMerged: collect });
+    for (const message of payload.messages) ingestBaileysMessage(store, message, { onChatsMerged: collect, meJid: options.meJid });
     // History that was synced is not news. A chat the owner has never read here gets its read
     // cursor on the newest stored row, so a first pairing — which syncs everything — does not open
     // with every conversation marked unread. A cursor that already exists is left alone: a history
@@ -592,11 +687,15 @@ export function handleHistorySet(
   };
 }
 
-export function handleMessagesUpsert(store: WhatsAppStore, payload: MessagesUpsertPayload): ChatMerge[] {
+export function handleMessagesUpsert(
+  store: WhatsAppStore,
+  payload: MessagesUpsertPayload,
+  options: { meJid?: string } = {},
+): ChatMerge[] {
   const merges: ChatMerge[] = [];
   store.transaction(() => {
     for (const message of payload.messages) {
-      ingestBaileysMessage(store, message, { onChatsMerged: (merge) => merges.push(merge) });
+      ingestBaileysMessage(store, message, { onChatsMerged: (merge) => merges.push(merge), meJid: options.meJid });
     }
   });
   return merges;
@@ -680,7 +779,10 @@ export function attachIngest(
     }
   };
   const onHistory = (payload: HistorySetPayload) => {
-    const progress = handleHistorySet(store, payload, { onChatsMerged: (merge) => publishMerges([merge]) });
+    const progress = handleHistorySet(store, payload, {
+      meJid: options.meJid?.(),
+      onChatsMerged: (merge) => publishMerges([merge]),
+    });
     options.onSyncProgress?.(progress);
   };
   const onMessages = (payload: MessagesUpsertPayload) => {
@@ -694,7 +796,10 @@ export function attachIngest(
         .map((message) => extractMessageContent(message.message)?.reactionMessage?.key?.id)
         .filter((id): id is string => Boolean(id)),
     );
-    publishMerges(handleMessagesUpsert(store, payload));
+    const pollIds = payload.messages
+      .map(message => extractMessageContent(message.message)?.pollUpdateMessage?.pollCreationMessageKey?.id)
+      .filter((id): id is string => Boolean(id));
+    publishMerges(handleMessagesUpsert(store, payload, { meJid: options.meJid?.() }));
     // The transaction above has committed. Consumers may classify against the complete stored state.
     for (const incoming of payload.messages) {
       const id = incoming.key?.id;
@@ -702,7 +807,7 @@ export function attachIngest(
       const stored = store.getMessage(id);
       if (stored) notify('messages.upsert → onMessageIngested', () => options.onMessageIngested?.(stored));
     }
-    publishUpdated([...reactionTargetIds]);
+    publishUpdated([...reactionTargetIds, ...pollIds]);
   };
   const onMessageUpdates = (updates: MessagesUpdatePayload) => publishUpdated(handleMessagesUpdate(store, updates));
   const onMessageReactions = (updates: MessagesReactionPayload) =>

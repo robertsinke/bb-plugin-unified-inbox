@@ -13,6 +13,10 @@ test('every call refuses with WhatsAppDisconnectedError when there is no socket'
     () => transport.sendReaction('jid@s.whatsapp.net', { id: 'MSG1', remoteJid: 'jid@s.whatsapp.net' }, '👍'),
     WhatsAppDisconnectedError,
   );
+  await assert.rejects(
+    () => transport.sendPollVote('jid@s.whatsapp.net', { id: 'MSG1', remoteJid: 'jid@s.whatsapp.net' }, { encPayload: new Uint8Array(), encIv: new Uint8Array() }),
+    WhatsAppDisconnectedError,
+  );
 });
 
 test('a send carries the message id, the quote, and nothing else', async () => {
@@ -59,4 +63,27 @@ test('a reaction sends the emoji, and an empty emoji removes it', async () => {
     { jid: 'jid@s.whatsapp.net', content: { react: { text: '👍', key } } },
     { jid: 'jid@s.whatsapp.net', content: { react: { text: '', key } } },
   ]);
+});
+
+test('a vote relays a poll update, and a socket with no relay is disconnected', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const key = { id: 'POLL1', remoteJid: 'jid@s.whatsapp.net', fromMe: false };
+  const vote = { encPayload: new Uint8Array([1]), encIv: new Uint8Array([2]) };
+  const socket = {
+    async sendPresenceUpdate() {},
+    async sendMessage() { throw new Error('a vote is not a chat message'); },
+    async readMessages() {},
+    async relayMessage(jid: string, message: unknown, options: unknown) {
+      calls.push({ jid, message, options });
+    },
+  };
+  const transport = createWhatsAppSendTransport(() => socket as unknown as WhatsAppSendSocket);
+  await transport.sendPollVote('jid@s.whatsapp.net', key, vote);
+  assert.deepEqual(calls, [{
+    jid: 'jid@s.whatsapp.net',
+    message: { pollUpdateMessage: { pollCreationMessageKey: key, vote, senderTimestampMs: (calls[0].message as { pollUpdateMessage: { senderTimestampMs: number } }).pollUpdateMessage.senderTimestampMs } },
+    options: { additionalNodes: [{ tag: 'meta', attrs: { polltype: 'vote' } }] },
+  }]);
+  const bare = createWhatsAppSendTransport(() => ({ ...socket, relayMessage: undefined }) as unknown as WhatsAppSendSocket);
+  await assert.rejects(() => bare.sendPollVote('jid@s.whatsapp.net', key, vote), WhatsAppDisconnectedError);
 });

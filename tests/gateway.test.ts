@@ -489,3 +489,42 @@ test('connection status is a read, and remove drops one account cache without cl
   assert.deepEqual(await f.gateway.gmail_connect_cancel({}), { cancelled: true });
   assert.equal(cancelled, 2);
 });
+
+test('a vote on a source that cannot vote writes no audit row', async () => {
+  const f = fixture();
+  const delivered = watchDeliver(f, 'gmail-personal');
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'gmail-personal', id: 't1', action: 'vote', messageId: 'm1', options: ['Yes'], allow: 'send' }),
+    /cannot vote in a poll/,
+  );
+  assert.equal(delivered(), 0);
+  assert.deepEqual(f.auditRows, []);
+});
+
+test('a vote for an option that is not on the poll writes no audit row', async () => {
+  const f = fixture();
+  f.registry.whatsapp.capabilities = () => ({ ...NO_CAPABILITIES, pollVote: true });
+  f.registry.whatsapp.pollOf = () => ({ options: ['Yes', 'No'], selectableCount: 1 });
+  const delivered = watchDeliver(f, 'whatsapp');
+  await assert.rejects(
+    async () => f.gateway.action({ account: 'whatsapp', id: 'c', action: 'vote', messageId: 'm1', options: ['Maybe'], allow: 'send' }),
+    /not on this poll/,
+  );
+  assert.equal(delivered(), 0);
+  assert.deepEqual(f.auditRows, []);
+});
+
+test('a vote records the chosen names and then asks the adapter once', async () => {
+  const f = fixture();
+  f.registry.whatsapp.capabilities = () => ({ ...NO_CAPABILITIES, pollVote: true });
+  f.registry.whatsapp.pollOf = () => ({ options: ['Yes', 'No'], selectableCount: 1 });
+  const seen: Array<{ messageId?: string; options?: string[] } | undefined> = [];
+  f.registry.whatsapp.action = async (_kind, _id, opts) => {
+    seen.push(opts);
+    return { status: 'Sent.' };
+  };
+  const answered = await f.gateway.action({ account: 'whatsapp', id: 'c', action: 'vote', messageId: 'm1', options: ['Yes'], allow: 'send' });
+  assert.deepEqual(answered, { status: 'Sent.' });
+  assert.deepEqual(seen, [{ messageId: 'm1', options: ['Yes'] }]);
+  assert.equal(f.auditRows[0]?.decision, 'allowed');
+});

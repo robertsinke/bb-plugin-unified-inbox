@@ -207,6 +207,8 @@ export interface WhatsAppMessageRow {
   reactions?: Reaction[];
   /** Stored quote columns, when the row has a target, a sender, or text. */
   quote?: Message['quote'];
+  /** Question, options, counts, and the owner's ticks. Absent on every other message. */
+  poll?: Message['poll'];
 }
 
 /** One media answer: the stored descriptor, the cached bytes when there are any, and why there are none. */
@@ -288,6 +290,10 @@ export interface WhatsAppTransport {
    * socket. This call does not write a reaction row; ingest does that when the echo arrives.
    */
   sendReaction(input: { id: string; messageId: string; emoji: string }): Promise<void>;
+  /** The poll a vote would change, from the store. Undefined when the row is not a poll. */
+  pollChoices(messageId: string): { options: string[]; selectableCount: number } | undefined;
+  /** Sends one vote. An empty list clears it. Rejects when there is no socket. Does not write the vote row. */
+  sendVote(input: { id: string; messageId: string; options: string[] }): Promise<void>;
   status(): Promise<WhatsAppTransportStatus>;
 }
 
@@ -388,6 +394,12 @@ export interface Message {
     sender?: string;
     text?: string;
   };
+  /** A WhatsApp poll. Counts only. `selected` is the owner's own choice. */
+  poll?: {
+    question: string;
+    selectableCount: number;
+    options: { name: string; count: number; selected: boolean }[];
+  };
   /** Messages stable row id, used by a `kind: 'imsg'` media request. */
   imsgId?: string;
   /** A message that is a link rather than a picture or text (a shared post). */
@@ -478,7 +490,7 @@ export interface SendReceipt {
  * `confirm` and `reject` no longer mean a proposal: the WhatsApp proposal flow is gone,
  * and those two kinds now carry LinkedIn's accept / ignore of an invitation.
  */
-export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject' | 'react';
+export type ActionKind = 'read' | 'unread' | 'archive' | 'reply' | 'confirm' | 'reject' | 'react' | 'vote';
 
 /** Mirrors the optional fields of the rpcContract `action` input. */
 export interface ActionOptions {
@@ -489,6 +501,8 @@ export interface ActionOptions {
   emoji?: string;
   /** Remove the named reaction. Refused while the source declares `reactRemove` false. */
   remove?: boolean;
+  /** The full next selection on a poll. An empty list clears the owner's vote. */
+  options?: string[];
 }
 
 export interface ActionResult {
@@ -645,6 +659,8 @@ export interface Adapter {
    */
   media(request: MediaRequest): Promise<MediaPayload>;
   action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult>;
+  /** The stored poll a vote names. A store read. Absent on sources that cannot vote. */
+  pollOf?(messageId: string): { options: string[]; selectableCount: number } | undefined;
   send?(draft: SendDraft, authorization: SendAuthorization): Promise<SendReceipt>;
 
   // The entry points below are the shipped RPC coordinates that `list`, `open`,

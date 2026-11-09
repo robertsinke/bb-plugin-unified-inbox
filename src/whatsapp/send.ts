@@ -3,7 +3,8 @@
 // One adapter in the plugin is allowed to hold this type: the connection hands it out only while the
 // socket is open, so a caller cannot send into a socket that has gone away. It is a type, not a
 // policy — every send still passes `src/adapters/policy.ts` before it reaches here.
-import type { WAMessage, WAMessageKey } from 'baileys';
+import type { WAMessage, WAMessageKey, proto } from 'baileys';
+import { POLL_VOTE_TYPE } from './poll.ts';
 
 export class WhatsAppDisconnectedError extends Error {
   constructor() {
@@ -21,6 +22,12 @@ export type WhatsAppSendSocket = {
   ): Promise<unknown>;
   sendMessage(jid: string, content: { react: { text: string; key: WAMessageKey } }): Promise<unknown>;
   readMessages(keys: WAMessageKey[]): Promise<unknown>;
+  user?: { id?: string };
+  relayMessage?(
+    jid: string,
+    message: proto.IMessage,
+    options?: { additionalNodes?: Array<{ tag: string; attrs: Record<string, string> }> },
+  ): Promise<unknown>;
 };
 
 export type WhatsAppSendTransport = {
@@ -28,6 +35,7 @@ export type WhatsAppSendTransport = {
   sendText(jid: string, text: string, messageId: string, quoted?: WAMessage): Promise<void>;
   /** An empty `emoji` removes a prior reaction. */
   sendReaction(jid: string, targetKey: WAMessageKey, emoji: string): Promise<void>;
+  sendPollVote(jid: string, creationKey: WAMessageKey, vote: { encPayload: Uint8Array; encIv: Uint8Array }): Promise<void>;
   markRead(jid: string, messageId: string): Promise<void>;
 };
 
@@ -49,6 +57,19 @@ export function createWhatsAppSendTransport(
     },
     async sendReaction(jid, targetKey, emoji) {
       await socket().sendMessage(jid, { react: { text: emoji, key: targetKey } });
+    },
+    async sendPollVote(jid, creationKey, vote) {
+      const relay = socket().relayMessage;
+      if (!relay) throw new WhatsAppDisconnectedError();
+      await relay(jid, {
+        pollUpdateMessage: {
+          pollCreationMessageKey: creationKey,
+          vote,
+          senderTimestampMs: Date.now(),
+        },
+      }, {
+        additionalNodes: [{ tag: 'meta', attrs: { polltype: POLL_VOTE_TYPE } }],
+      });
     },
     async markRead(jid, messageId) {
       await socket().readMessages([{ remoteJid: jid, id: messageId, fromMe: false }]);

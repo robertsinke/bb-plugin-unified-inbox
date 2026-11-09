@@ -29,6 +29,8 @@ import type { MediaDownloader } from './media.ts';
 import { createWhatsAppSendTransport } from './send.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
 import { whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
+import { isPollCreationType, pollCard, pollFacts, pollFactsFromRaw, encryptPollVote } from './poll.ts';
+import { getKeyAuthor, jidNormalizedUser } from 'baileys';
 import { whatsAppMedia } from '../whatsapp-media.ts';
 
 export type WhatsAppTransportOptions = {
@@ -107,6 +109,13 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
   }
 
   /** Quote columns already on the row. A sender jid becomes the stored contact name, with no socket. */
+  function pollOf(message: Message): WhatsAppMessageRow['poll'] | undefined {
+    if (!isPollCreationType(message.type)) return undefined;
+    const facts = pollFactsFromRaw(message.raw);
+    if (!facts) return undefined;
+    return pollCard(facts, store.listPollVotes(message.chat_jid, message.id));
+  }
+
   function quoteOf(message: Message): WhatsAppMessageRow['quote'] | undefined {
     const targetId = message.quote_target_id?.trim() || undefined;
     const text = message.quote_text?.trim() || undefined;
@@ -227,6 +236,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
         const media = await factsOf(message);
         const reactions = reactionsOf(id, message.id);
         const quote = quoteOf(message);
+        const poll = pollOf(message);
         return {
           id: message.id,
           chatJid: message.chat_jid,
@@ -239,6 +249,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
           ...(media ? { media } : {}),
           ...(reactions ? { reactions } : {}),
           ...(quote ? { quote } : {}),
+          ...(poll ? { poll } : {}),
         };
       }));
       return rows;
@@ -343,6 +354,32 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       // leave a reaction the phone does not have.
       if (!held()?.getSendSocket()) await ensureConnection();
       await send.sendReaction(id, reactionKey(id, messageId), emoji);
+    },
+
+    pollChoices(messageId) {
+      const stored = store.getMessage(messageId);
+      const facts = stored ? pollFactsFromRaw(stored.raw) : undefined;
+      if (!facts) return undefined;
+      return { options: facts.options, selectableCount: facts.selectableCount };
+    },
+
+    async sendVote({ id, messageId, options: names }) {
+      if (!held()?.getSendSocket()) await ensureConnection();
+      const current = held()?.getSendSocket();
+      const me = current?.user?.id ? jidNormalizedUser(current.user.id) : undefined;
+      if (!me) throw new Error('Nothing was sent: WhatsApp is not connected.');
+      const envelope = await storedEnvelope(messageId);
+      const facts = envelope?.message ? pollFacts(envelope.message) : undefined;
+      if (!envelope?.key?.id || !facts?.secret) throw new Error('Nothing was sent: that message is not a poll this inbox can vote on.');
+      const creator = getKeyAuthor(envelope.key, me);
+      const vote = encryptPollVote({
+        optionNames: names,
+        pollEncKey: facts.secret,
+        pollMsgId: envelope.key.id,
+        pollCreatorJid: creator,
+        voterJid: me,
+      });
+      await send.sendPollVote(id, envelope.key, vote);
     },
 
     async status(): Promise<WhatsAppTransportStatus> {

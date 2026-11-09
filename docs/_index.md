@@ -39,6 +39,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md`](plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md) | active | 2026-11-09 |  |
 | [`docs/plans/2026-11-08-001-feat-account-connect-settings-plan.md`](plans/2026-11-08-001-feat-account-connect-settings-plan.md) | active | 2026-11-08 |  |
 | [`docs/plans/2026-11-06-001-feat-message-reactions-and-replies-plan.md`](plans/2026-11-06-001-feat-message-reactions-and-replies-plan.md) | completed | 2026-11-06 |  |
 | [`docs/plans/2026-11-05-001-feat-whatsapp-transport-in-the-plugin-plan.md`](plans/2026-11-05-001-feat-whatsapp-transport-in-the-plugin-plan.md) | shipped | 2026-11-05 |  |

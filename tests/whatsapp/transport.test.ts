@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import type { WAMessage } from 'baileys';
+import { BufferJSON, type WAMessage } from 'baileys';
 import type { WhatsAppConnection } from '../../src/whatsapp/connection.ts';
 import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
 import type { MediaDownloader } from '../../src/whatsapp/media.ts';
@@ -888,6 +888,101 @@ test('a reaction with no socket is the disconnected error, once', async () => {
       WhatsAppDisconnectedError,
     );
     assert.equal(ensures, 1, 'one attempt: a disconnected socket is not asked again');
+  } finally {
+    db.close();
+  }
+});
+
+test('an open chat draws a stored poll, including one saved before the poll type', async () => {
+  const { db, store } = fixture();
+  try {
+    const raw = JSON.stringify({
+      key: { id: 'poll-old', remoteJid: DM, fromMe: false },
+      message: {
+        pollCreationMessageV3: {
+          name: 'Lunch?',
+          options: [{ optionName: 'Yes' }, { optionName: 'No' }],
+          selectableOptionsCount: 1,
+        },
+      },
+    }, BufferJSON.replacer);
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 3_000 });
+    store.upsertChat({ jid: GROUP, name: 'Team', kind: 'group', last_msg_at: 3_000 });
+    store.upsertMessage(message({
+      id: 'poll-old',
+      chat_jid: DM,
+      ts: 3_000,
+      type: 'pollCreationV3',
+      text: 'Lunch?\nYes\nNo',
+      raw,
+    }));
+    store.upsertMessage(message({
+      id: 'poll-group',
+      chat_jid: GROUP,
+      ts: 3_000,
+      type: 'poll',
+      sender: '255700000001@s.whatsapp.net',
+      text: 'Lunch?\nYes\nNo',
+      raw,
+    }));
+    store.upsertPollVote({ chat_jid: DM, poll_msg_id: 'poll-old', actor: 'me', options: ['Yes'], updated_at: 1 });
+    store.upsertPollVote({ chat_jid: DM, poll_msg_id: 'poll-old', actor: '255700000002@s.whatsapp.net', options: ['No'], updated_at: 2 });
+    let asked = 0;
+    const transport = createWhatsAppTransport({
+      store,
+      connection: () => { asked += 1; return undefined; },
+      ensure: async () => { asked += 1; return undefined; },
+    });
+    const [row] = await transport.openChat({ id: DM, limit: 10 });
+    assert.equal(asked, 0, 'a poll card is a store read');
+    assert.deepEqual(row.poll, {
+      question: 'Lunch?',
+      selectableCount: 1,
+      options: [
+        { name: 'Yes', count: 1, selected: true },
+        { name: 'No', count: 1, selected: false },
+      ],
+    });
+    const listed = await transport.listChats({ limit: 10 });
+    assert.equal(listed.chats.find(chat => chat.jid === GROUP)?.preview?.text, 'Poll');
+    const corpus = await transport.listCorpus();
+    assert.equal(corpus.find(chat => chat.jid === DM)?.messages[0]?.text, 'Lunch?\nYes\nNo');
+  } finally {
+    db.close();
+  }
+});
+
+test('sending a vote relays ciphertext and leaves the vote table to the echo', async () => {
+  const { db, store } = fixture();
+  try {
+    const raw = JSON.stringify({
+      key: { id: 'poll1', remoteJid: DM, fromMe: false },
+      message: {
+        messageContextInfo: { messageSecret: new Uint8Array(32).fill(7) },
+        pollCreationMessage: {
+          name: 'Lunch?',
+          options: [{ optionName: 'Yes' }, { optionName: 'No' }],
+          selectableOptionsCount: 1,
+        },
+      },
+    }, BufferJSON.replacer);
+    store.upsertChat({ jid: DM, name: 'Ada', kind: '1:1', last_msg_at: 1_000 });
+    store.upsertMessage(message({ id: 'poll1', chat_jid: DM, ts: 1_000, type: 'poll', text: 'Lunch?\nYes\nNo', raw }));
+    const relayed: Array<{ message: { pollUpdateMessage?: { vote?: { encPayload?: Uint8Array } } }; options?: { additionalNodes?: Array<{ attrs: { polltype?: string } }> } }> = [];
+    const transport = createWhatsAppTransport({
+      store,
+      ...up({
+        user: { id: '15559998888:1@s.whatsapp.net' },
+        async relayMessage(_jid: string, message: { pollUpdateMessage?: { vote?: { encPayload?: Uint8Array } } }, options?: { additionalNodes?: Array<{ attrs: { polltype?: string } }> }) {
+          relayed.push({ message, options });
+        },
+      } as unknown as Partial<WhatsAppSendSocket>),
+    });
+    await transport.sendVote({ id: DM, messageId: 'poll1', options: ['Yes'] });
+    assert.equal(relayed.length, 1);
+    assert.ok((relayed[0].message.pollUpdateMessage?.vote?.encPayload?.byteLength ?? 0) > 0);
+    assert.equal(relayed[0].options?.additionalNodes?.[0]?.attrs.polltype, 'vote');
+    assert.deepEqual(store.listPollVotes(DM, 'poll1'), []);
   } finally {
     db.close();
   }

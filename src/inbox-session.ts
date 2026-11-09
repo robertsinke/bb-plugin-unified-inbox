@@ -10,7 +10,7 @@
 // two inboxes, which is correct; the latch lives on the session.
 import { inboxDraftKey, readInboxDraft, writeInboxDraft, type InboxDraftStorage } from './inbox-drafts.ts';
 import { messagesAfterMail, messagesAfterSend } from './sent-message.ts';
-import { canMarkRead, canQuoteReply, canReact, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
+import { canMarkRead, canPollVote, canQuoteReply, canReact, canSend, followsList, type CapabilityMap } from './ui-capabilities.ts';
 import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
 import { migrateDraftAccountIds } from './inbox-drafts.ts';
@@ -162,6 +162,8 @@ export interface InboxSession {
   clearReply(): void;
   /** One reaction on one message. `remove` is the caller's decision; this does not send a second time. */
   react(messageId: string, emoji: string, remove?: boolean): Promise<void>;
+  /** The owner's next selection on one poll. An empty list clears it. */
+  vote(messageId: string, options: string[]): Promise<void>;
   mark(item: InboxItem, action: 'read' | 'unread' | 'archive'): Promise<void>;
   answer(item: InboxItem, action: 'confirm' | 'reject'): Promise<void>;
   showAudit(): Promise<void>;
@@ -804,6 +806,34 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     notify();
   }
 
+  async function vote(messageId: string, options: string[]): Promise<void> {
+    const selected = state.selected;
+    const id = messageId.trim();
+    if (!selected || state.busy || !id || !canPollVote(state.capabilities, selected.account)) return;
+    state.busy = true;
+    state.status = '';
+    notify();
+    try {
+      await deps.rpc.call('action', {
+        account: selected.account,
+        id: selected.id,
+        action: 'vote',
+        messageId: id,
+        options,
+        allow: 'send',
+      });
+      state.status = '';
+      notify();
+    } catch (error) {
+      state.status = error instanceof Error ? error.message : 'The vote was not sent.';
+      notify();
+    } finally {
+      void loadAudit();
+      state.busy = false;
+      notify();
+    }
+  }
+
   async function react(messageId: string, emoji: string, remove?: boolean): Promise<void> {
     const selected = state.selected;
     const id = messageId.trim();
@@ -1127,6 +1157,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     aimReply,
     clearReply,
     react,
+    vote,
     setDraft(text) {
       const selected = state.selected;
       if (!selected) return;

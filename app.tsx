@@ -28,7 +28,7 @@ import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention
 import { installInboxMentionOpenListener, subscribeInboxMentionOpen, takeInboxMentionOpen, type InboxMentionOpen } from './src/inbox-mention-open';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
 import { REACTION_SET } from './src/reaction-set.ts';
-import { canAnswerInvitation, canArchive, canMarkRead, canQuoteReply, canReact, canSend, hasThread } from './src/ui-capabilities';
+import { canAnswerInvitation, canArchive, canMarkRead, canPollVote, canQuoteReply, canReact, canSend, hasThread } from './src/ui-capabilities';
 import { isLegacyGmailAccount, isMailboxAddress, type Account, type Message as InboxMessage } from './src/adapters/types';
 
 /*
@@ -446,7 +446,25 @@ function ownerLabel(messages: Message[]): string {
   }
   return '';
 }
-function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLabel, canReact: reactionsOn, canQuoteReply: quotesOn, busy, onReact, onReply }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account; selfLabel: string; canReact: boolean; canQuoteReply: boolean; busy: boolean; onReact: (messageId: string, emoji: string, remove: boolean) => void; onReply: (messageId: string) => void }) {
+function PollChoices({ poll, disabled, onChoose }: { poll: NonNullable<Message['poll']>; disabled: boolean; onChoose: (names: string[]) => void }) {
+  function toggle(name: string) {
+    const selected = poll.options.filter(option => option.selected).map(option => option.name);
+    const cap = poll.selectableCount === 0 ? poll.options.length : poll.selectableCount;
+    if (cap <= 1) {
+      onChoose(selected.length === 1 && selected[0] === name ? [] : [name]);
+      return;
+    }
+    if (selected.includes(name)) {
+      onChoose(selected.filter(option => option !== name));
+      return;
+    }
+    if (selected.length >= cap) return;
+    onChoose([...selected, name]);
+  }
+  return <div className="ui-poll">{poll.question ? <div className="ui-poll-question">{poll.question}</div> : null}<div className="ui-poll-options">{poll.options.map(option => <button key={option.name} type="button" className="ui-poll-option" aria-pressed={option.selected} disabled={disabled} onClick={() => toggle(option.name)}><span className="ui-poll-name">{option.name}</span><span className="ui-poll-count">{option.count}</span></button>)}</div></div>;
+}
+
+function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLabel, canReact: reactionsOn, canQuoteReply: quotesOn, canVote: votesOn, busy, onReact, onReply, onVote }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account; selfLabel: string; canReact: boolean; canQuoteReply: boolean; canVote: boolean; busy: boolean; onReact: (messageId: string, emoji: string, remove: boolean) => void; onReply: (messageId: string) => void; onVote: (messageId: string, options: string[]) => void }) {
   const text = m.text.trim();
   const hasText = Boolean(text) && (!m.media || text !== `[${m.media.kind}]`);
   const inlineSender = group && !m.fromMe && Boolean(m.sender) && hasText;
@@ -480,6 +498,7 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
     {quoteText ? <blockquote className="ui-quote">{quoteSender ? <span className="ui-quote-sender">{quoteSender}</span> : null}<span className="ui-quote-text">{quoteText}</span></blockquote> : m.replyContext ? <p className="ui-quote ui-quote-marker">Reply to an earlier message</p> : null}
     {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media?.kind === 'audio' ? <WhatsAppAudio media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
+    {m.poll ? <PollChoices poll={m.poll} disabled={!votesOn || busy || !messageId} onChoose={names => onVote(messageId, names)} /> : null}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
     {m.edited && <span className="ui-media-note">Edited</span>}
     {m.date > 0 && <time className="ui-bubble-time">{new Date(m.date).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>}
@@ -647,6 +666,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const threaded=chat;
   const sendable=!!selected&&canSend(capabilities,selected.account);
   const reactionsOn=!!selected&&canReact(capabilities,selected.account);
+  const votesOn=!!selected&&canPollVote(capabilities,selected.account);
   const quotesOn=!!selected&&canQuoteReply(capabilities,selected.account);
   const mine=ownerLabel(messages);
   const aimed=replyMessageId?messages.find(message=>message.messageId===replyMessageId):undefined;
@@ -670,7 +690,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
           ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => setAsk({ title: 'Archive this Gmail conversation?', confirm: 'Archive', run: () => void session.mark(selected,'archive') }) }]:[]),
         ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
-      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
+      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} canVote={votesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onVote={(messageId,options)=>{void session.vote(messageId,options);}} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailFrame html={m.html} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
       {ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}{composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk} fromThread={threadAttachments(messages, selected.account)}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}

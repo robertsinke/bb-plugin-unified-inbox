@@ -336,7 +336,7 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     async media({ account: source, ...request }) {
       return registry[source].media(request);
     },
-    async action({ account: source, id, action, text, allow, messageId, emoji, remove }) {
+    async action({ account: source, id, action, text, allow, messageId, emoji, remove, options }) {
       const caps = registry[source].capabilities();
       // These refusals sit before the gate, so they write no audit row and never call the adapter.
       if (action === 'react') {
@@ -348,6 +348,22 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
           { account: source, conversationId: id, text: text ?? '' },
           approvalFor(allow, id, now()),
           () => registry[source].action(action, id, { text, messageId, emoji, remove }),
+        );
+      }
+      if (action === 'vote') {
+        if (!caps.pollVote) throw new Error('This source cannot vote in a poll. Nothing was sent.');
+        if (!messageId) throw new Error('A vote needs the poll it votes on. Nothing was sent.');
+        const poll = registry[source].pollOf?.(messageId);
+        if (!poll) throw new Error('Nothing was sent: that message is not a poll.');
+        const names = options ?? [];
+        if (new Set(names).size !== names.length) throw new Error('Nothing was sent: a vote names each option once.');
+        if (names.some(name => !poll.options.includes(name))) throw new Error('Nothing was sent: that option is not on this poll.');
+        const cap = poll.selectableCount === 0 ? poll.options.length : poll.selectableCount;
+        if (names.length > cap) throw new Error('Nothing was sent: this poll does not allow that many choices.');
+        return gate(
+          { account: source, conversationId: id, text: names.join(', ') },
+          approvalFor(allow, id, now()),
+          () => registry[source].action(action, id, { messageId, options: names }),
         );
       }
       if (action === 'reply' && messageId && !caps.quoteReply) {

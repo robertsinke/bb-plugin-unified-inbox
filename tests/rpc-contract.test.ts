@@ -186,3 +186,22 @@ test('the pairing call reads with nothing and acts with one of four words', () =
   assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'failed', message: 'already open in process 42' }).success, true, 'an account whose socket would not open says so');
   assert.equal(rpcContract.whatsapp_pairing.output.safeParse({ state: 'paired' }).success, false, 'the seven states are the whole vocabulary');
 });
+
+test('a vote names the poll and the chosen options', () => {
+  const vote = rpcContract.action.input.safeParse({
+    account: 'whatsapp',
+    id: 'c',
+    action: 'vote',
+    messageId: 'm1',
+    options: ['Yes'],
+    allow: 'send',
+  });
+  assert.equal(vote.success, true);
+  const card = message.safeParse({
+    sender: 'Ada',
+    text: '',
+    date: 1,
+    poll: { question: 'Lunch?', selectableCount: 1, options: [{ name: 'Yes', count: 1, selected: true }] },
+  });
+  assert.equal(card.success, true);
+});

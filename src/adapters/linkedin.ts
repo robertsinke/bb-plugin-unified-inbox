@@ -29,7 +29,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxUrn(payload?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false, pollVote: false };
 
 const ACCOUNT = 'linkedin';
 

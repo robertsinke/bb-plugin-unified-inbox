@@ -160,6 +160,33 @@ export type MessageReaction = {
 
 export type MessageReactionInput = MessageReaction;
 
+/** A vote that cannot be decrypted until its poll creation row exists. */
+export type PendingPollVote = {
+  encPayload: string;
+  encIv: string;
+  voterJid: string;
+  pollCreatorJid: string;
+};
+
+/** One actor's latest selection on one poll. `options` is absent while the vote is still ciphertext. */
+export type PollVote = {
+  chat_jid: string;
+  poll_msg_id: string;
+  actor: string;
+  options: string[] | null;
+  pending: PendingPollVote | null;
+  updated_at: number;
+};
+
+export type PollVoteInput = {
+  chat_jid: string;
+  poll_msg_id: string;
+  actor: string;
+  updated_at: number;
+  options?: string[];
+  pending?: PendingPollVote;
+};
+
 /** The chat jid that no longer exists after a merge, and the one that survives. */
 export type ChatMerge = { from: string; to: string };
 
@@ -237,13 +264,60 @@ const SCHEMA = `
     PRIMARY KEY (chat_jid, target_msg_id, actor)
   );
   CREATE INDEX IF NOT EXISTS wa_message_reactions_target ON wa_message_reactions(chat_jid, target_msg_id);
+  CREATE TABLE IF NOT EXISTS wa_poll_votes (
+    chat_jid TEXT NOT NULL REFERENCES wa_chats(jid),
+    poll_msg_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    options_json TEXT,
+    pending_json TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (chat_jid, poll_msg_id, actor)
+  );
+  CREATE INDEX IF NOT EXISTS wa_poll_votes_poll ON wa_poll_votes(poll_msg_id);
 `;
 
 type MessageRow = Omit<Message, 'from_me'> & { from_me: number };
 type ChatRow = Chat;
+type PollVoteRow = {
+  chat_jid: string;
+  poll_msg_id: string;
+  actor: string;
+  options_json: string | null;
+  pending_json: string | null;
+  updated_at: number;
+};
 
 function mapMessage(row: MessageRow): Message {
   return { ...row, from_me: row.from_me !== 0 };
+}
+
+function mapPollVote(row: PollVoteRow): PollVote {
+  let options: string[] | null = null;
+  let pending: PendingPollVote | null = null;
+  if (row.options_json) {
+    try {
+      const parsed = JSON.parse(row.options_json) as unknown;
+      options = Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === 'string') : null;
+    } catch {
+      options = null;
+    }
+  }
+  if (row.pending_json) {
+    try {
+      const parsed = JSON.parse(row.pending_json) as PendingPollVote;
+      if (parsed?.encPayload && parsed.encIv && parsed.voterJid && parsed.pollCreatorJid) pending = parsed;
+    } catch {
+      pending = null;
+    }
+  }
+  return {
+    chat_jid: row.chat_jid,
+    poll_msg_id: row.poll_msg_id,
+    actor: row.actor,
+    options,
+    pending,
+    updated_at: row.updated_at,
+  };
 }
 
 /** One chat with what a list row needs: its newest message and how much of it is unread. */
@@ -424,7 +498,35 @@ export function createWhatsAppStore(db: Database.Database) {
      WHERE excluded.updated_at > wa_message_reactions.updated_at`,
   );
   const dropReactions = db.prepare('DELETE FROM wa_message_reactions WHERE chat_jid = ?');
+  const movePollVotes = db.prepare(
+    `INSERT INTO wa_poll_votes (chat_jid, poll_msg_id, actor, options_json, pending_json, updated_at)
+     SELECT ?, poll_msg_id, actor, options_json, pending_json, updated_at
+       FROM wa_poll_votes WHERE chat_jid = ?
+     ON CONFLICT(chat_jid, poll_msg_id, actor) DO UPDATE SET
+       options_json = excluded.options_json,
+       pending_json = excluded.pending_json,
+       updated_at = excluded.updated_at
+     WHERE excluded.updated_at > wa_poll_votes.updated_at`,
+  );
+  const dropPollVotes = db.prepare('DELETE FROM wa_poll_votes WHERE chat_jid = ?');
   const dropChat = db.prepare('DELETE FROM wa_chats WHERE jid = ?');
+  const insertPollVote = db.prepare(
+    `INSERT INTO wa_poll_votes (chat_jid, poll_msg_id, actor, options_json, pending_json, updated_at)
+     VALUES (@chat_jid, @poll_msg_id, @actor, @options_json, @pending_json, @updated_at)
+     ON CONFLICT(chat_jid, poll_msg_id, actor) DO UPDATE SET
+       options_json = excluded.options_json,
+       pending_json = excluded.pending_json,
+       updated_at = excluded.updated_at`,
+  );
+  const deletePollVote = db.prepare(
+    'DELETE FROM wa_poll_votes WHERE chat_jid = ? AND poll_msg_id = ? AND actor = ?',
+  );
+  const readPollVotes = db.prepare(
+    'SELECT * FROM wa_poll_votes WHERE chat_jid = ? AND poll_msg_id = ? ORDER BY updated_at ASC, actor ASC',
+  );
+  const readPendingPollVotes = db.prepare(
+    'SELECT * FROM wa_poll_votes WHERE poll_msg_id = ? AND pending_json IS NOT NULL ORDER BY updated_at ASC, actor ASC',
+  );
 
   const upsertChat = (chat: ChatInput): void => {
     insertChat.run({
@@ -456,6 +558,8 @@ export function createWhatsAppStore(db: Database.Database) {
       // The same actor may have reacted under both identities; the newer verdict wins.
       moveReactions.run(to, from);
       dropReactions.run(from);
+      movePollVotes.run(to, from);
+      dropPollVotes.run(from);
       // A picture belongs to the person, so the surviving identity keeps the fresher answer and the
       // dead jid is not asked about again.
       const avatars = [readAvatar.get(to), readAvatar.get(from)] as Array<Avatar | undefined>;
@@ -684,6 +788,31 @@ export function createWhatsAppStore(db: Database.Database) {
       return readReactions.all(chatJid, targetMsgId) as MessageReaction[];
     },
     /**
+     * One actor has one vote on a poll. An empty option list removes it. A pending ciphertext
+     * waits for the creation row; storing names clears that ciphertext.
+     */
+    upsertPollVote(vote: PollVoteInput): void {
+      const options = vote.options?.map(option => option.trim()).filter(Boolean);
+      if (vote.pending == null && (!options || options.length === 0)) {
+        deletePollVote.run(vote.chat_jid, vote.poll_msg_id, vote.actor);
+        return;
+      }
+      insertPollVote.run({
+        chat_jid: vote.chat_jid,
+        poll_msg_id: vote.poll_msg_id,
+        actor: vote.actor,
+        options_json: options && options.length > 0 ? JSON.stringify(options) : null,
+        pending_json: vote.pending ? JSON.stringify(vote.pending) : null,
+        updated_at: vote.updated_at,
+      });
+    },
+    listPollVotes(chatJid: string, pollMsgId: string): PollVote[] {
+      return (readPollVotes.all(chatJid, pollMsgId) as PollVoteRow[]).map(mapPollVote);
+    },
+    listPendingPollVotes(pollMsgId: string): PollVote[] {
+      return (readPendingPollVotes.all(pollMsgId) as PollVoteRow[]).map(mapPollVote);
+    },
+    /**
      * Answers Baileys' `getMessage(key)` from the stored envelope. An unknown id, or a row whose
      * envelope will not parse, answers `undefined` — the protocol treats that as "I cannot resend
      * this", which is true, and throwing here would break a socket event instead.
@@ -711,6 +840,7 @@ export function createWhatsAppStore(db: Database.Database) {
       db.transaction(() => {
         db.prepare('DELETE FROM wa_messages').run();
         db.prepare('DELETE FROM wa_message_reactions').run();
+        db.prepare('DELETE FROM wa_poll_votes').run();
         db.prepare('DELETE FROM wa_chats').run();
         db.prepare('DELETE FROM wa_contacts').run();
         db.prepare('DELETE FROM wa_avatars').run();
