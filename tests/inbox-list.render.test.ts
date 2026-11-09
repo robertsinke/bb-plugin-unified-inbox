@@ -314,6 +314,112 @@ test('an unpaired WhatsApp account shows the settings sentence and no phone fiel
   }
 });
 
+const MAILBOX = 'ada@example.com';
+const PNG = 'data:image/png;base64,qq';
+
+async function openMail(view: ReturnType<typeof mountInbox>) {
+  await wait(50);
+  view.flush();
+  const row = view.host.querySelector('.ui-row-open-hit');
+  assert.ok(row);
+  row.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  for (let tries = 0; tries < 40 && !view.host.querySelector('.ui-message'); tries += 1) await wait(10);
+  view.flush();
+}
+
+test('a PNG attachment is drawn and the mail HTML stays free of that data URL', async () => {
+  const view = mountInbox(name => {
+    if (name === 'sources') return { [MAILBOX]: { label: 'Ada', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 } };
+    if (name === 'capabilities') return { [MAILBOX]: { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: false, followsList: true } };
+    if (name === 'cached') return { items: [{ account: MAILBOX, id: 't1', title: 'Plan', sender: 'Ada', preview: 'See the photo', date: 1, unread: false }] };
+    if (name === 'cached_open' || name === 'open') return { messages: [{ sender: 'Ada', text: 'See the photo', date: 1, html: '<p>See the photo</p><img src="cid:logo"><img src="https://cdn.example/a.png">', attachments: ['photo.png', 'note.pdf', 'mark.svg'], inline: [{ contentId: 'logo', filename: 'logo.png' }], gmailId: 'g1' }] };
+    if (name === 'sync') return { items: [], updatedAt: 0 };
+    if (name === 'media') {
+      const filename = String((view.calls.at(-1)?.input as { filename?: string } | undefined)?.filename ?? '');
+      if (filename === 'photo.png' || filename === 'logo.png') return { dataUrl: PNG, mime: 'image/png', filename };
+      throw new Error(`unexpected file ${filename}`);
+    }
+    return null;
+  });
+  try {
+    await openMail(view);
+    for (let tries = 0; tries < 40 && !view.host.querySelector('.ui-mail-image'); tries += 1) await wait(10);
+    view.flush();
+    assert.equal(view.host.querySelector('.ui-mail-image')?.getAttribute('src'), PNG);
+    assert.equal(view.host.querySelector('.ui-attachment')?.textContent, 'photo.png');
+    const frame = view.host.querySelector('.ui-mail-frame');
+    assert.match(frame?.getAttribute('srcdoc') ?? '', /See the photo/);
+    assert.equal(frame?.getAttribute('srcdoc')?.includes('data:image'), false);
+    assert.equal(frame?.getAttribute('srcdoc')?.includes('cid:logo'), true);
+    assert.equal(frame?.getAttribute('srcdoc')?.includes('https://cdn.example/a.png'), true);
+    const files = [...new Set(view.calls.filter(call => call.name === 'media').map(call => (call.input as { filename?: string }).filename))];
+    assert.deepEqual(files.sort(), ['logo.png', 'photo.png']);
+  } finally {
+    view.done();
+  }
+});
+
+test('a PDF and an SVG stay chips', async () => {
+  const view = mountInbox(name => {
+    if (name === 'sources') return { [MAILBOX]: { label: 'Ada', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 } };
+    if (name === 'capabilities') return { [MAILBOX]: { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: false, followsList: true } };
+    if (name === 'cached') return { items: [{ account: MAILBOX, id: 't1', title: 'Plan', sender: 'Ada', preview: 'Files', date: 1, unread: false }] };
+    if (name === 'cached_open' || name === 'open') return { messages: [{ sender: 'Ada', text: 'Files', date: 1, html: '<p>Files</p>', attachments: ['note.pdf', 'mark.svg'], gmailId: 'g1' }] };
+    if (name === 'sync') return { items: [], updatedAt: 0 };
+    return null;
+  });
+  try {
+    await openMail(view);
+    await wait(30);
+    view.flush();
+    assert.equal(view.host.querySelector('.ui-mail-image'), null);
+    assert.deepEqual([...view.host.querySelectorAll('.ui-attachment')].map(chip => chip.textContent), ['note.pdf', 'mark.svg']);
+    assert.equal(view.calls.some(call => call.name === 'media'), false);
+  } finally {
+    view.done();
+  }
+});
+
+test('a saved image names the Downloads folder and a failed image keeps the mail text', async () => {
+  const saved = mountInbox(name => {
+    if (name === 'sources') return { [MAILBOX]: { label: 'Ada', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 } };
+    if (name === 'capabilities') return { [MAILBOX]: { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: false, followsList: true } };
+    if (name === 'cached') return { items: [{ account: MAILBOX, id: 't1', title: 'Plan', sender: 'Ada', preview: 'See the photo', date: 1, unread: false }] };
+    if (name === 'cached_open' || name === 'open') return { messages: [{ sender: 'Ada', text: 'See the photo', date: 1, html: '<p>See the photo</p>', attachments: ['photo.png'], gmailId: 'g1' }] };
+    if (name === 'sync') return { items: [], updatedAt: 0 };
+    if (name === 'media') return { savedPath: '/tmp/photo.png', mime: 'image/png', filename: 'photo.png' };
+    return null;
+  });
+  try {
+    await openMail(saved);
+    for (let tries = 0; tries < 40 && !saved.host.textContent?.includes('Downloads folder'); tries += 1) await wait(10);
+    saved.flush();
+    assert.match(saved.host.textContent ?? '', /photo.png is in your Downloads folder/);
+    assert.equal(saved.host.querySelector('.ui-mail-image'), null);
+  } finally {
+    saved.done();
+  }
+
+  const failed = mountInbox(name => {
+    if (name === 'sources') return { [MAILBOX]: { label: 'Ada', icon: 'Mail', pollIntervalMs: 45_000, pageSize: 10 } };
+    if (name === 'capabilities') return { [MAILBOX]: { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: false, followsList: true } };
+    if (name === 'cached') return { items: [{ account: MAILBOX, id: 't1', title: 'Plan', sender: 'Ada', preview: 'See the photo', date: 1, unread: false }] };
+    if (name === 'cached_open' || name === 'open') return { messages: [{ sender: 'Ada', text: 'See the photo', date: 1, html: '<p>See the photo</p>', attachments: ['photo.png'], gmailId: 'g1' }] };
+    if (name === 'sync') return { items: [], updatedAt: 0 };
+    if (name === 'media') throw new Error('Could not open this attachment.');
+    return null;
+  });
+  try {
+    await openMail(failed);
+    for (let tries = 0; tries < 40 && !failed.host.querySelector('.ui-attachment-error'); tries += 1) await wait(10);
+    failed.flush();
+    assert.match(failed.host.querySelector('.ui-attachment-error')?.textContent ?? '', /Could not open this attachment/);
+    assert.match(failed.host.querySelector('.ui-mail-frame')?.getAttribute('srcdoc') ?? '', /See the photo/);
+  } finally {
+    failed.done();
+  }
+});
+
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */
 function install(page: JSDOM): void {
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'localStorage'] as const;

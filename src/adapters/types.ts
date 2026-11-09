@@ -385,6 +385,8 @@ export interface Message {
   reactions?: Reaction[];
   /** Gmail attachment filenames (rpcContract `attachments`). */
   attachments?: string[];
+  /** Gmail image parts addressed by content id. Filenames only; the HTML stays free of the bytes. */
+  inline?: { contentId: string; filename: string }[];
   /** Gmail message id, used by a `kind: 'attachment'` media request. */
   gmailId?: string;
   /** Messages attachments (rpcContract `imsgAttachments`). */
