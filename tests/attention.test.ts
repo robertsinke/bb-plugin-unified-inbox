@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { attentionFromAnswer, attentionPush, attentionScore, attentionVerdict, createAttentionStore, DEFAULT_WORDING, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
+import { attentionFromAnswer, attentionPush, attentionScore, attentionVerdict, createAttentionStore, decisionToShow, DEFAULT_WORDING, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
 import { createInboxCache } from '../src/inbox-cache.ts';
 
 const row = (preview: string, date = 2) => ({
@@ -11,6 +11,14 @@ const row = (preview: string, date = 2) => ({
   preview,
   date,
   unread: true,
+});
+
+test('a saved Needed or None stays hidden when the Decisions plugin is not installed', () => {
+  assert.equal(decisionToShow(false, 'yes'), null);
+  assert.equal(decisionToShow(false, 'no'), null);
+  assert.equal(decisionToShow(true, 'yes'), 'yes');
+  assert.equal(decisionToShow(true, 'no'), 'no');
+  assert.equal(decisionToShow(true, null), null);
 });
 
 test('a score of 0.7 or more is needed, and every lower score is none', () => {

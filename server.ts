@@ -34,7 +34,7 @@ import { importGwsAccount } from './src/account-import';
 import { refreshServiceName, runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
 import { parseMailKeyIds, type MailMode } from './src/mail-approval';
-import { createAttentionStore, watchNewConversations } from './src/attention';
+import { createAttentionStore, decisionToShow, watchNewConversations } from './src/attention';
 
 // The wiring: this module builds one instance's storage, gate, registry and page, hands them to
 // the gateway (src/gateway.ts) as one plain object, and registers the result with the host. The
@@ -52,11 +52,23 @@ export default async function plugin(bb: BbPluginApi) {
   // The account state is not here and is not touched — forgetting it is a re-pair.
   const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir()), () => gmailFaceStore.clear()] });
   const attention = createAttentionStore(db);
+  let decisionsInstalled = false;
+  async function rememberDecisions<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      const result = await call();
+      decisionsInstalled = true;
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/not installed/i.test(message)) decisionsInstalled = false;
+      throw error;
+    }
+  }
   const attentionWatch = watchNewConversations({
     cache,
     store: attention,
     log: line => bb.log.warn(line),
-    ask: input => bb.sdk.plugins.callRpc({
+    ask: input => rememberDecisions(() => bb.sdk.plugins.callRpc({
       pluginId: 'decisions',
       method: 'ask',
       input: JSON.parse(JSON.stringify(input)),
@@ -68,8 +80,8 @@ export default async function plugin(bb: BbPluginApi) {
           output_tokens: z.number().nullable(),
         }).strict(),
       }).strict(),
-    }),
-    wording: () => bb.sdk.plugins.callRpc({
+    })),
+    wording: () => rememberDecisions(() => bb.sdk.plugins.callRpc({
       pluginId: 'decisions',
       method: 'wording',
       input: null,
@@ -78,7 +90,7 @@ export default async function plugin(bb: BbPluginApi) {
         yes: z.string(),
         no: z.string(),
       }).strict(),
-    }),
+    })),
     notify: input => bb.sdk.plugins.callRpc({
       pluginId: 'push-notifications',
       method: 'notifications.send',
@@ -257,7 +269,7 @@ export default async function plugin(bb: BbPluginApi) {
           delete registry[account];
         },
       },
-      attentionOf: (account, id) => attention.get(account, id)?.verdict ?? null,
+      attentionOf: (account, id) => decisionToShow(decisionsInstalled, attention.get(account, id)?.verdict ?? null),
       attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
       clearAttention: (account, id) => { attention.dismiss(account, id); },
       restoreAttention: (account, id) => attention.restore(account, id),

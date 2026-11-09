@@ -26,6 +26,12 @@ export function attentionVerdict(noul: number): AttentionVerdict {
   return noul >= YES_AT ? 'yes' : 'no';
 }
 
+/** Needed and None are shown only while the Decisions plugin is installed. Saved rows stay in the table. */
+export function decisionToShow(pluginInstalled: boolean, stored: AttentionVerdict | null): AttentionVerdict | null {
+  if (!pluginInstalled) return null;
+  return stored;
+}
+
 const PUSH_TITLE = 80;
 const PUSH_BODY = 180;
 

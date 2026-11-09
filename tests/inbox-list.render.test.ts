@@ -127,6 +127,61 @@ function mountInbox(answer: (name: string) => unknown) {
   };
 }
 
+const menuLabels = (host: Element) => [...host.querySelectorAll('[role="menuitem"]')].map(entry => entry.textContent?.trim());
+
+test('a new inbox with no accounts and no verdict has no Needed or None label', async () => {
+  const view = mountInbox(name => {
+    if (name === 'sources' || name === 'capabilities') return {};
+    if (name === 'cached') return { items: [] };
+    if (name === 'sync') return { items: [], updatedAt: 0 };
+    return null;
+  });
+  try {
+    await wait(50);
+    view.flush();
+    assert.equal(view.host.querySelector('.ui-empty')?.textContent, SETTINGS_COPY);
+    assert.deepEqual(menuLabels(view.host), ['All', 'Unread', 'New', 'Send log', 'Refresh']);
+    assert.equal(view.host.textContent?.includes('Needed'), false);
+    assert.equal(view.host.textContent?.includes('None'), false);
+    assert.equal(view.host.textContent?.includes('Decisions'), false);
+  } finally {
+    view.done();
+  }
+});
+
+test('a conversation with no stored verdict keeps Needed and None out of the menu', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [MAIL_ROW] };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    assert.equal(view.host.querySelector('.ui-row-name')?.textContent, 'Ada Lovelace');
+    assert.equal(menuLabels(view.host).includes('Needed'), false);
+    assert.equal(menuLabels(view.host).includes('None'), false);
+  } finally {
+    view.done();
+  }
+});
+
+test('a conversation that already has a verdict shows Needed and None', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [{ ...MAIL_ROW, needsAttention: 'yes' }] };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const labels = menuLabels(view.host);
+    assert.equal(labels.includes('Needed'), true);
+    assert.equal(labels.includes('None'), true);
+    assert.equal(view.host.querySelector('.ui-row [data-attention="yes"]')?.textContent, 'Needed');
+  } finally {
+    view.done();
+  }
+});
+
 test('an inbox with no rows and no source error names BB Settings and this plugin', async () => {
   const view = mountInbox(name => {
     if (name === 'sources' || name === 'capabilities') return {};
