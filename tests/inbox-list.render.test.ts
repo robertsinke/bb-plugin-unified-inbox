@@ -160,6 +160,7 @@ test('rows stay on screen when WhatsApp is unpaired, with the settings sentence 
     await wait(50);
     view.flush();
     assert.equal(view.host.querySelector('.ui-row-name')?.textContent, 'Ada Lovelace');
+    assert.equal(view.host.querySelector('[data-attention]'), null);
     assert.equal(view.host.querySelector('.ui-settings-hint')?.textContent, WHATSAPP_SETTINGS_COPY);
     assert.equal(view.host.querySelector('.ui-pairing'), null);
     assert.equal(view.host.querySelector('svg.ui-qr'), null);

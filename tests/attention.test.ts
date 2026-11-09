@@ -371,6 +371,29 @@ test('a new question asks the current span again and leaves older lines out', as
   }
 });
 
+test('a missing decisions ask is logged and stores no verdict', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const lines: string[] = [];
+  cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'hello', date: 2, unread: true }]);
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    log: line => lines.push(line),
+    ask: async () => { throw new Error('plugin is not installed'); },
+  });
+  try {
+    await settle();
+    assert.equal(store.get('whatsapp', 'chat'), null);
+    assert.match(lines.join('\n'), /plugin is not installed/);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
 async function settle(): Promise<void> {
   for (let turn = 0; turn < 20; turn++) await Promise.resolve();
 }
