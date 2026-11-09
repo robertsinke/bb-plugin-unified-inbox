@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { attentionFromAnswer, attentionScore, attentionVerdict, createAttentionStore, DEFAULT_WORDING, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
+import { attentionFromAnswer, attentionPush, attentionScore, attentionVerdict, createAttentionStore, DEFAULT_WORDING, focusMessages, lineKey, watchNewConversations } from '../src/attention.ts';
 import { createInboxCache } from '../src/inbox-cache.ts';
 
 const row = (preview: string, date = 2) => ({
@@ -387,6 +387,74 @@ test('a missing decisions ask is logged and stores no verdict', async () => {
   try {
     await settle();
     assert.equal(store.get('whatsapp', 'chat'), null);
+    assert.match(lines.join('\n'), /plugin is not installed/);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('a verdict that becomes needed sends one push, and the other transitions do not', async () => {
+  const title = 'Ada '.repeat(40);
+  const preview = 'please reply '.repeat(30);
+  const sent: { title: string; body: string; threadId?: string }[] = [];
+  async function run(previous: 'yes' | 'no' | null, noul: number) {
+    const db = new Database(':memory:');
+    const cache = createInboxCache(db);
+    const store = createAttentionStore(db);
+    cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title, preview, date: 2, unread: true }]);
+    cache.saveThread('whatsapp', 'chat', [{ sender: 'Ada', text: 'please reply', fromMe: false }]);
+    if (previous) store.put('whatsapp', 'chat', { verdict: previous, noul: previous === 'yes' ? 0.9 : 0.2, stateHash: 'old', lines: null, anchor: null });
+    const watch = watchNewConversations({
+      cache,
+      store,
+      debounceMs: 0,
+      ask: async () => ({ answers: { line_1: { noul } } }),
+      notify: async input => { sent.push(input); },
+    });
+    try {
+      await settle();
+    } finally {
+      watch.stop();
+      db.close();
+    }
+  }
+  await run('no', 0.91);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].title.includes('Ada'), true);
+  assert.equal(sent[0].title.length <= 80, true);
+  assert.equal(sent[0].body, preview.slice(0, 180));
+  assert.equal('threadId' in sent[0], false);
+  const afterYes = sent.length;
+  await run('yes', 0.91);
+  await run(null, 0.91);
+  await run('no', 0.2);
+  assert.equal(sent.length, afterYes);
+  assert.equal(attentionPush(null, 'yes', { account: 'whatsapp', title: 'Ada', preview: 'hi' }), null);
+  assert.equal(attentionPush('yes', 'yes', { account: 'whatsapp', title: 'Ada', preview: 'hi' }), null);
+  assert.equal(attentionPush('no', 'no', { account: 'whatsapp', title: 'Ada', preview: 'hi' }), null);
+});
+
+test('a push that throws leaves the needed verdict stored', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const lines: string[] = [];
+  cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'please reply', date: 2, unread: true }]);
+  cache.saveThread('whatsapp', 'chat', [{ sender: 'Ada', text: 'please reply', fromMe: false }]);
+  store.put('whatsapp', 'chat', { verdict: 'no', noul: 0.2, stateHash: 'old', lines: null, anchor: null });
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    log: line => lines.push(line),
+    ask: async () => ({ answers: { line_1: { noul: 0.91 } } }),
+    notify: async () => { throw new Error('plugin is not installed'); },
+  });
+  try {
+    await settle();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(store.get('whatsapp', 'chat')?.verdict, 'yes');
     assert.match(lines.join('\n'), /plugin is not installed/);
   } finally {
     watch.stop();

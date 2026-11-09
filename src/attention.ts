@@ -26,6 +26,33 @@ export function attentionVerdict(noul: number): AttentionVerdict {
   return noul >= YES_AT ? 'yes' : 'no';
 }
 
+const PUSH_TITLE = 80;
+const PUSH_BODY = 180;
+
+const SOURCE_NAME: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  imessage: 'Messages',
+  linkedin: 'LinkedIn',
+  'gmail-personal': 'Personal Gmail',
+  'gmail-business': 'Inhouse Gmail',
+};
+
+export type AttentionPush = { title: string; body: string };
+
+/** A push only when a stored verdict changes from a previous non-yes to yes. The first store does not push. */
+export function attentionPush(
+  previous: AttentionVerdict | null,
+  next: AttentionVerdict,
+  item: { account: string; title: string; preview: string },
+): AttentionPush | null {
+  if (previous === null || previous === 'yes' || next !== 'yes') return null;
+  const source = SOURCE_NAME[item.account] ?? item.account;
+  return {
+    title: `${source} ${item.title}`.trim().slice(0, PUSH_TITLE),
+    body: item.preview.slice(0, PUSH_BODY),
+  };
+}
+
 export interface AttentionWording {
   question: string;
   yes: string;
@@ -333,6 +360,8 @@ export function watchNewConversations(options: {
   recentLines?: (account: Account, id: string) => AttentionLine[] | null;
   /** The question Decisions has saved. A failure keeps the original sentences. */
   wording?: () => Promise<AttentionWording>;
+  /** A Needed transition. A throw or an empty channel list is logged once and does not change the verdict. */
+  notify?: (input: AttentionPush) => Promise<{ channels?: string[] } | void>;
 }): { arrived: (account: Account, id: string, message?: AttentionLine) => void; stop: () => void } {
   const seen = new Map<string, string>();
   const extras = new Map<string, AttentionLine[]>();
@@ -359,6 +388,7 @@ export function watchNewConversations(options: {
   const inflight = new Map<string, Promise<void>>();
   const pooled = new Map<string, ReturnType<typeof setTimeout>>();
   let stopped = false;
+  let pushNoted = false;
   const poolMs = options.debounceMs ?? POOL_MS;
 
   async function loadWording(): Promise<AttentionWording> {
@@ -434,7 +464,7 @@ export function watchNewConversations(options: {
       const noul = attentionScore(focused, saved);
       const scores: Record<string, number> = {};
       for (const line of focused) scores[lineKey(line.text, line.mine)] = saved[lineKey(line.text, line.mine)] as number;
-      options.store.put(account, id, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null });
+      publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null }, row);
       return;
     }
     const { ask, kept } = focused.length === 0 ? { ask: [] as number[], kept: {} } : linesToScore(focused, changed ? null : saved);
@@ -445,7 +475,7 @@ export function watchNewConversations(options: {
     const scores = { ...kept };
     if (lines.length === 0) {
       const result = attentionFromAnswer(answers);
-      options.store.put(account, id, { ...result, stateHash, lines: null, anchor: null });
+      publish(account, id, prior?.verdict ?? null, { ...result, stateHash, lines: null, anchor: null }, row);
       return;
     }
     for (const message of focused) {
@@ -457,7 +487,28 @@ export function watchNewConversations(options: {
     const scored = Object.values(scores);
     if (scored.length === 0) throw new Error('The decision model returned no yes/no answer.');
     const noul = attentionScore(focused, scores);
-    options.store.put(account, id, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null });
+    publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null }, row);
+  }
+
+  function publish(account: Account, id: string, previous: AttentionVerdict | null, record: AttentionRecord, item: { title?: string; preview?: string } | undefined): void {
+    options.store.put(account, id, record);
+    const notice = attentionPush(previous, record.verdict, {
+      account,
+      title: item?.title ?? '',
+      preview: item?.preview ?? '',
+    });
+    if (!notice || !options.notify) return;
+    void Promise.resolve(options.notify(notice)).then(result => {
+      if (result && result.channels?.length === 0) notePush('Push was not delivered.');
+    }).catch(error => {
+      notePush(`Push was not delivered. ${error instanceof Error ? error.message : ''}`.trim());
+    });
+  }
+
+  function notePush(line: string): void {
+    if (pushNoted) return;
+    pushNoted = true;
+    options.log?.(line);
   }
 
   function enqueue(account: Account, id: string): void {
