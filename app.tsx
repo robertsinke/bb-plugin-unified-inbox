@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSy
 import { definePluginApp, experimental_Icon as Icon, experimental_useAppPanel, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './src/rpc-contract';
-import { bubbleClass } from './src/inbox-appearance.ts';
+import { bubbleClass, sourceClass } from './src/inbox-appearance.ts';
 import { composerMode, draftForConversation } from './src/composer-mode.ts';
 import { formatBytes, formatDuration } from './src/format.ts';
 import { MailComposer } from './src/mail-composer.tsx';
@@ -93,7 +93,7 @@ function ContactAvatar({name,account,participants=[],avatarUrl}:{name:string;acc
   useEffect(()=>setImageFailed(false),[avatarUrl]);
   const photo=!!avatarUrl&&!imageFailed;
   const mosaic = account === 'whatsapp' && participants.length >= 2 && !photo;
-  return <span className={`ui-avatar ui-${account}${mosaic?' ui-avatar-group':''}`} aria-hidden="true">
+  return <span className={`ui-avatar ${sourceClass(account)}${mosaic?' ui-avatar-group':''}`} aria-hidden="true">
     <span className="ui-avatar-face" style={mosaic?undefined:{background:avatarFace(name)}}>
       {photo ? <img className="ui-avatar-photo" src={avatarUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setImageFailed(true)}/> : mosaic ? participants.slice(0,4).map((person,index)=><span key={`${person}-${index}`} className="ui-avatar-cell" style={{background:avatarFace(person)}}>{firstLetter(person)}</span>) : initialsFor(name)}
     </span>
