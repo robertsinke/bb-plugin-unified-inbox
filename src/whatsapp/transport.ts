@@ -26,9 +26,10 @@ import type {
 import type { WhatsAppConnection, WhatsAppMediaSocket } from './connection.ts';
 import { createWhatsAppAvatars } from './avatars.ts';
 import type { MediaDownloader } from './media.ts';
-import { createWhatsAppSendTransport } from './send.ts';
+import { createWhatsAppSendTransport, type WhatsAppSendSocket } from './send.ts';
 import { replayStoredPollUpdates } from './ingest.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
+import { WHATSAPP_OFFLINE, WHATSAPP_OWN_NUMBER, WHATSAPP_UNKNOWN_NUMBER } from './phone.ts';
 import { whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
 import { isPollCreationType, pollCard, pollFacts, pollFactsFromRaw, pollPartyJid, encryptPollVote } from './poll.ts';
 import { jidNormalizedUser } from 'baileys';
@@ -387,6 +388,29 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       });
       await send.sendPollVote(id, envelope.key, vote);
       store.upsertPollVote({ chat_jid: id, poll_msg_id: messageId, actor: 'me', options: names, updated_at: Date.now() });
+    },
+
+    async resolvePhone(digits: string): Promise<string> {
+      const phone = `${digits}@s.whatsapp.net`;
+      const stored = store.findPhoneJid(digits);
+      const socket = held()?.getSendSocket() as (WhatsAppSendSocket & {
+        user?: { id?: string };
+        onWhatsApp?: (jid: string) => Promise<Array<{ jid?: string; exists?: boolean }>>;
+      }) | undefined;
+      const self = socket?.user?.id ? jidNormalizedUser(socket.user.id) : undefined;
+      const refuseOwn = (jid: string) => {
+        if (self && jidNormalizedUser(jid) === self) throw new Error(WHATSAPP_OWN_NUMBER);
+      };
+      if (stored) {
+        refuseOwn(stored);
+        return stored;
+      }
+      if (!socket?.onWhatsApp) throw new Error(WHATSAPP_OFFLINE);
+      const rows = await socket.onWhatsApp(phone);
+      const hit = rows?.find(row => row.exists && row.jid);
+      if (!hit?.jid) throw new Error(WHATSAPP_UNKNOWN_NUMBER);
+      refuseOwn(hit.jid);
+      return hit.jid;
     },
 
     async status(): Promise<WhatsAppTransportStatus> {

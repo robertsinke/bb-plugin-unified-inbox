@@ -221,6 +221,7 @@ export default async function plugin(bb: BbPluginApi) {
       now,
       mailboxes: settlement,
       pairing: async request => (await whatsappPairing()).handle(request),
+      resolveWhatsApp: digits => whatsappTransport.resolvePhone(digits),
       note: (level, line) => bb.log[level](line),
       gmail: {
         clientConfigured: async () => {

@@ -286,6 +286,11 @@ export interface WhatsAppTransport {
   /** Sends text over the socket. `quoted` is a stored envelope. Rejects when there is no socket. */
   sendText(input: { id: string; text: string; quoted?: unknown }): Promise<void>;
   /**
+   * The chat id for these digits. A stored contact answers without opening a socket. An open socket
+   * confirms the number. No confirmation means nothing is sent.
+   */
+  resolvePhone(digits: string): Promise<string>;
+  /**
    * Sends one reaction for a message id. An empty emoji removes it. Rejects when there is no
    * socket. This call does not write a reaction row; ingest does that when the echo arrives.
    */
