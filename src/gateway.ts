@@ -376,6 +376,14 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       if (input.threadId) cache.setSentSnippet(input.account, input.threadId, input.text);
       return result;
     },
+    async disclose(input) {
+      const source = registry[input.account];
+      if (!source) throw new Error('That mailbox is not connected.');
+      if (!source.disclose) throw new Error('This conversation is already complete.');
+      const [row] = decorated([await source.disclose(input.id)]);
+      if (!row) throw new Error('This conversation is already complete.');
+      return row;
+    },
     async list(options) {
       const older = options?.older === true;
       if (options?.account && !registry[options.account]) throw new Error('That mailbox is not connected.');

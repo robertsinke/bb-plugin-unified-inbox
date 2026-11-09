@@ -598,6 +598,36 @@ function Inbox({ threadId }: { threadId: string | null }) {
      it. The filter is the owner's, so it still narrows both. */
   const matches=(i:Item)=>filter==='all'||(filter==='unread'?i.unread:filter==='yes'||filter==='no'?i.needsAttention===filter:i.account===filter);
   const shown=(hits??items).filter(matches);
+  const listedKey=shown.filter(item=>item.listedOnly).map(item=>`${item.account}\0${item.id}`).join('\n');
+  useEffect(()=>{
+    const root=listScroll.current;
+    if(!root||hits!==null||!listedKey) return;
+    const nodes=[...root.querySelectorAll<HTMLElement>('[data-listed-only="true"]')];
+    if(!nodes.length||typeof IntersectionObserver==='undefined') return;
+    const seen=new Set<string>();
+    const report=()=>{
+      session.showListed(nodes.flatMap(node=>{
+        const account=node.dataset.rowAccount as Account|undefined;
+        const id=node.dataset.rowId;
+        if(!account||!id||!seen.has(`${account}\0${id}`)) return [];
+        return [{account,id}];
+      }));
+    };
+    const observer=new IntersectionObserver(entries=>{
+      for(const entry of entries){
+        const node=entry.target as HTMLElement;
+        const account=node.dataset.rowAccount;
+        const id=node.dataset.rowId;
+        if(!account||!id) continue;
+        const key=`${account}\0${id}`;
+        if(entry.isIntersecting) seen.add(key);
+        else seen.delete(key);
+      }
+      report();
+    },{root,rootMargin:'160px'});
+    for(const node of nodes) observer.observe(node);
+    return()=>observer.disconnect();
+  },[listedKey,hits,session]);
   function maybeOlder() {
     const el=listScroll.current;
     if(!el||hits!==null||!hasOlder||loadingOlder) return;
@@ -652,7 +682,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
             title: 'What the send gate decided; a refusal means nothing was sent',
           },
           { label: 'Refresh', run: () => void session.refresh(sources ? Object.keys(sources) : undefined), title: refreshTitle },
-        ]}/></header>{auditOpen?null:<>{whatsappUnpaired&&shown.length>0?<p className="ui-settings-hint">{SETTINGS_COPY}</p>:null}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{emptyInboxCopy(query, filter, errors.length)}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{(i.sentSnippet||i.preview)||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
+        ]}/></header>{auditOpen?null:<>{whatsappUnpaired&&shown.length>0?<p className="ui-settings-hint">{SETTINGS_COPY}</p>:null}<InboxErrors errors={errors} sources={sources}/></>}{auditOpen?(<>{audit.length===0?<p className="ui-empty">No send attempts recorded yet.</p>:audit.map(entry=><div className="ui-row ui-send-row" key={`${entry.at}-${entry.conversationId}-${entry.decision}`}><div className="ui-send-row-main"><div className="ui-send-row-head"><time>{new Date(entry.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</time><span className={`ui-send-row-decision ${entry.decision==='refused'?'is-refused':'is-allowed'}`}>{entry.decision==='refused'?'Refused':'Sent'}</span><span className="ui-send-row-account">{sourceLabel(sources,entry.account)}</span></div><div className="ui-send-row-reason">{entry.reason??entry.conversationId}</div></div></div>)}</>):shown.length===0?<p className="ui-empty">{emptyInboxCopy(query, filter, errors.length)}</p>:shown.map(i=><div className={`ui-row ${i.unread?'is-unread':''}`} key={`${i.account}:${i.id}`} {...(i.listedOnly?{'data-listed-only':'true','data-row-account':i.account,'data-row-id':i.id}:{})}><div className="ui-row-open"><button type="button" className="ui-row-open-hit" onClick={()=>void session.open(i)} aria-label={`Open ${i.title||i.preview||'conversation'}`}/><ContactAvatar name={i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')} account={i.account} participants={i.participants} avatarUrl={i.avatarUrl}/><span className="ui-sr">{sourceLabel(sources,i.account)}</span><div className="ui-row-copy"><div className="ui-row-top"><strong className="ui-row-name">{i.account==='whatsapp'||i.account==='imessage'?i.title:(i.sender||'Unknown sender')}</strong></div><time className="ui-row-time" title={new Date(i.date).toLocaleString()}>{date(i.date)}</time><p className="ui-row-body">{(i.sentSnippet||i.preview)||'No preview available'}</p><span className="ui-row-status">{i.unread&&<span className="ui-unread-dot" title="Unread"><span className="ui-sr">Unread</span></span>}</span><div className="ui-row-foot"><span className="ui-row-pills">{i.needsAttention&&<AttentionChip verdict={i.needsAttention} dismissed={i.attentionDismissed} onClear={()=>void session.clearAttention(i)} onRestore={()=>void session.restoreAttention(i)}/>}{i.account==='linkedin'&&isInvitationId(i.id)&&(canAnswerInvitation(capabilities,i.account)?<InvitationChip item={i} busy={busy} onAnswer={(item,action)=>void session.answer(item,action)}/>:<span className="ui-chip">Invitation</span>)}</span></div><span className="ui-row-menu"><ItemMenu label={i.title||i.preview||'this conversation'} actions={[
       { label: 'Add to chat', run: () => tag(i) },
       ...(isConversationRow(i)&&canMarkRead(capabilities,i.account)?[{ label: i.unread?'Mark read':'Mark unread', run: () => void session.mark(i, i.unread?'read':'unread') }]:[]),
     ]}/></span></div></div></div>)}{loadingOlder&&hits===null&&<p className="ui-older" role="status">Loading older…</p>}</div></>}

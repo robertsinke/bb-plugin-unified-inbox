@@ -44,10 +44,8 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, 
 /**
  * What a person knows each mailbox by, and how the panel paces it. The mailbox is refreshed every
  * three minutes: a 45-second poll left too little of the per-user Gmail quota for opening a thread.
- * A Gmail row costs one thread read per thread; twenty of those per account, with the periodic
- * refreshes in the same round, measured 11–20s over the CLI and lost the panel's 15-second ceiling
- * — so the owner saw the WhatsApp page and no mail. Ten fits the panel. The ceiling, not the
- * transport, is the reason: a read is faster now, and the page size stays until someone measures it again.
+ * An older page is the listing only. Each thread is read when its row is on screen, one at a time.
+ * Ten rows is one scroll. A larger page would queue more of those reads while the owner is still moving.
  */
 const GMAIL_PACE = { icon: 'gmail' as const, pollIntervalMs: 180_000, pageSize: 10 };
 
@@ -204,16 +202,22 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     // inbox lost rows — and each refresh replaces that account's entries wholesale anyway.
     if (cursor) {
       const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit, pageToken: cursor }));
-      // Gmail's listing gives an id and a snippet and nothing else: the subject, sender, date and
-      // read state a row shows live in the thread. So an older page costs one read per row, and
-      // the two cheapening moves are both here. `metadata` is exactly what a row needs — headers,
-      // labels and dates, no body and no part list — and measured 0.7s against 1.35s for `full`.
-      // The reads overlap instead of running one after another, which is the other half: twenty
-      // of them in sequence was a forty-second wait for a page.
-      const items = await Promise.all((page.threads ?? []).map(async (entry: any) => {
+      // The listing is an id and a snippet. Reading each thread here is a burst of `threads.get`,
+      // and that burst is what hits the per-minute quota. The row stays a snippet until it is on screen.
+      const items = (page.threads ?? []).map((entry: any) => {
         const id = String(entry.id);
-        return previous.get(id) ?? row(await thread(id, 'metadata'), true);
-      }));
+        const known = previous.get(id);
+        if (known?.sender) return known;
+        return {
+          account,
+          id,
+          title: '',
+          preview: gmailSnippet(String(entry.snippet ?? '')),
+          date: 0,
+          unread: false,
+          listedOnly: true as const,
+        };
+      });
       return { items: items.map(withFace), ...nextCursor(page) };
     }
     for (const id of cache.heldReads(account)) {
@@ -317,6 +321,18 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     },
 
     open: (id: string, _opts?: OpenOptions) => openThread(id),
+
+    async disclose(id: string): Promise<Conversation> {
+      const known = stored().find(item => item.id === id);
+      if (known?.sender) return withFace(known);
+      try {
+        // Headers, labels and the date. No body and no part list: the open path still reads the thread.
+        return withFace(row(await thread(id, 'metadata'), true));
+      } catch (cause) {
+        if (quotaStop(cause)) throw scrub(cause);
+        throw cause;
+      }
+    },
 
     async media(request: MediaRequest): Promise<MediaPayload> {
       if (request.kind === 'attachment') return attachment(request.id, request.filename);
