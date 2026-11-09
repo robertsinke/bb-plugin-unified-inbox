@@ -100,6 +100,7 @@ export default async function plugin(bb: BbPluginApi) {
       return new WhatsAppConnection({
         getMessage: whatsappStore.storedMessageLoader(),
         bindSocket: socket => attachIngest(socket.ev, whatsappStore, {
+          meJid: () => socket.user?.id,
           onMessageIngested: message => attentionWatch.arrived('whatsapp', message.chat_jid, {
             sender: message.sender ?? '',
             text: message.text ?? '',

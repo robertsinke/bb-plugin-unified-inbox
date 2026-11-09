@@ -143,6 +143,12 @@ export function fakeWhatsAppTransport(
     async sendReaction() {
       calls.push('whatsapp:sendReaction');
     },
+    pollChoices() {
+      return undefined;
+    },
+    async sendVote() {
+      calls.push('whatsapp:sendVote');
+    },
     async storedEnvelope() {
       calls.push('whatsapp:storedEnvelope');
       return undefined;

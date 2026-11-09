@@ -22,7 +22,7 @@ const DECLARED = {
 
 const CHAT_CAPS = {
   send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false,
-  threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true,
+  threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true, pollVote: false,
 };
 
 type Flags = Partial<typeof CHAT_CAPS>;
@@ -45,7 +45,7 @@ function caps(overrides: Record<string, Flags> = {}) {
   const accounts: Record<string, Flags> = {
     'gmail-personal': { ...base, archive: true, attachments: true, threads: false, media: false },
     'gmail-business': { ...base, archive: true, attachments: true, threads: false, media: false },
-    whatsapp: { ...CHAT_CAPS },
+    whatsapp: { ...CHAT_CAPS, pollVote: true },
     imessage: { ...CHAT_CAPS, attachments: true },
     linkedin: { ...base, invitations: true, followsList: false },
   };
@@ -81,6 +81,7 @@ function sdk(rpc: (method: string, input: unknown) => unknown) {
   return {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },
     experimental_Icon: () => null,
+    experimental_useAppPanel: () => ({ openTab() {} }),
     ThreadChat: () => null,
     useRpc: () => ({ call: (method: string, input?: unknown) => Promise.resolve(rpc(method, input)) }),
     useSdk: () => ({ threads: { tabs: { get: async () => ({ tabs: [], revision: 1 }), update: async () => ({ tabs: [], revision: 2 }) } } }),

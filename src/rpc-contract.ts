@@ -16,16 +16,22 @@ export const item = z.object({ account, id: z.string(), title: z.string(), previ
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const quote = z.object({ targetId: z.string().optional(), sender: z.string().optional(), text: z.string().optional() });
-export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), quote: quote.optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+const poll = z.object({
+  question: z.string().max(2000),
+  selectableCount: z.number().int().nonnegative(),
+  options: z.array(z.object({ name: z.string().max(500), count: z.number().int().nonnegative(), selected: z.boolean() })).max(12),
+});
+export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), quote: quote.optional(), poll: poll.optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const actionInput = z.object({
   account,
   id: z.string().min(1).max(512),
-  action: z.enum(['read', 'unread', 'archive', 'reply', 'confirm', 'reject', 'react']),
+  action: z.enum(['read', 'unread', 'archive', 'reply', 'confirm', 'reject', 'react', 'vote']),
   text: z.string().max(20000).optional(),
   allow: z.literal('send').optional(),
   messageId: z.string().min(1).max(512).optional(),
   emoji: z.string().max(16).optional(),
   remove: z.boolean().optional(),
+  options: z.array(z.string().min(1).max(500)).max(12).optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.emoji !== undefined && !isReactionEmoji(value.emoji)) {
     ctx.addIssue({ code: 'custom', path: ['emoji'], message: 'A reaction is heart, like, dislike, or laugh.' });

@@ -11,6 +11,7 @@
 import { whatsappListUnchanged } from '../sync-plan.ts';
 import { sourceAvatarUrl } from '../avatar-url.ts';
 import { whatsappTimestamp } from '../timestamps.ts';
+import { isPollCreationType } from '../whatsapp/poll.ts';
 import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappSender, whatsappText, whatsappTitle } from '../whatsapp-chat.ts';
 import { isReactionEmoji } from '../reaction-set.ts';
 import { classifySendFailure } from '../whatsapp/failure.ts';
@@ -23,7 +24,7 @@ import type {
   MediaPayload, Message, OpenOptions, OpenResult, SearchRow, SourceDeclaration, SyncResult,
 } from './types.ts';
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: false, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true, pollVote: true };
 
 /** WhatsApp rows are the only ones with group participants and legacy previews to repair. */
 const ACCOUNT = 'whatsapp';
@@ -147,13 +148,14 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
       .map(row => ({
         sender: whatsappSender(row.fromMe, row.sender, group, ''),
         fromMe: row.fromMe,
-        text: whatsappText(row.text, row.type, row.media),
+        text: row.poll ? '' : whatsappText(row.text, row.type, row.media),
         date: whatsappTimestamp(row.ts),
         messageId: row.id,
         ...(row.edited ? { edited: true } : {}),
         ...(row.media ? { media: row.media } : {}),
         ...(row.reactions?.length ? { reactions: row.reactions } : {}),
         ...(row.quote ? { quote: row.quote } : {}),
+        ...(row.poll ? { poll: row.poll } : {}),
       }));
     cache.saveThread(ACCOUNT, id, messages);
     return { messages };
@@ -262,6 +264,8 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
 
     open: (id: string) => openChat(id),
 
+    pollOf: (messageId: string) => transport.pollChoices(messageId),
+
     async media(request) {
       if (request.kind !== 'message') throw new Error('This account has no attachments.');
       return mediaPayload(request.id);
@@ -276,6 +280,16 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
           // `remove` sends an empty emoji. The send does not write a row; ingest does, from the echo.
           await transport.sendReaction({ id, messageId: opts.messageId, emoji: opts.remove ? '' : opts.emoji });
         } catch (error) {
+          throw sendFailure(error);
+        }
+        return { status: 'Sent.' };
+      }
+      if (kind === 'vote') {
+        if (!opts?.messageId) throw new Error('A vote needs the poll it votes on. Nothing was sent.');
+        try {
+          await transport.sendVote({ id, messageId: opts.messageId, options: opts.options ?? [] });
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('Nothing was sent')) throw error;
           throw sendFailure(error);
         }
         return { status: 'Sent.' };
@@ -359,7 +373,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
           messages: kept.map(message => ({
             sender: whatsappSender(message.fromMe, message.sender, group, ''),
             fromMe: message.fromMe,
-            text: whatsappText(message.text, message.type),
+            text: isPollCreationType(message.type) ? message.text : whatsappText(message.text, message.type),
             date: whatsappTimestamp(message.ts),
           })),
         };

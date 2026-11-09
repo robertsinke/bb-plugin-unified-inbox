@@ -39,7 +39,7 @@ export function gmailFromAddress(account: string): string {
 
 // `send` is declared because this adapter implements it; whether it may be used is the send
 // gate's decision (SEND_POLICY), and every attempt lands in the audit log first.
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true, react: false, reactRemove: false, quoteReply: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, invitations: false, media: false, attachments: true, threads: false, followsList: true, react: false, reactRemove: false, quoteReply: false, pollVote: false };
 
 /**
  * What a person knows each mailbox by, and how the panel paces it. The mailbox is refreshed every

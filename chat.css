@@ -21,3 +21,10 @@
 .ui-reaction-choice:hover:not(:disabled),.ui-reply-choice:hover:not(:disabled),.ui-reaction-choice[aria-pressed="true"]{background:color-mix(in srgb,var(--ui-accent) 22%,transparent)}
 .ui-reaction-choice:focus-visible,.ui-reply-choice:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
 .ui-reaction-choice:disabled{cursor:default;opacity:.5}
+.ui-poll{display:flex;flex-direction:column;gap:6px;min-width:200px;margin:2px 0 4px}
+.ui-poll-question{font-weight:650;line-height:1.35}
+.ui-poll-options{display:flex;flex-direction:column;gap:4px}
+.ui-poll-option{display:flex;justify-content:space-between;gap:12px;width:100%;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.ui-poll-option[aria-pressed="true"]{border-color:var(--ui-accent);background:color-mix(in srgb,var(--ui-accent) 18%,transparent)}
+.ui-poll-option:disabled{cursor:default;opacity:.7}
+.ui-poll-count{font-variant-numeric:tabular-nums;opacity:.75}

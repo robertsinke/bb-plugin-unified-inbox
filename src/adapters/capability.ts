@@ -29,8 +29,9 @@ import type { ActionKind, Capabilities } from './types.ts';
  * - `reactRemove`: the source can remove a reaction it already shows for the owner.
  * - `quoteReply`: a reply can name the one message it answers. A reply with no
  *   message id stays a conversation reply.
+ * - `pollVote`: the source can cast a vote on one poll message.
  */
-export const CAPABILITY_KEYS = ['send', 'markRead', 'archive', 'invitations', 'media', 'attachments', 'threads', 'followsList', 'react', 'reactRemove', 'quoteReply'] as const;
+export const CAPABILITY_KEYS = ['send', 'markRead', 'archive', 'invitations', 'media', 'attachments', 'threads', 'followsList', 'react', 'reactRemove', 'quoteReply', 'pollVote'] as const;
 
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 

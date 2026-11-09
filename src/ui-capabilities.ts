@@ -39,6 +39,11 @@ export function canQuoteReply(capabilities: CapabilityMap | null, account: Accou
   return declared(capabilities, account).quoteReply;
 }
 
+/** Voting on a poll card. */
+export function canPollVote(capabilities: CapabilityMap | null, account: Account): boolean {
+  return declared(capabilities, account).pollVote;
+}
+
 /** The read/unread toggle, and the read the inbox marks when a conversation is opened. */
 export function canMarkRead(capabilities: CapabilityMap | null, account: Account): boolean {
   return declared(capabilities, account).markRead;

@@ -58,7 +58,7 @@ test('Messages: declared capabilities match what action and its attachment entry
   try {
     const adapter = h.registry.imessage;
     const caps = adapter.capabilities();
-    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true });
+    assert.deepEqual(caps, { send: true, markRead: true, archive: false, invitations: false, media: true, attachments: true, threads: true, followsList: true, react: true, reactRemove: true, quoteReply: true, pollVote: false });
 
     // send: true — a reply reaches the stubbed imsg send method.
     h.calls.length = 0;

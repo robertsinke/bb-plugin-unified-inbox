@@ -1,3 +1,5 @@
+import { isPollCreationType, isPollUpdateType } from './whatsapp/poll.ts';
+
 /** WhatsApp's own group-list convention: "Sender: last message". */
 export function groupPreview(preview: string, fromMe: boolean, sender: string): string {
   if (!preview.trim()) return preview;
@@ -40,6 +42,7 @@ export function whatsappSender(fromMe: boolean, senderName: string, group: boole
  * list and nowhere else.
  */
 export function whatsappText(text: string, type: string, media?: { kind: string }): string {
+  if (isPollCreationType(type)) return 'Poll';
   if (text.trim()) return text;
   if (media && media.kind !== 'document' && media.kind !== 'audio') return '';
   return !type || type === 'text' ? '' : `[${type}]`;
@@ -48,11 +51,11 @@ export function whatsappText(text: string, type: string, media?: { kind: string 
 /** WhatsApp stub/protocol events have no readable text and only add noise. */
 export function isWhatsAppNoise(type: string, text: string): boolean {
   const value = text.trim();
-  return type === 'system' || type === 'protocol' || value === '[system]' || value === '[protocol]';
+  return type === 'system' || type === 'protocol' || isPollUpdateType(type) || value === '[system]' || value === '[protocol]' || value === '[pollUpdate]';
 }
 
 /** Also catches previews that already include a sender prefix. */
 export function isWhatsAppNoisePreview(preview: string): boolean {
   const value = preview.trim();
-  return value === '[system]' || value === '[protocol]' || /:\s*\[(system|protocol)\]$/.test(value);
+  return value === '[system]' || value === '[protocol]' || value === '[pollUpdate]' || /:\s*\[(system|protocol|pollUpdate)\]$/.test(value);
 }

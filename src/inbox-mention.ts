@@ -120,6 +120,7 @@ export type MentionMessage = {
   text: string;
   date: number;
   media?: { kind: string };
+  poll?: { question: string; options: { name: string }[] };
 };
 
 function stamp(date: number) {
@@ -127,7 +128,10 @@ function stamp(date: number) {
 }
 
 function line(message: MentionMessage) {
-  const text = message.text.replace(/\s+/g, ' ').trim() || (message.media ? `[${message.media.kind}]` : '');
+  const poll = message.poll
+    ? [message.poll.question, ...message.poll.options.map(option => option.name)].filter(Boolean).join(', ')
+    : '';
+  const text = message.text.replace(/\s+/g, ' ').trim() || poll || (message.media ? `[${message.media.kind}]` : '');
   return `[${stamp(message.date)}] ${message.sender}: ${text.slice(0, MAX_MESSAGE_CHARS)}`;
 }
 

@@ -42,8 +42,10 @@ If a decision and the code disagree, the code wins and the decision needs a curr
   the inbox are judged once.
 - An open chat message shows reactions and quote text when the source returned
   them. Heart, like, dislike, and laugh are the reactions where the source can
-  set one. A reply can target that one message where the source can. Gmail
-  keeps its mail composer.
+  set one. A reply can target that one message where the source can. A WhatsApp
+  poll is one card: the question, the options, and the vote counts. The owner
+  can vote from that card. A later vote updates the same card. The list says
+  Poll. Gmail keeps its mail composer.
 
 ## How it works
 

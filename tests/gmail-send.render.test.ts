@@ -40,6 +40,7 @@ function caps() {
     react: false,
     reactRemove: false,
     quoteReply: false,
+    pollVote: false,
   }]));
 }
 
@@ -61,6 +62,7 @@ function sdk() {
   return {
     definePluginApp: (define: (app: unknown) => void) => { define(app); return panel; },
     experimental_Icon: () => null,
+    experimental_useAppPanel: () => ({ openTab() {} }),
     ThreadChat: () => null,
     useRpc: () => ({ call: (method: string, input?: unknown) => Promise.resolve(rpc(method, input)) }),
     useSdk: () => ({ threads: { tabs: { get: async () => ({ tabs: [], revision: 1 }), update: async () => ({ tabs: [], revision: 2 }) } } }),
