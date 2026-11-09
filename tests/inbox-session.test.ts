@@ -801,6 +801,60 @@ test('show older appends the next page, drops a row already on screen, and stops
   assert.equal(rpc.calls.filter(call => call.name === 'list').length, 1, 'an exhausted list is not asked again');
 });
 
+test('an older Gmail snippet sits under the mail already shown, and one visible row is filled at a time', async () => {
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30, sender: 'Ada' });
+  const older = row({ account: 'gmail-personal', id: 't2', date: 0, title: '', sender: undefined, preview: 'Older note', listedOnly: true, unread: false });
+  const behind = row({ account: 'gmail-personal', id: 't3', date: 0, title: '', sender: undefined, preview: 'Further note', listedOnly: true, unread: false });
+  let pending: Array<(value: InboxItem) => void> = [];
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
+    list: () => ({ items: [older, behind], errors: [], more: false }),
+    disclose: input => new Promise(resolve => { pending.push(value => resolve({ ...value, ...(input as { id: string }) })); }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.more();
+  const listed = session.snapshot().items.filter(item => item.listedOnly);
+  assert.deepEqual(listed.map(item => item.id), ['t2', 't3']);
+  assert.deepEqual(listed.map(item => item.date), [29, 28], 'the snippets keep the page order under the mail already shown');
+  assert.equal(rpc.calls.filter(call => call.name === 'disclose').length, 0, 'a page does not read a thread');
+
+  session.showListed([{ account: 'gmail-personal', id: 't2' }, { account: 'gmail-personal', id: 't3' }]);
+  await settle();
+  assert.equal(rpc.calls.filter(call => call.name === 'disclose').length, 1, 'one row on screen is one read');
+  pending[0]({ ...older, sender: 'Grace', title: 'Older', date: 12, preview: 'Older note', unread: true, listedOnly: undefined });
+  await settle();
+  const filled = session.snapshot().items.find(item => item.id === 't2');
+  assert.equal(filled?.sender, 'Grace');
+  assert.equal(filled?.date, 12);
+  assert.equal(filled?.listedOnly, undefined);
+  assert.equal(rpc.calls.filter(call => call.name === 'disclose').length, 2, 'the next visible row waits for the first read');
+});
+
+test('a Gmail quota error while filling one row leaves the snippet on screen', async () => {
+  const newest = row({ account: 'gmail-personal', id: 't1', date: 30, sender: 'Ada' });
+  const older = row({ account: 'gmail-personal', id: 't2', date: 0, title: '', sender: undefined, preview: 'Older note', listedOnly: true, unread: false });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [newest], more: { 'gmail-personal': true } }),
+    sync: input => ({ items: input.account === 'gmail-personal' ? [newest] : [], more: input.account === 'gmail-personal' }),
+    list: () => ({ items: [older], errors: [], more: false }),
+    disclose: () => { throw new Error("gmail gmail-personal request failed (403 rateLimitExceeded): Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'"); },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  session.start();
+  await settle();
+  await session.more();
+  session.showListed([{ account: 'gmail-personal', id: 't2' }]);
+  await settle();
+  const shown = session.snapshot().items.find(item => item.id === 't2');
+  assert.equal(shown?.listedOnly, true);
+  assert.equal(shown?.preview, 'Older note');
+  assert.equal(session.snapshot().errors.length, 0, 'the page already shown stays, with no older-page error');
+  assert.equal(rpc.calls.filter(call => call.name === 'disclose').length, 1, 'the same visible row is not read again while it stays on screen');
+});
+
 test('show older grows the list as each source answers, not when the slowest does', async () => {
   const mine = row({ account: 'gmail-personal', id: 't1', date: 30 });
   const chat = row({ account: 'whatsapp', id: 'c1', date: 20 });

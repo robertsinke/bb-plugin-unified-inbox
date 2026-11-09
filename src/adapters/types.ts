@@ -321,6 +321,11 @@ export interface Conversation {
   needsAttention?: 'yes' | 'no';
   /** The owner cleared Needed, and that clear can still be undone. */
   attentionDismissed?: boolean;
+  /**
+   * The row is the listing snippet. Sender, subject, date and unread arrive when the row is on
+   * screen. Gmail older pages only.
+   */
+  listedOnly?: boolean;
 }
 
 /** Attachment media descriptor on a message (rpcContract `media` output input). */
@@ -663,6 +668,11 @@ export interface Adapter {
    * rows carry the participants their cached thread remembers.
    */
   decorate?(item: Conversation): Conversation;
+  /**
+   * Fill one listing row. Gmail reads that one thread as metadata. A source whose rows are already
+   * complete does not implement it.
+   */
+  disclose?(id: string): Promise<Conversation>;
   /**
    * Cache-only repair of a thread read straight from the cache (`cached_open`).
    * A thread written by an older build carries legacy senders and noise; the
