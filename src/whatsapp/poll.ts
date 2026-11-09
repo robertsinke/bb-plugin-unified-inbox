@@ -8,24 +8,34 @@ import {
   aesEncryptGCM,
   decryptPollVote,
   extractMessageContent,
+  getKeyAuthor,
   hmacSign,
+  jidNormalizedUser,
   proto,
   sha256,
   type WAMessage,
+  type WAMessageKey,
 } from 'baileys';
 
 export const POLL_TYPE = 'poll';
 
 const CREATION_FIELDS = ['pollCreationMessage', 'pollCreationMessageV2', 'pollCreationMessageV3', 'pollCreationMessageV5'] as const;
 
-const STORED_CREATION_TYPES = new Set([POLL_TYPE, 'pollCreation', 'pollCreationV2', 'pollCreationV3', 'pollCreationV5']);
-
 export function isPollCreationType(type: string): boolean {
-  return STORED_CREATION_TYPES.has(type);
+  return type === POLL_TYPE || type.startsWith('pollCreation');
 }
 
 export function isPollUpdateType(type: string): boolean {
   return type === 'pollUpdate';
+}
+
+/** The jid a poll vote is sealed with. A key that has both a LID and a phone uses the LID. */
+export function pollPartyJid(key: WAMessageKey | null | undefined, meJid?: string): string {
+  const direct = key?.participant || key?.participantAlt;
+  if (direct) return direct;
+  const me = meJid ? jidNormalizedUser(meJid) : undefined;
+  const author = getKeyAuthor(key, me);
+  return author && author !== 'me' ? author : '';
 }
 
 export type PollFacts = {
@@ -56,9 +66,17 @@ function creationOf(message: proto.IMessage | null | undefined): Creation | unde
   return undefined;
 }
 
+/** A proto byte field, or the base64 string an older stored envelope kept instead. */
+export function pollBytes(value: unknown): Uint8Array | undefined {
+  if (value instanceof Uint8Array) return value.byteLength ? value : undefined;
+  if (typeof value !== 'string' || !value) return undefined;
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.byteLength ? decoded : undefined;
+}
+
 function secretOf(message: proto.IMessage | null | undefined): Uint8Array | undefined {
-  const secret = message?.messageContextInfo?.messageSecret;
-  return secret instanceof Uint8Array && secret.byteLength === 32 ? secret : undefined;
+  const secret = pollBytes(message?.messageContextInfo?.messageSecret);
+  return secret?.byteLength === 32 ? secret : undefined;
 }
 
 export function pollFacts(message: proto.IMessage | null | undefined): PollFacts | undefined {

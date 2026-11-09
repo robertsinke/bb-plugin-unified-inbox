@@ -444,10 +444,18 @@ export function createWhatsAppStore(db: Database.Database) {
   const readLastMessage = db.prepare(
     'SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT 1',
   );
+  const readLastPreview = db.prepare(
+    `SELECT * FROM wa_messages
+      WHERE chat_jid = ? AND type NOT IN ('pollUpdate', 'system', 'protocol', 'reaction')
+      ORDER BY ts DESC, id DESC LIMIT 1`,
+  );
   const readRecentMessages = db.prepare(
     `SELECT * FROM (
        SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT ?
      ) ORDER BY ts ASC, id ASC`,
+  );
+  const readMessagesByType = db.prepare(
+    'SELECT * FROM wa_messages WHERE chat_jid = ? AND type = ? ORDER BY ts ASC, id ASC',
   );
   const readNewestMessageId = db.prepare(
     'SELECT id FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT 1',
@@ -620,7 +628,7 @@ export function createWhatsAppStore(db: Database.Database) {
     listChats(input: { offset?: number; limit: number }): ChatPageRow[] {
       const chats = readChatPage.all(input.limit, input.offset ?? 0) as ChatRow[];
       return chats.map((chat) => {
-        const last = readLastMessage.get(chat.jid) as MessageRow | undefined;
+        const last = (readLastPreview.get(chat.jid) ?? readLastMessage.get(chat.jid)) as MessageRow | undefined;
         const unread = chat.last_read_msg_id
           ? (countUnread.get(chat.jid, chat.last_read_msg_id) as { c: number }).c
           : 0;
@@ -659,6 +667,9 @@ export function createWhatsAppStore(db: Database.Database) {
     /** The newest `limit` messages of one chat, oldest first — the order a thread reads in. */
     listRecentMessages(chatJid: string, limit: number): Message[] {
       return (readRecentMessages.all(chatJid, limit) as MessageRow[]).map(mapMessage);
+    },
+    listMessagesByType(chatJid: string, type: string): Message[] {
+      return (readMessagesByType.all(chatJid, type) as MessageRow[]).map(mapMessage);
     },
     /** Where a read stops: the newest stored message of a chat. */
     newestMessageId(chatJid: string): string | undefined {

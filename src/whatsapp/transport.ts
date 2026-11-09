@@ -27,10 +27,11 @@ import type { WhatsAppConnection, WhatsAppMediaSocket } from './connection.ts';
 import { createWhatsAppAvatars } from './avatars.ts';
 import type { MediaDownloader } from './media.ts';
 import { createWhatsAppSendTransport } from './send.ts';
+import { replayStoredPollUpdates } from './ingest.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
 import { whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
-import { isPollCreationType, pollCard, pollFacts, pollFactsFromRaw, encryptPollVote } from './poll.ts';
-import { getKeyAuthor, jidNormalizedUser } from 'baileys';
+import { isPollCreationType, pollCard, pollFacts, pollFactsFromRaw, pollPartyJid, encryptPollVote } from './poll.ts';
+import { jidNormalizedUser } from 'baileys';
 import { whatsAppMedia } from '../whatsapp-media.ts';
 
 export type WhatsAppTransportOptions = {
@@ -232,6 +233,7 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     },
 
     async openChat({ id, limit }) {
+      replayStoredPollUpdates(store, id, held()?.getSendSocket()?.user?.id);
       const rows = await Promise.all(store.listRecentMessages(id, limit).map(async (message): Promise<WhatsAppMessageRow> => {
         const media = await factsOf(message);
         const reactions = reactionsOf(id, message.id);
@@ -366,20 +368,25 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     async sendVote({ id, messageId, options: names }) {
       if (!held()?.getSendSocket()) await ensureConnection();
       const current = held()?.getSendSocket();
-      const me = current?.user?.id ? jidNormalizedUser(current.user.id) : undefined;
-      if (!me) throw new Error('Nothing was sent: WhatsApp is not connected.');
+      const user = current?.user;
+      const mePhone = user?.id ? jidNormalizedUser(user.id) : undefined;
+      const meLid = user?.lid ? jidNormalizedUser(user.lid) : undefined;
+      if (!mePhone && !meLid) throw new Error('Nothing was sent: WhatsApp is not connected.');
       const envelope = await storedEnvelope(messageId);
       const facts = envelope?.message ? pollFacts(envelope.message) : undefined;
       if (!envelope?.key?.id || !facts?.secret) throw new Error('Nothing was sent: that message is not a poll this inbox can vote on.');
-      const creator = getKeyAuthor(envelope.key, me);
+      const creator = pollPartyJid(envelope.key, mePhone);
+      const voter = creator.endsWith('@lid') ? meLid : (mePhone || meLid);
+      if (!creator || !voter) throw new Error('Nothing was sent: WhatsApp is not connected.');
       const vote = encryptPollVote({
         optionNames: names,
         pollEncKey: facts.secret,
         pollMsgId: envelope.key.id,
         pollCreatorJid: creator,
-        voterJid: me,
+        voterJid: voter,
       });
       await send.sendPollVote(id, envelope.key, vote);
+      store.upsertPollVote({ chat_jid: id, poll_msg_id: messageId, actor: 'me', options: names, updated_at: Date.now() });
     },
 
     async status(): Promise<WhatsAppTransportStatus> {

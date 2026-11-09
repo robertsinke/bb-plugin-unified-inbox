@@ -18,7 +18,6 @@ import {
   BufferJSON,
   extractMessageContent,
   getContentType,
-  getKeyAuthor,
   isJidGroup,
   jidNormalizedUser,
   proto,
@@ -33,7 +32,7 @@ import {
   type WAMessageUpdate,
 } from 'baileys';
 import { decryptMessageEdit, messageSecretFromRaw } from './message-edit.ts';
-import { decryptPollSelection, isPollUpdateType, pollFacts, pollSearchText, POLL_TYPE } from './poll.ts';
+import { decryptPollSelection, isPollUpdateType, pollBytes, pollFacts, pollPartyJid, pollSearchText, POLL_TYPE } from './poll.ts';
 import {
   isPhoneShapedLabel,
   usableName,
@@ -475,14 +474,13 @@ function recordPollUpdate(store: WhatsAppStore, msg: WAMessage, chatJid: string,
   const pollId = update?.pollCreationMessageKey?.id;
   if (!pollId) return;
   upsertChatMerged(store, { jid: chatJid, kind: chatKindFromJid(chatJid) });
-  const me = meJid ? jidNormalizedUser(meJid) : undefined;
-  const voterJid = getKeyAuthor(msg.key, me);
-  const creatorJid = getKeyAuthor(update.pollCreationMessageKey, me);
-  const actor = store.canonicalChatJid(reactionActor(msg.key, chatJid));
+  const voterJid = pollPartyJid(msg.key, meJid);
+  const creatorJid = pollPartyJid(update.pollCreationMessageKey, meJid);
+  const actor = msg.key?.fromMe ? 'me' : store.canonicalChatJid(reactionActor(msg.key, chatJid));
   const updatedAt = toNumber(update.senderTimestampMs) ?? ts;
-  const payload = update.vote?.encPayload;
-  const iv = update.vote?.encIv;
-  if (!payload || !iv || !voterJid || voterJid === 'me' || !creatorJid) {
+  const payload = pollBytes(update.vote?.encPayload);
+  const iv = pollBytes(update.vote?.encIv);
+  if (!payload || !iv || !voterJid || !creatorJid) {
     if (!payload && !iv) store.upsertPollVote({ chat_jid: chatJid, poll_msg_id: pollId, actor, options: [], updated_at: updatedAt });
     return;
   }
@@ -515,6 +513,18 @@ function recordPollUpdate(store: WhatsAppStore, msg: WAMessage, chatJid: string,
   }
   if (!names) return;
   store.upsertPollVote({ chat_jid: chatJid, poll_msg_id: pollId, actor, options: names, updated_at: updatedAt });
+}
+
+/** Votes stored as their own rows before they were folded. Opening a chat applies them once per read. */
+export function replayStoredPollUpdates(store: WhatsAppStore, chatJid: string, meJid?: string): void {
+  for (const row of store.listMessagesByType(chatJid, 'pollUpdate')) {
+    if (!row.raw) continue;
+    try {
+      recordPollUpdate(store, JSON.parse(row.raw, BufferJSON.reviver) as WAMessage, chatJid, row.ts, meJid);
+    } catch {
+      // One bad envelope does not hide the poll or the votes that did open.
+    }
+  }
 }
 
 function pollFactsFromStored(raw: string | null): ReturnType<typeof pollFacts> {

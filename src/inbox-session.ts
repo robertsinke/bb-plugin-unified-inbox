@@ -823,6 +823,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
         allow: 'send',
       });
       state.status = '';
+      const opened = await deps.rpc.call('open', { account: selected.account, id: selected.id });
+      if (state.selected?.account === selected.account && state.selected.id === selected.id) showMessages(opened);
       notify();
     } catch (error) {
       state.status = error instanceof Error ? error.message : 'The vote was not sent.';

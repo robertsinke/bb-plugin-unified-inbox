@@ -461,7 +461,8 @@ function PollChoices({ poll, disabled, onChoose }: { poll: NonNullable<Message['
     if (selected.length >= cap) return;
     onChoose([...selected, name]);
   }
-  return <div className="ui-poll">{poll.question ? <div className="ui-poll-question">{poll.question}</div> : null}<div className="ui-poll-options">{poll.options.map(option => <button key={option.name} type="button" className="ui-poll-option" aria-pressed={option.selected} disabled={disabled} onClick={() => toggle(option.name)}><span className="ui-poll-name">{option.name}</span><span className="ui-poll-count">{option.count}</span></button>)}</div></div>;
+  const total = poll.options.reduce((sum, option) => sum + option.count, 0);
+  return <div className="ui-poll">{poll.question ? <div className="ui-poll-question">{poll.question}</div> : null}<div className="ui-poll-options" role="group" aria-label={poll.question || 'Poll'}>{poll.options.map(option => <button key={option.name} type="button" className="ui-poll-option" aria-pressed={option.selected} disabled={disabled} onClick={() => toggle(option.name)}><span className="ui-poll-bar" style={{ width: `${total ? (option.count / total) * 100 : 0}%` }} /><span className="ui-poll-name">{option.name}</span><span className="ui-poll-count">{option.count}</span></button>)}</div></div>;
 }
 
 function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLabel, canReact: reactionsOn, canQuoteReply: quotesOn, canVote: votesOn, busy, onReact, onReply, onVote }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account; selfLabel: string; canReact: boolean; canQuoteReply: boolean; canVote: boolean; busy: boolean; onReact: (messageId: string, emoji: string, remove: boolean) => void; onReply: (messageId: string) => void; onVote: (messageId: string, options: string[]) => void }) {

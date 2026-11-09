@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import type { WAMessage } from 'baileys';
-import { handleMessagesUpsert } from '../../src/whatsapp/ingest.ts';
+import { handleMessagesUpsert, replayStoredPollUpdates } from '../../src/whatsapp/ingest.ts';
 import { encryptPollVote } from '../../src/whatsapp/poll.ts';
 import { createWhatsAppStore } from '../../src/whatsapp/store.ts';
 
@@ -81,6 +81,78 @@ test('a vote that arrives first is applied when the poll arrives', () => {
     handleMessagesUpsert(store, { type: 'notify', messages: [creation()] });
     assert.deepEqual(store.listPollVotes(chat, pollId).map(row => row.options), [['Salad']]);
     assert.equal(store.listPendingPollVotes(pollId).length, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test('a poll stored under its proto key still opens, and a saved vote string still counts', () => {
+  const { db, store } = fixture();
+  try {
+    const enc = encryptPollVote({
+      optionNames: ['Soup'],
+      pollEncKey: secret,
+      pollMsgId: pollId,
+      pollCreatorJid: creator,
+      voterJid: voter,
+    });
+    store.upsertChat({ jid: chat, kind: '1:1', last_msg_at: 2 });
+    store.upsertMessage({
+      id: pollId,
+      chat_jid: chat,
+      from_me: false,
+      sender: creator,
+      ts: 1,
+      type: 'pollCreationMessageV3',
+      text: null,
+      raw: JSON.stringify({
+        key: { id: pollId, remoteJid: chat, fromMe: false, participant: creator },
+        message: {
+          messageContextInfo: { messageSecret: secret.toString('base64') },
+          pollCreationMessageV3: {
+            name: 'Lunch?',
+            selectableOptionsCount: 1,
+            options: [{ optionName: 'Soup' }, { optionName: 'Salad' }],
+          },
+        },
+      }),
+    });
+    store.upsertMessage({
+      id: 'VOTE1',
+      chat_jid: chat,
+      from_me: false,
+      sender: voter,
+      ts: 2,
+      type: 'pollUpdate',
+      text: null,
+      raw: JSON.stringify({
+        key: { id: 'VOTE1', remoteJid: chat, fromMe: false, participant: voter },
+        message: {
+          pollUpdateMessage: {
+            pollCreationMessageKey: { id: pollId, remoteJid: chat, fromMe: false, participant: creator },
+            vote: {
+              encPayload: Buffer.from(enc.encPayload).toString('base64'),
+              encIv: Buffer.from(enc.encIv).toString('base64'),
+            },
+            senderTimestampMs: 2,
+          },
+        },
+      }),
+    });
+    replayStoredPollUpdates(store, chat);
+    assert.deepEqual(store.listPollVotes(chat, pollId).map(row => row.options), [['Soup']]);
+  } finally {
+    db.close();
+  }
+});
+
+test('a vote sealed with the LID still counts when the key also carries a phone', () => {
+  const { db, store } = fixture();
+  try {
+    const cast = vote(['Soup'], 'VOTE1');
+    cast.key = { ...cast.key, participantAlt: '15550004444@s.whatsapp.net' };
+    handleMessagesUpsert(store, { type: 'notify', messages: [creation(), cast] });
+    assert.deepEqual(store.listPollVotes(chat, pollId).map(row => row.options), [['Soup']]);
   } finally {
     db.close();
   }

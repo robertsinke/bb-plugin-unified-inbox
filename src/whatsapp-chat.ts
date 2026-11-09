@@ -57,5 +57,5 @@ export function isWhatsAppNoise(type: string, text: string): boolean {
 /** Also catches previews that already include a sender prefix. */
 export function isWhatsAppNoisePreview(preview: string): boolean {
   const value = preview.trim();
-  return value === '[system]' || value === '[protocol]' || value === '[pollUpdate]' || /:\s*\[(system|protocol|pollUpdate)\]$/.test(value);
+  return value === '[system]' || value === '[protocol]' || value === '[pollUpdate]' || /:\s*\[(system|protocol|pollUpdate)\]$/.test(value) || /\[pollCreation(?:Message)?(?:V\d+)?\]$/.test(value);
 }

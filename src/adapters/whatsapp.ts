@@ -89,9 +89,11 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
           item.preview = `${whatsappSender(!!last.fromMe, String(last.sender || ''), group, item.title)}: ${item.preview.slice('WhatsApp: '.length)}`;
           previewChanged = true;
         } else if (!item.preview) {
+          const body = String(last.text || '').trim();
+          const shown = /^\[pollCreation(?:Message)?(?:V\d+)?\]$/.test(body) ? 'Poll' : String(last.text || '');
           item.preview = group
-            ? groupPreview(String(last.text || ''), !!last.fromMe, whatsappSender(!!last.fromMe, String(last.sender || ''), true, item.title))
-            : String(last.text || '');
+            ? groupPreview(shown, !!last.fromMe, whatsappSender(!!last.fromMe, String(last.sender || ''), true, item.title))
+            : shown;
           previewChanged = true;
         }
       }
