@@ -7,6 +7,10 @@ import { EXPOSURE_NOTE, WhatsAppPairingCard } from './whatsapp-pairing.tsx';
 export const PAIRING_POLL_MS = 2_000;
 
 const MESSAGES_EMPTY = 'Check that imsg is installed and BB has Full Disk Access.';
+const GMAIL_STEPS = 'Create a Desktop OAuth client in your own Google Cloud project. Enable the Gmail API and the People API. Add yourself as a test user while the app is in Testing. A Testing client expires after 7 days. Google shows an unverified-app warning. Paste the client id and secret in the fields above.';
+const LINKEDIN_CONNECTED = 'LinkedIn is connected.';
+const LINKEDIN_REQUIRED = 'Sign-in is still required. It opens the plugin Chrome window.';
+const MESSAGES_INSTALL = 'Install imsg on this Mac in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, or on PATH. Grant Full Disk Access to BB. This plugin does not install imsg and does not grant that permission.';
 const TESTING_CLIENT = 'A Testing client expires after 7 days.';
 const RECONNECT_CONFIRM = 'This signs in again and replaces the local file for the Google account that answers. A Testing client expires after 7 days.';
 
@@ -161,7 +165,7 @@ export function AccountSettings() {
       if (!alive.current || !next) return;
       setStatus(next);
       const row = next.linkedin;
-      if (row.lastSuccessAt != null && !row.lastError) setLinkedinNote('The last read worked.');
+      if (row.lastSuccessAt != null && !row.lastError) setLinkedinNote(LINKEDIN_CONNECTED);
       else if (row.lastError) setLinkedinNote(row.lastError);
     } catch (error) {
       if (alive.current) setLinkedinNote(error instanceof Error ? error.message : 'LinkedIn sign-in did not finish.');
@@ -176,15 +180,16 @@ export function AccountSettings() {
 
   const linkedinLine = linkedinBusy
     ? 'The sign-in window is opening.'
-    : linkedinNote || (status.linkedin.lastError ?? (status.linkedin.lastSuccessAt != null ? 'The last read worked.' : ''));
-  const messages = status.messages.trim() ? status.messages : MESSAGES_EMPTY;
+    : linkedinNote || status.linkedin.lastError || (status.linkedin.lastSuccessAt != null ? LINKEDIN_CONNECTED : LINKEDIN_REQUIRED);
+  const messagesStatus = status.messages.trim();
+  const messages = messagesStatus && messagesStatus !== MESSAGES_EMPTY ? messagesStatus : '';
   const whatsapp = status.whatsapp;
 
   return (
     <div className="ui-account-settings">
       <section className="ui-account-block" aria-labelledby="ui-gmail-title">
         <h3 id="ui-gmail-title">Gmail</h3>
-        {!status.clientConfigured ? <p>Fill in the client id and secret above.</p> : null}
+        {!status.clientConfigured ? <p>{GMAIL_STEPS}</p> : null}
         {gmailBusy ? <p role="status">The system browser is open.</p> : null}
         {gmailNote ? <p className="ui-gmail-note" role="status">{gmailNote}</p> : null}
         <ul>
@@ -241,7 +246,8 @@ export function AccountSettings() {
 
       <section className="ui-account-block" aria-labelledby="ui-messages-title">
         <h3 id="ui-messages-title">Messages</h3>
-        <p className="ui-messages-status">{messages}</p>
+        {messages ? <p className="ui-messages-status">{messages}</p> : null}
+        <p className="ui-messages-install">{MESSAGES_INSTALL}</p>
       </section>
     </div>
   );
