@@ -4,7 +4,7 @@
 // through the provider-error factory, so raw provider output never travels
 // further.
 import { buildGmailMime } from '../gmail-mime.ts';
-import { findGmailAttachment, pickGmailAttachments, pickGmailBodies } from '../gmail-body.ts';
+import { findGmailAttachment, pickGmailAttachments, pickGmailBodies, pickGmailInline } from '../gmail-body.ts';
 import { gmailSnippet, latestMessage, latestReceivedMessage, sentReplySnippet } from '../gmail-inbox.ts';
 import { gmailCursorUnchanged, gmailInboxIdsToFetch, gmailSummaryCursor } from '../sync-plan.ts';
 import { mailSenderAddress, mailSenderName, replyRecipients } from '../recipients.ts';
@@ -285,11 +285,12 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
         const suggested = replyRecipients({ from: sender, to, cc, replyTo, self: gmailFromAddress(account) });
         const html = await messageHtml(String(m.id), m.payload);
         const attachments = pickGmailAttachments(m.payload);
+        const inline = pickGmailInline(m.payload);
         return {
           sender, text: plain(m.payload) || gmailSnippet(String(m.snippet || '')), date: Number(m.internalDate || 0),
           ...(html ? { html } : {}),
           to, cc, replyTo, subject: String(h.subject || ''), messageId: String(h['message-id'] || ''), references: String(h.references || ''),
-          suggestedTo: suggested.to, suggestedCc: suggested.cc, attachments, gmailId: String(m.id),
+          suggestedTo: suggested.to, suggestedCc: suggested.cc, attachments, ...(inline.length ? { inline } : {}), gmailId: String(m.id),
         };
       }));
     } catch (error) {

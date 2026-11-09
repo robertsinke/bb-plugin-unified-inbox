@@ -1,9 +1,20 @@
 type MimePart = {
   mimeType?: string;
   filename?: string;
+  headers?: { name?: string; value?: string }[];
   body?: { data?: string; attachmentId?: string; size?: number };
   parts?: MimePart[];
 };
+
+const DRAWN_MAIL_IMAGE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+function headerValue(node: MimePart, name: string): string {
+  return (node.headers ?? []).find(header => header.name?.toLowerCase() === name)?.value?.trim() ?? '';
+}
+
+function contentIdOf(node: MimePart): string {
+  return headerValue(node, 'content-id').replace(/^<|>$/g, '');
+}
 
 export type GmailBodies = { text: string; html: string; htmlAttachmentId?: string; htmlAttachmentSize?: number };
 
@@ -44,6 +55,25 @@ export function pickGmailAttachments(payload: MimePart | undefined): string[] {
   return names;
 }
 
+export type GmailInlineImage = { contentId: string; filename: string };
+
+/** Image parts named by a content id. No file bytes. SVG is not an image this inbox draws. */
+export function pickGmailInline(payload: MimePart | undefined): GmailInlineImage[] {
+  const images: GmailInlineImage[] = [];
+  const walk = (node: MimePart | undefined) => {
+    if (!node) return;
+    const contentId = contentIdOf(node);
+    const mime = String(node.mimeType || '').split(';')[0].trim().toLowerCase();
+    const filename = String(node.filename || '').trim().replace(/\s+/g, ' ') || contentId;
+    if (contentId && DRAWN_MAIL_IMAGE.has(mime) && filename && !images.some(image => image.contentId === contentId) && images.length < 20) {
+      images.push({ contentId, filename: filename.slice(0, 255) });
+    }
+    for (const part of node.parts ?? []) walk(part);
+  };
+  walk(payload);
+  return images;
+}
+
 export type GmailAttachmentPart = { attachmentId?: string; data?: string; mimeType: string; filename: string; size?: number };
 
 /** Finds one attachment by its normalized filename, without reading the file. */
@@ -53,12 +83,13 @@ export function findGmailAttachment(payload: MimePart | undefined, filename: str
   const walk = (node: MimePart | undefined) => {
     if (!node || found) return;
     const name = String(node.filename || '').trim().replace(/\s+/g, ' ');
-    if (name && name === wanted && (node.body?.attachmentId || node.body?.data)) {
+    const contentId = contentIdOf(node);
+    if ((name === wanted || contentId === wanted) && (node.body?.attachmentId || node.body?.data)) {
       found = {
         ...(node.body?.attachmentId ? { attachmentId: node.body.attachmentId } : {}),
         ...(node.body?.data ? { data: node.body.data } : {}),
         mimeType: String(node.mimeType || 'application/octet-stream'),
-        filename: name,
+        filename: name || contentId,
         ...(typeof node.body?.size === 'number' ? { size: node.body.size } : {}),
       };
       return;
