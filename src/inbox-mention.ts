@@ -32,12 +32,67 @@ export function resolveMentionAccount(token: string, known?: ReadonlySet<string>
 
 export const MENTION_PROVIDER = 'inbox';
 
+/**
+ * The composer asks once per query and draws every row. ArrowDown moves through
+ * that list. It does not ask for a later page, so this is the whole picker.
+ */
+export const MENTION_PICKER_LIMIT = 80;
+
+type MentionListRow = {
+  account: string;
+  id: string;
+  title: string;
+  sender?: string;
+  preview: string;
+  date: number;
+};
+
+/** Ranked index hits, in score order. The id is `account` + NUL + conversation id. */
+export function rankedMentionRows<T>(
+  ranked: readonly { id: string }[],
+  lookup: (account: string, id: string) => T | undefined,
+  known: (account: string) => boolean,
+  limit = MENTION_PICKER_LIMIT,
+): T[] {
+  const rows: T[] = [];
+  for (const hit of ranked) {
+    if (rows.length >= limit) break;
+    const split = hit.id.indexOf('\u0000');
+    if (split < 1) continue;
+    const account = hit.id.slice(0, split);
+    if (!known(account)) continue;
+    const row = lookup(account, hit.id.slice(split + 1));
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
+/** Title, sender and preview match. Newest first. Used when the query has no search token. */
+export function cachedMentionRows<T extends MentionListRow>(rows: readonly T[], query: string, limit = MENTION_PICKER_LIMIT): T[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return rows
+    .filter(item => words.every(word => `${item.sender ?? ''} ${item.title} ${item.preview}`.toLowerCase().includes(word)))
+    .sort((a, b) => b.date - a.date)
+    .slice(0, limit);
+}
+
 const MAX_MESSAGES = 12;
 const MAX_MESSAGE_CHARS = 400;
 const MAX_CONTEXT_CHARS = 4000;
 
 export function mentionId(account: string, id: string) {
   return `${account}:${id}`;
+}
+
+/** The id on a sent pill is `inbox:` plus `account:conversation`. */
+export function mentionOpenTarget(itemId: string): { account: string; id: string } | null {
+  const prefix = `${MENTION_PROVIDER}:`;
+  const body = itemId.startsWith(prefix) ? itemId.slice(prefix.length) : itemId;
+  try {
+    return parseMentionId(body);
+  } catch {
+    return null;
+  }
 }
 
 type ComposerScope = { kind: string; threadId?: string };

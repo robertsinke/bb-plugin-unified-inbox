@@ -12,7 +12,11 @@
     "branding": {
       "icon": "./assets/inbox.svg",
       "experimental_icons": {
-        "inbox": "./assets/inbox.svg"
+        "inbox": "./assets/inbox.svg",
+        "gmail": "./assets/gmail.svg",
+        "whatsapp": "./assets/whatsapp.svg",
+        "messages": "./assets/messages.svg",
+        "linkedin": "./assets/linkedin.svg"
       }
     },
     "server": "./server.ts",

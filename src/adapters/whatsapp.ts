@@ -44,7 +44,7 @@ const TEXT_LIMIT = 65_536;
  * page is a local read now, so its page is the whole page the panel asks for. An open chat is cheap
  * to re-read, so the panel watches it more often than it polls.
  */
-const SOURCE: SourceDeclaration = { label: 'WhatsApp', icon: 'MessageCircle', pollIntervalMs: 8_000, watchIntervalMs: 5_000, pageSize: 50 };
+const SOURCE: SourceDeclaration = { label: 'WhatsApp', icon: 'whatsapp', pollIntervalMs: 8_000, watchIntervalMs: 5_000, pageSize: 50 };
 
 export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
   const { cache } = deps;

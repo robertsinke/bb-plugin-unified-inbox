@@ -482,7 +482,7 @@ export interface ActionResult {
 export interface SourceDeclaration {
   /** The name a person knows this source by; the panel and the `#`-mention context show it. */
   label: string;
-  /** The icon name the panel's filter and the `#` picker draw beside the source. */
+  /** Declared glyph name. The `#` picker draws `<pluginId>/<icon>` and does not repeat the source name. */
   icon: string;
   /** Background refresh cadence for this source's newest rows, in milliseconds. */
   pollIntervalMs: number;

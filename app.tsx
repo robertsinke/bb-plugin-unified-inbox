@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
-import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
+import { definePluginApp, experimental_Icon as Icon, experimental_useAppPanel, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './src/rpc-contract';
 import { bubbleClass } from './src/inbox-appearance.ts';
@@ -25,6 +25,7 @@ import { sourceLabel } from './src/source-label.ts';
 import type { SourceMap } from './src/adapters/types';
 import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
+import { installInboxMentionOpenListener, subscribeInboxMentionOpen, takeInboxMentionOpen, type InboxMentionOpen } from './src/inbox-mention-open';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
 import { REACTION_SET } from './src/reaction-set.ts';
 import { canAnswerInvitation, canArchive, canMarkRead, canQuoteReply, canReact, canSend, hasThread } from './src/ui-capabilities';
@@ -486,12 +487,36 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
     {actions ? <div className={`ui-bubble-actions${open ? ' is-open' : ''}`} style={spot ? { '--ui-action-x': `${spot.x}px`, '--ui-action-y': `${spot.y}px` } as CSSProperties : undefined}>{reactionsOn && !m.fromMe ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
   </article>;
 }
+function openTaggedConversation(session: InboxSession, target: InboxMentionOpen) {
+  const snap = session.snapshot();
+  const row = [...snap.items, ...(snap.hits ?? [])].find(item => item.account === target.account && item.id === target.id);
+  void session.open(row ?? {
+    account: target.account,
+    id: target.id,
+    title: target.label.trim() || 'Untitled conversation',
+    preview: '',
+    date: Date.now(),
+    unread: false,
+  });
+}
+
 function Inbox({ threadId }: { threadId: string | null }) {
   const sdk = useSdk();
   const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   const rpc=useRpc<typeof rpcContract>();
   const composers=useComposers();
   const session=getInboxSession(rpc);
+  useEffect(() => {
+    const open = (target: InboxMentionOpen) => {
+      panel.openTab({ tab: { id: 'inbox', context: { kind: 'thread' }, availability: 'fixed' } });
+      openTaggedConversation(session, target);
+    };
+    const stop = subscribeInboxMentionOpen(open);
+    const waiting = takeInboxMentionOpen();
+    if (waiting) open(waiting);
+    return stop;
+  }, [panel, session]);
   // State and time live in the session; the panel renders its snapshot.
   const state=useSyncExternalStore(session.subscribe,session.snapshot);
   const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen}=state;
@@ -686,6 +711,8 @@ function MessageAttachment({media,link,onShow,onOpenLink}:{media?:Message['media
   if(src) return <img className="ui-message-media" src={src} alt="Photo in this conversation"/>;
   return <button type="button" className="ui-text-button" disabled={!!note} onClick={()=>{ void (async()=>{ try{ const shown=await onShow(media.messageId); if(shown.url) onOpenLink(shown.url); else if(shown.dataUrl) setSrc(shown.dataUrl); else setNote('This photo could not be loaded.'); }catch(e){ setNote(e instanceof Error?e.message:'This photo could not be loaded.'); } })(); }}>{note||'Show photo'}</button>;
 }
+installInboxMentionOpenListener();
+
 export default definePluginApp(app => {
   app.slots.experimental_tab({ id: 'inbox', title: 'Inbox', icon: 'unified-inbox/inbox', context: { kind: 'thread' }, availability: 'fixed', layout: 'flush', component: Inbox });
   app.slots.settingsSection({

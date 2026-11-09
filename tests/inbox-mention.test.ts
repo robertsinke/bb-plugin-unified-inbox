@@ -1,6 +1,40 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { inboxMentionContext, mentionId, parseMentionId, setLegacyAccountMap, threadComposer } from '../src/inbox-mention.ts';
+import { cachedMentionRows, inboxMentionContext, mentionId, mentionOpenTarget, parseMentionId, rankedMentionRows, setLegacyAccountMap, threadComposer } from '../src/inbox-mention.ts';
+import { inboxMentionFromResourceAttribute, noteInboxMentionOpen, pluginMentionOpenDetail, takeInboxMentionOpen } from '../src/inbox-mention-open.ts';
+
+test('the picker keeps ranked hits in order and skips an unknown account', () => {
+  const rows = rankedMentionRows(
+    [{ id: 'whatsapp\u0000newer' }, { id: 'gone\u0000x' }, { id: 'gmail-personal\u000018' }, { id: 'imessage\u0000later' }, { id: 'bad' }],
+    (account, id) => ({ account, id }),
+    account => account !== 'gone',
+    2,
+  );
+  assert.deepEqual(rows, [{ account: 'whatsapp', id: 'newer' }, { account: 'gmail-personal', id: '18' }]);
+});
+
+test('a query with no search token uses the cached rows, newest first', () => {
+  const rows = cachedMentionRows([
+    { account: 'whatsapp', id: 'old', title: 'Alpha', preview: 'first', date: 1 },
+    { account: 'whatsapp', id: 'new', title: 'Alpha team', preview: 'second', date: 3 },
+    { account: 'imessage', id: 'other', title: 'Beta', preview: 'no', date: 2 },
+  ], 'alpha', 10);
+  assert.deepEqual(rows.map(row => row.id), ['new', 'old']);
+});
+
+test('a clicked pill names the conversation', () => {
+  assert.deepEqual(mentionOpenTarget('inbox:whatsapp:1203@g.us'), { account: 'whatsapp', id: '1203@g.us' });
+  assert.deepEqual(mentionOpenTarget('inbox:owner@example.com:18'), { account: 'owner@example.com', id: '18' });
+  assert.equal(mentionOpenTarget('inbox:nope'), null);
+  const detail = pluginMentionOpenDetail({ kind: 'plugin', pluginId: 'unified-inbox', provider: 'inbox', id: 'whatsapp:1203@g.us', label: 'Alice' });
+  assert.deepEqual(noteInboxMentionOpen(detail!), { account: 'whatsapp', id: '1203@g.us', label: 'Alice' });
+  assert.deepEqual(takeInboxMentionOpen(), { account: 'whatsapp', id: '1203@g.us', label: 'Alice' });
+  assert.deepEqual(
+    inboxMentionFromResourceAttribute(JSON.stringify({ kind: 'plugin', pluginId: 'unified-inbox', itemId: 'inbox:whatsapp:1203@g.us', label: 'Alice' })),
+    { pluginId: 'unified-inbox', itemId: 'inbox:whatsapp:1203@g.us', label: 'Alice' },
+  );
+  assert.equal(inboxMentionFromResourceAttribute(JSON.stringify({ kind: 'thread', threadId: '1', label: 'Other' })), null);
+});
 
 test('the tag goes to the thread beside the inbox', () => {
   const beside = { scope: { kind: 'thread', threadId: 'thr_beside' } };
