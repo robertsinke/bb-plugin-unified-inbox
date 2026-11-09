@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { accounts } from '../src/adapters/types.ts';
-import { BUBBLE_BASE, bubbleClass } from '../src/inbox-appearance.ts';
+import { BUBBLE_BASE, bubbleClass, sourceClass } from '../src/inbox-appearance.ts';
 
 const css = readFileSync(new URL('../chat.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../app.tsx', import.meta.url), 'utf8');
@@ -19,6 +19,19 @@ test('every source draws the one bubble base, and only the accent differs', () =
   ], 'the same message from any source shares the base; only the accent token moves');
   for (const one of classes) assert.equal(one.split(' ')[0], BUBBLE_BASE);
   assert.equal(new Set(classes).size, accounts.length, 'no two sources share an accent');
+});
+
+test('a renamed Gmail mailbox keeps the accent of its legacy id', () => {
+  assert.equal(bubbleClass('personal@example.com'), 'ui-bubble is-gmail-personal');
+  assert.equal(bubbleClass('work@example.com'), 'ui-bubble is-gmail-business');
+  assert.equal(sourceClass('personal@example.com'), 'ui-gmail-personal');
+  assert.equal(sourceClass('work@example.com'), 'ui-gmail-business');
+  assert.equal(bubbleClass('Ada@Example.com'), 'ui-bubble is-Ada@Example.com', 'an unknown mailbox is left unchanged');
+});
+
+test('the avatar takes that accent token, not the raw account id', () => {
+  assert.ok(app.includes('sourceClass('), 'the row mark is colored from the accent token');
+  assert.equal(app.includes('ui-${account}'), false, 'a mailbox address is not a CSS class the color rules can match');
 });
 
 test('each accent a bubble can carry is a rule that exists', () => {

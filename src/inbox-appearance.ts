@@ -1,4 +1,4 @@
-import type { Account } from './adapters/types.ts';
+import { accentToken, type Account } from './adapters/types.ts';
 
 /**
  * The one bubble every source draws. Width, radius, padding and time placement
@@ -13,5 +13,10 @@ export const BUBBLE_BASE = 'ui-bubble';
  * language: there is no other expression that produces the base.
  */
 export function bubbleClass(account: Account): string {
-  return `${BUBBLE_BASE} is-${account}`;
+  return `${BUBBLE_BASE} is-${accentToken(account)}`;
+}
+
+/** The class on a row avatar. The source-icon color rules are descendants of this token. */
+export function sourceClass(account: Account): string {
+  return `ui-${accentToken(account)}`;
 }

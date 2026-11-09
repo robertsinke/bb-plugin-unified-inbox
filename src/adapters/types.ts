@@ -26,6 +26,13 @@ export const accounts = [...legacyGmailAccounts, ...chatAccounts] as const;
 
 export type LegacyGmailAccount = (typeof legacyGmailAccounts)[number];
 export type ChatAccount = (typeof chatAccounts)[number];
+
+/** The address each legacy file sends as. The accent class keeps this id after the file is renamed. */
+export const legacyGmailAddresses: Record<LegacyGmailAccount, string> = {
+  'gmail-personal': 'personal@example.com',
+  'gmail-business': 'work@example.com',
+};
+
 /** A connected source id: chat, legacy Gmail, or a mailbox address. */
 export type Account = string;
 /** A Gmail credential id: a legacy file name, or the mailbox address. */
@@ -39,6 +46,17 @@ export function isLegacyGmailAccount(value: string): value is LegacyGmailAccount
 
 export function isChatAccount(value: string): value is ChatAccount {
   return (chatAccounts as readonly string[]).includes(value);
+}
+
+/**
+ * A CSS-safe accent token. Chat ids and legacy Gmail ids are already safe.
+ * A renamed mailbox keeps its legacy token, so the red and blue rules still match.
+ * shortcut: a mailbox that was never one of these two files has no color rule, add one when a third mailbox needs its own color.
+ */
+export function accentToken(account: string): string {
+  if (isChatAccount(account) || isLegacyGmailAccount(account)) return account;
+  const legacy = legacyGmailAccounts.find(id => legacyGmailAddresses[id] === account.toLowerCase());
+  return legacy ?? account;
 }
 
 /** A mailbox address. Comparison and storage use the lowercased form. */
