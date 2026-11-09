@@ -110,7 +110,8 @@ test('a poll card shows the question and counts, and a choice sends that selecti
     assert.ok(card);
     assert.equal(card!.querySelector('.ui-poll-question')?.textContent, 'Lunch?');
     const buttons = [...card!.querySelectorAll('.ui-poll-option')];
-    assert.deepEqual(buttons.map(button => button.textContent), ['Yes1', 'No2']);
+    assert.deepEqual(buttons.map(button => button.querySelector('.ui-poll-name')?.textContent), ['Yes', 'No']);
+    assert.deepEqual(buttons.map(button => button.querySelector('.ui-poll-count')?.textContent), ['1', '2']);
     assert.equal((buttons[1] as HTMLButtonElement).getAttribute('aria-pressed'), 'true');
     assert.equal(host.querySelector('.ui-bubble-text')?.textContent, 'See you');
     assert.ok(host.querySelector('.ui-reaction-set'), 'a normal message still offers reactions');

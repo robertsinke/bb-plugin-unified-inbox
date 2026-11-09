@@ -22,7 +22,7 @@ export type WhatsAppSendSocket = {
   ): Promise<unknown>;
   sendMessage(jid: string, content: { react: { text: string; key: WAMessageKey } }): Promise<unknown>;
   readMessages(keys: WAMessageKey[]): Promise<unknown>;
-  user?: { id?: string };
+  user?: { id?: string; lid?: string };
   relayMessage?(
     jid: string,
     message: proto.IMessage,

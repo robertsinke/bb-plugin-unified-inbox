@@ -64,7 +64,7 @@ export type WhatsAppSocket = Partial<WhatsAppSendSocket> & {
    * a list row draws; `timeoutMs` bounds the ask so a wedged IQ cannot hold a queue behind it.
    */
   profilePictureUrl?(jid: string, type?: 'preview' | 'image', timeoutMs?: number): Promise<string | undefined>;
-  user?: { id?: string };
+  user?: { id?: string; lid?: string };
 };
 
 /**

@@ -24,7 +24,13 @@
 .ui-poll{display:flex;flex-direction:column;gap:6px;min-width:200px;margin:2px 0 4px}
 .ui-poll-question{font-weight:650;line-height:1.35}
 .ui-poll-options{display:flex;flex-direction:column;gap:4px}
-.ui-poll-option{display:flex;justify-content:space-between;gap:12px;width:100%;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.ui-poll-option[aria-pressed="true"]{border-color:var(--ui-accent);background:color-mix(in srgb,var(--ui-accent) 18%,transparent)}
-.ui-poll-option:disabled{cursor:default;opacity:.7}
+.ui-poll-option{position:relative;display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:7px 8px;overflow:hidden;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:border-color 140ms ease,background-color 140ms ease}
+.ui-poll-bar{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--ui-accent) 16%,transparent);transition:width 180ms ease}
+.ui-poll-name,.ui-poll-count{position:relative}
+.ui-poll-option[aria-pressed="true"]{border-color:var(--ui-accent)}
+.ui-poll-option[aria-pressed="true"] .ui-poll-bar{background:color-mix(in srgb,var(--ui-accent) 32%,transparent)}
+.ui-poll-option[aria-pressed="true"] .ui-poll-name::before{content:"✓ "}
+.ui-poll-option:hover:not(:disabled){border-color:color-mix(in srgb,var(--ui-accent) 55%,transparent)}
+.ui-poll-option:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
+.ui-poll-option:disabled{cursor:default}
 .ui-poll-count{font-variant-numeric:tabular-nums;opacity:.75}

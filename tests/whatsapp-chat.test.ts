@@ -15,6 +15,7 @@ test('a message with media of its own names itself only where a control cannot',
   assert.equal(whatsappText('', 'text'), '');
   assert.equal(whatsappText('Lunch?\nYes\nNo', 'poll'), 'Poll');
   assert.equal(whatsappText('Lunch?', 'pollCreationV3'), 'Poll', 'a row stored before the poll type still lists as Poll');
+  assert.equal(whatsappText('', 'pollCreationMessageV3'), 'Poll', 'the proto key was stored whole when Message was not the suffix');
 });
 
 test('group previews name the sender, matching WhatsApp', () => {
@@ -62,4 +63,6 @@ test('stub and protocol events are noise, not messages', () => {
   assert.equal(isWhatsAppNoise('', '[pollUpdate]'), true);
   assert.equal(isWhatsAppNoisePreview('[pollUpdate]'), true);
   assert.equal(isWhatsAppNoisePreview('Ada: [pollUpdate]'), true);
+  assert.equal(isWhatsAppNoisePreview('Laurence: [pollCreationMessageV3]'), true);
+  assert.equal(isWhatsAppNoisePreview('[pollCreationMessageV3]'), true);
 });
