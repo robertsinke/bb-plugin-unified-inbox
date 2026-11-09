@@ -113,10 +113,25 @@ test('status with one mailbox, a connected WhatsApp, a LinkedIn success, and Mes
     assert.equal(view.host.querySelector('svg.ui-qr'), null);
     assert.match(view.host.textContent ?? '', /ada@example\.com/);
     assert.match(view.host.textContent ?? '', /WhatsApp is connected on this machine/);
-    assert.match(view.host.textContent ?? '', /The last read worked/);
+    assert.match(view.host.textContent ?? '', /LinkedIn is connected/);
+    assert.doesNotMatch(view.host.textContent ?? '', /unverified-app/);
+    assert.match(view.host.textContent ?? '', /does not grant that permission/);
     assert.match(view.host.textContent ?? '', /Messages is available/);
     assert.equal(view.host.querySelector('.ui-messages-status')?.parentElement?.querySelector('button'), null);
     assert.deepEqual([...view.host.querySelectorAll('button')].map(button => button.textContent).filter(text => text === 'Unpair'), ['Unpair']);
+  } finally {
+    view.unmount();
+  }
+});
+
+test('LinkedIn with no read yet says sign-in is still required', async () => {
+  const view = mount(name => name === 'connection_status' ? status({
+    linkedin: { lastAttemptAt: null, lastSuccessAt: null, lastError: null, cacheFallback: false },
+  }) : null);
+  try {
+    await view.settle();
+    assert.match(view.host.textContent ?? '', /Sign-in is still required/);
+    assert.equal(view.host.textContent?.includes('The last read worked'), false);
   } finally {
     view.unmount();
   }
@@ -128,7 +143,9 @@ test('a missing client disables Add and sends no connect call', async () => {
     await view.settle();
     const add = [...view.host.querySelectorAll('button')].find(button => button.textContent === 'Add');
     assert.equal(add?.disabled, true);
-    assert.match(view.host.textContent ?? '', /Fill in the client id and secret above/);
+    assert.match(view.host.textContent ?? '', /People API/);
+    assert.match(view.host.textContent ?? '', /7 days/);
+    assert.match(view.host.textContent ?? '', /unverified-app/);
     view.click('Add');
     assert.equal(view.named('gmail_connect').length, 0);
   } finally {
@@ -414,8 +431,10 @@ test('an empty Messages line uses the install instruction and has no grant butto
   const view = mount(name => name === 'connection_status' ? status({ messages: '' }) : null);
   try {
     await view.settle();
-    assert.match(view.host.querySelector('.ui-messages-status')?.textContent ?? '', /Check that imsg is installed and BB has Full Disk Access/);
-    assert.equal(view.host.querySelector('.ui-messages-status')?.parentElement?.querySelector('button'), null);
+    assert.equal(view.host.querySelector('.ui-messages-status'), null);
+    assert.match(view.host.querySelector('.ui-messages-install')?.textContent ?? '', /does not install imsg/);
+    assert.match(view.host.querySelector('.ui-messages-install')?.textContent ?? '', /Full Disk Access/);
+    assert.equal(view.host.querySelector('.ui-messages-install')?.parentElement?.querySelector('button'), null);
   } finally {
     view.unmount();
   }
@@ -446,7 +465,9 @@ test('LinkedIn sign-in shows the opening line, then the last read, and does not 
     assert.match(view.host.textContent ?? '', /The sign-in window is opening/);
     release({ profile, message: `opened ${profile}` });
     await view.settle();
-    assert.match(view.host.textContent ?? '', /The last read worked/);
+    assert.match(view.host.textContent ?? '', /LinkedIn is connected/);
+    assert.doesNotMatch(view.host.textContent ?? '', /unverified-app/);
+    assert.match(view.host.textContent ?? '', /does not grant that permission/);
     assert.equal(view.host.textContent?.includes(profile), false);
     assert.match(view.host.textContent ?? '', /ada@example\.com/);
   } finally {

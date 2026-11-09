@@ -101,6 +101,7 @@ test('a hit the list never loaded is drawn with its own title', async () => {
 });
 
 const SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect an account.';
+const WHATSAPP_SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect WhatsApp.';
 
 const MAIL_ROW = { account: 'gmail-personal', id: 't1', title: 'Plan', sender: 'Ada Lovelace', preview: 'The plan', date: 1_700_000_000_000, unread: false };
 
@@ -159,7 +160,7 @@ test('rows stay on screen when WhatsApp is unpaired, with the settings sentence 
     await wait(50);
     view.flush();
     assert.equal(view.host.querySelector('.ui-row-name')?.textContent, 'Ada Lovelace');
-    assert.equal(view.host.querySelector('.ui-settings-hint')?.textContent, SETTINGS_COPY);
+    assert.equal(view.host.querySelector('.ui-settings-hint')?.textContent, WHATSAPP_SETTINGS_COPY);
     assert.equal(view.host.querySelector('.ui-pairing'), null);
     assert.equal(view.host.querySelector('svg.ui-qr'), null);
     assert.equal(view.host.textContent?.includes('2@must-not-render'), false);
