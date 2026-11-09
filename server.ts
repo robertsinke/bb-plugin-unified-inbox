@@ -79,6 +79,15 @@ export default async function plugin(bb: BbPluginApi) {
         no: z.string(),
       }).strict(),
     }),
+    notify: input => bb.sdk.plugins.callRpc({
+      pluginId: 'push-notifications',
+      method: 'notifications.send',
+      input,
+      outputSchema: z.object({
+        ok: z.literal(true),
+        channels: z.array(z.enum(['web', 'desktop', 'mobile'])),
+      }),
+    }),
     recentLines: (account, id) => {
       if (account !== 'whatsapp') return null;
       return whatsappStore.listRecentMessages(id, 64).flatMap(message => {
