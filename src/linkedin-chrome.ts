@@ -618,6 +618,17 @@ export async function openLinkedInSignIn(): Promise<string> {
   return profile;
 }
 
+type CdpClient = ReturnType<typeof createCdpClient>;
+
+/** Closes page targets a crashed profile restored. The page this call opened stays open. */
+export async function closeRestoredPages(client: CdpClient, keepTargetId: string): Promise<void> {
+  const listed = await client.send<{ targetInfos?: { targetId?: string; type?: string }[] }>('Target.getTargets').catch(() => undefined);
+  for (const target of listed?.targetInfos ?? []) {
+    if (target.type !== 'page' || typeof target.targetId !== 'string' || target.targetId === keepTargetId) continue;
+    await client.send('Target.closeTarget', { targetId: target.targetId }).catch(() => undefined);
+  }
+}
+
 async function warmPage(): Promise<Page> {
   if (warm?.browser.alive) return warm;
   await stopLinkedInBrowser();
@@ -627,6 +638,8 @@ async function warmPage(): Promise<Page> {
   const client = createCdpClient(await webSocketTransport(browser.wsUrl));
   try {
     const { targetId } = await client.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' });
+    // A crashed profile restores every previous tab. This read only needs the new page.
+    await closeRestoredPages(client, targetId);
     const { sessionId } = await client.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     await client.send('Page.enable', {}, sessionId);
     const loaded = waitForLoad(client, sessionId);

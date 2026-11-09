@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   adoptRunningBrowser,
   browserArgs,
+  closeRestoredPages,
   chromeStartupError,
   createCdpClient,
   linkedinChromePath,
@@ -156,6 +157,31 @@ test('a window the owner opened on the profile is left alone, not adopted', asyn
   const { connect, sent } = answeringBrowser({ product: 'Chrome/131.0.6778.85', userAgent: 'Mozilla/5.0 (Macintosh) Chrome/131.0.6778.85 Safari/537.36' });
   assert.equal(await adoptRunningBrowser(profileWithEndpoint(), connect), undefined);
   assert.deepEqual(sent.map(request => request.method), ['Browser.getVersion']);
+});
+
+test('a restored profile keeps one page and closes the other pages', async () => {
+  const sent: { method: string; params?: { targetId?: string } }[] = [];
+  let receive: (message: string) => void = () => {};
+  const transport: CdpTransport = {
+    send(message) {
+      const request = JSON.parse(message) as { id: number; method: string; params?: { targetId?: string } };
+      sent.push(request);
+      const result = request.method === 'Target.getTargets'
+        ? { targetInfos: [
+          { targetId: 'old-feed', type: 'page' },
+          { targetId: 'keep', type: 'page' },
+          { targetId: 'blank', type: 'page' },
+          { targetId: 'frame', type: 'iframe' },
+        ] }
+        : {};
+      receive(JSON.stringify({ id: request.id, result }));
+    },
+    onMessage(handler) { receive = handler; },
+    onClose() {},
+    close() {},
+  };
+  await closeRestoredPages(createCdpClient(transport), 'keep');
+  assert.deepEqual(sent.filter(request => request.method === 'Target.closeTarget').map(request => request.params?.targetId), ['old-feed', 'blank']);
 });
 
 test('an endpoint with no browser behind it does not become a browser', async () => {
