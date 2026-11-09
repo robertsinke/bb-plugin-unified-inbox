@@ -47,22 +47,24 @@ export function filterAccountOrder(sources: SourceMap | null): Account[] {
   return ['whatsapp', ...legacy, ...emails, 'imessage', 'linkedin'].filter(id => ids.includes(id));
 }
 
-export function filterActions({ filter, onFilter, sources, sourceIcon }: {
+export function filterActions({ filter, onFilter, sources, sourceIcon, attention = false }: {
   filter: InboxFilter;
   onFilter: (next: InboxFilter) => void;
   sources: SourceMap | null;
   /** A source's own mark; the panel owns that drawing, not this menu. */
   sourceIcon: (account: Account) => ReactNode;
+  /** Needed and None exist only after a row has a stored verdict. */
+  attention?: boolean;
 }): MenuAction[] {
   return [
     { label: 'All', icon: <Icon name="LayoutList" aria-hidden="true" />, pressed: filter === 'all', run: () => onFilter('all') },
     { label: 'Unread', icon: <Icon name="Mail" aria-hidden="true" />, pressed: filter === 'unread', run: () => onFilter('unread') },
-    ...ATTENTION.map(verdict => ({
+    ...(attention ? ATTENTION.map(verdict => ({
       label: attentionWords(verdict),
       icon: <span className="ui-filter-dot" data-attention={verdict} />,
       pressed: filter === verdict,
       run: () => onFilter(verdict),
-    })),
+    })) : []),
     ...filterAccountOrder(sources).map(account => ({
       label: sourceLabel(sources, account),
       icon: sourceIcon(account),
