@@ -2,7 +2,7 @@
 title: "feat: Mute a conversation so it cannot be Needed"
 description: "The owner can mute any conversation. The row stays in the list. The Decisions plugin is not asked."
 type: feat
-status: active
+status: completed
 date: 2026-11-10
 ---
 
