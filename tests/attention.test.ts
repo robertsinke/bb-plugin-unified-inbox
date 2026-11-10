@@ -443,6 +443,238 @@ test('a verdict that becomes needed sends one push, and the other transitions do
   assert.equal(attentionPush('no', 'no', { account: 'whatsapp', title: 'Ada', preview: 'hi' }), null);
 });
 
+test('a muted conversation with a new preview is not asked and stores no verdict', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const asked: string[] = [];
+  cache.mute('gmail-personal', 't1');
+  const watch = watchNewConversations({
+    cache,
+    store,
+    muted: (account, id) => cache.muted(account, id),
+    ask: async input => {
+      asked.push(String((input.state as { preview: string }).preview));
+      return { answers: { needs_attention: { type: 'noul', noul: 0.91 } } };
+    },
+  });
+  try {
+    cache.save('gmail-personal', [row('please reply')]);
+    await settle();
+    assert.deepEqual(asked, []);
+    assert.equal(store.get('gmail-personal', 't1'), null);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('a stored yes stays yes when the conversation is muted', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  cache.save('gmail-personal', [row('old line', 1)]);
+  store.put('gmail-personal', 't1', { verdict: 'yes', noul: 0.91, stateHash: 'old', lines: null, anchor: null });
+  cache.mute('gmail-personal', 't1');
+  const watch = watchNewConversations({
+    cache,
+    store,
+    muted: (account, id) => cache.muted(account, id),
+    ask: async () => ({ answers: { needs_attention: { type: 'noul', noul: 0.1 } } }),
+  });
+  try {
+    cache.save('gmail-personal', [row('please reply')]);
+    await settle();
+    const saved = store.get('gmail-personal', 't1');
+    assert.equal(saved?.verdict, 'yes');
+    assert.equal(saved?.noul, 0.91);
+    assert.equal(decisionToShow(true, saved?.verdict ?? null), 'yes');
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('an ask that resolves after mute does not write and does not push', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const pushed: string[] = [];
+  let release: () => void = () => {};
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  let started = false;
+  cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'please reply', date: 2, unread: true }]);
+  cache.saveThread('whatsapp', 'chat', [{ sender: 'Ada', text: 'please reply', fromMe: false }]);
+  store.put('whatsapp', 'chat', { verdict: 'no', noul: 0.2, stateHash: 'old', lines: null, anchor: null });
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    muted: (account, id) => cache.muted(account, id),
+    ask: async () => {
+      started = true;
+      await hold;
+      return { answers: { line_1: { noul: 0.91 } } };
+    },
+    notify: async input => { pushed.push(input.title); },
+  });
+  try {
+    for (let turn = 0; turn < 20 && !started; turn += 1) await Promise.resolve();
+    assert.equal(started, true);
+    cache.mute('whatsapp', 'chat');
+    release();
+    await settle();
+    const saved = store.get('whatsapp', 'chat');
+    assert.equal(saved?.verdict, 'no');
+    assert.equal(saved?.noul, 0.2);
+    assert.deepEqual(pushed, []);
+  } finally {
+    release();
+    watch.stop();
+    db.close();
+  }
+});
+
+test('a mute after schedule and before publish does not store an already scored line', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const open = { sender: 'Ada', text: 'can you reply?', fromMe: false };
+  const pushed: string[] = [];
+  cache.save('whatsapp', [{ account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'can you reply?', date: 2, unread: true }]);
+  cache.saveThread('whatsapp', 'chat', [open]);
+  store.put('whatsapp', 'chat', {
+    verdict: 'no',
+    noul: 0.2,
+    stateHash: 'old',
+    lines: { [lineKey(open.text, false)]: 0.91 },
+    anchor: null,
+  });
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    muted: (account, id) => cache.muted(account, id),
+    wording: async () => {
+      cache.mute('whatsapp', 'chat');
+      return DEFAULT_WORDING;
+    },
+    ask: async () => { throw new Error('already scored'); },
+    notify: async input => { pushed.push(input.title); },
+  });
+  try {
+    await settle();
+    const saved = store.get('whatsapp', 'chat');
+    assert.equal(saved?.verdict, 'no');
+    assert.equal(saved?.noul, 0.2);
+    assert.deepEqual(pushed, []);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('a mute while the WhatsApp or Messages wait is armed does not ask', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  let calls = 0;
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 40,
+    muted: (account, id) => cache.muted(account, id),
+    ask: async () => {
+      calls += 1;
+      return { answers: { line_1: { noul: 0.8 } } };
+    },
+  });
+  try {
+    watch.arrived('whatsapp', 'wa', { sender: 'Ada', text: 'one' });
+    watch.arrived('imessage', 'im', { sender: 'Ada', text: 'one' });
+    cache.mute('whatsapp', 'wa');
+    cache.mute('imessage', 'im');
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(calls, 0);
+    assert.equal(store.get('whatsapp', 'wa'), null);
+    assert.equal(store.get('imessage', 'im'), null);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('an unmuted conversation stores yes and pushes only when a stored no becomes yes', async () => {
+  const sent: string[] = [];
+  async function run(previous: 'no' | null) {
+    const db = new Database(':memory:');
+    const cache = createInboxCache(db);
+    const store = createAttentionStore(db);
+    cache.save('gmail-personal', [row('please reply')]);
+    if (previous) store.put('gmail-personal', 't1', { verdict: previous, noul: 0.2, stateHash: 'old', lines: null, anchor: null });
+    const watch = watchNewConversations({
+      cache,
+      store,
+      muted: () => false,
+      ask: async () => ({ answers: { needs_attention: { type: 'noul', noul: 0.91 } } }),
+      notify: async input => { sent.push(input.title); },
+    });
+    try {
+      await settle();
+      assert.equal(store.get('gmail-personal', 't1')?.verdict, 'yes');
+    } finally {
+      watch.stop();
+      db.close();
+    }
+  }
+  await run('no');
+  assert.equal(sent.length, 1);
+  const afterNo = sent.length;
+  await run(null);
+  assert.equal(sent.length, afterNo);
+});
+
+test('with the flag clear, the same lines are not asked again and a yes that stays yes does not push', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const asked: string[] = [];
+  const pushed: string[] = [];
+  const watch = watchNewConversations({
+    cache,
+    store,
+    muted: () => false,
+    ask: async input => {
+      asked.push(String((input.state as { preview: string }).preview));
+      return { answers: { needs_attention: { type: 'noul', noul: 0.91 } } };
+    },
+    notify: async input => { pushed.push(input.title); },
+  });
+  try {
+    cache.save('gmail-personal', [row('please reply', 1)]);
+    await settle();
+    assert.deepEqual(asked, ['please reply']);
+    assert.equal(store.get('gmail-personal', 't1')?.verdict, 'yes');
+    assert.deepEqual(pushed, []);
+    cache.save('gmail-personal', [row('please reply', 1)]);
+    await settle();
+    assert.deepEqual(asked, ['please reply']);
+    cache.save('gmail-personal', [row('a new line', 2)]);
+    await settle();
+    assert.deepEqual(asked, ['please reply', 'a new line']);
+    assert.equal(store.get('gmail-personal', 't1')?.verdict, 'yes');
+    assert.deepEqual(pushed, []);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('decisionToShow stays empty without Decisions, muted or not', () => {
+  assert.equal(decisionToShow(false, 'yes'), null);
+  assert.equal(decisionToShow(false, 'no'), null);
+});
+
 test('a push that throws leaves the needed verdict stored', async () => {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
