@@ -174,6 +174,78 @@ test('a new attention label reaches the open conversation without re-reading it'
   assert.equal(session.snapshot().selected?.needsAttention, 'no', 'the header chip follows the new label');
 });
 
+test('mute marks the list, the hit, and the open row without clearing the decision', async () => {
+  const target = row({ unread: false, needsAttention: 'yes' });
+  const hit = row({ id: 'chat-99', title: 'Grace', preview: 'lighthouse', date: 1, unread: false, needsAttention: 'no' });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
+    search: () => ({ ids: [{ account: 'whatsapp', id: 'chat-99', score: 1 }], items: [hit] }),
+    open: () => ({ messages: [liveMessage] }),
+    mute: () => ({ muted: true }),
+    unmute: () => ({ muted: false }),
+  });
+  const session = createInboxSession({ rpc, now: () => 1_000 });
+  session.start();
+  await settle();
+  await session.open(target);
+  session.setQuery('lighthouse');
+  session.tick(1_000 + 150);
+  await settle();
+
+  await session.mute(session.snapshot().selected ?? target);
+  assert.equal(session.snapshot().selected?.muted, true);
+  assert.equal(session.snapshot().selected?.needsAttention, 'yes', 'mute does not clear the chip');
+  assert.equal(session.snapshot().items.find(item => item.id === 'chat-1')?.muted, true);
+  assert.equal(session.snapshot().items.find(item => item.id === 'chat-1')?.needsAttention, 'yes');
+  await session.mute(hit);
+  assert.equal(session.snapshot().hits?.find(item => item.id === 'chat-99')?.muted, true);
+  assert.equal(session.snapshot().hits?.find(item => item.id === 'chat-99')?.needsAttention, 'no');
+  assert.equal(rpc.calls.filter(call => call.name === 'mute').length, 2);
+
+  await session.unmute(session.snapshot().selected ?? target);
+  assert.equal(session.snapshot().selected?.muted, false);
+  assert.equal(session.snapshot().selected?.needsAttention, 'yes');
+  assert.equal(rpc.calls.filter(call => call.name === 'unmute').length, 1);
+});
+
+test('a mute mark on a later list reaches the open conversation without re-reading it', async () => {
+  const target = row({ unread: false, needsAttention: 'yes' });
+  let listed: InboxItem[] = [target];
+  const rpc = fakeRpc({
+    cached: () => ({ items: listed }),
+    sync: input => ({ items: input.account === 'whatsapp' ? listed : [] }),
+    open: () => ({ messages: [liveMessage] }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await settle();
+  await session.open(target);
+
+  const opensBefore = rpc.calls.filter(call => call.name === 'open').length;
+  listed = [{ ...target, muted: true }];
+  await session.refresh(['whatsapp']);
+
+  assert.equal(rpc.calls.filter(call => call.name === 'open').length, opensBefore, 'the thread is not read a second time');
+  assert.equal(session.snapshot().selected?.muted, true, 'the header follows the mute mark');
+  assert.equal(session.snapshot().selected?.needsAttention, 'yes');
+});
+
+test('a failed mute puts the row back and leaves it in the list', async () => {
+  const target = row({ unread: false, needsAttention: 'yes' });
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: input => ({ items: input.account === 'whatsapp' ? [target] : [] }),
+    mute: () => { throw new Error('offline'); },
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await session.refresh(['whatsapp']);
+  await session.mute(target);
+  const item = session.snapshot().items.find(row => row.id === 'chat-1');
+  assert.equal(item?.muted, undefined);
+  assert.equal(item?.needsAttention, 'yes');
+  assert.equal(session.snapshot().items.length, 1);
+});
+
 test('two failures that say exactly the same words are cleared by the source that owns them', async () => {
   // Both mailboxes fail with one sentence. Clearing one has to leave the other alone, and the text
   // cannot be what tells them apart: it is identical.

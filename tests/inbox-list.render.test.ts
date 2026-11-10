@@ -475,6 +475,170 @@ test('a saved image names the Downloads folder and a failed image keeps the mail
   }
 });
 
+const click = (element: Element) => element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+const menuText = (root: Element) => [...root.querySelectorAll('[role="menuitem"]')].map(entry => entry.textContent?.trim());
+const clickMenu = (root: Element, label: string) => {
+  const item = [...root.querySelectorAll('[role="menuitem"]')].find(entry => entry.textContent?.trim() === label);
+  assert.ok(item, label);
+  click(item);
+};
+
+const SOURCES = [
+  { account: 'gmail-personal', id: 'g', title: 'Mail', sender: 'Ada', preview: 'a', date: 4, unread: false },
+  { account: 'whatsapp', id: 'w', title: 'Bo', preview: 'b', date: 3, unread: false },
+  { account: 'imessage', id: 'm', title: 'Cy', preview: 'c', date: 2, unread: false },
+  { account: 'linkedin', id: 'l', title: 'Dee', sender: 'Dee', preview: 'd', date: 1, unread: false },
+];
+
+test('each source row offers Mute, then Unmute, and the row stays', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: SOURCES };
+    if (name === 'mute') return { muted: true };
+    if (name === 'unmute') return { muted: false };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const rows = [...view.host.querySelectorAll('.ui-row')];
+    assert.equal(rows.length, 4);
+    for (const row of rows) {
+      const labels = menuText(row);
+      const read = labels.indexOf('Mark unread');
+      assert.equal(labels[read + 1], 'Mute', 'Mute sits next to Mark unread');
+      assert.equal(labels.includes('Unmute'), false);
+    }
+    for (const row of [...view.host.querySelectorAll('.ui-row')]) clickMenu(row, 'Mute');
+    await wait(30);
+    view.flush();
+    assert.equal(view.host.querySelectorAll('.ui-row').length, 4, 'mute does not drop a row');
+    for (const row of view.host.querySelectorAll('.ui-row')) {
+      const labels = menuText(row);
+      assert.equal(labels.includes('Unmute'), true);
+      assert.equal(labels.includes('Mute'), false);
+      assert.equal(row.querySelector('.ui-mute-mark')?.textContent, 'Mute');
+    }
+  } finally {
+    view.done();
+  }
+});
+
+test('the open conversation offers Mute, then Unmute', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [MAIL_ROW] };
+    if (name === 'mute') return { muted: true };
+    if (name === 'unmute') return { muted: false };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    click(view.host.querySelector('.ui-row-open-hit')!);
+    await wait(50);
+    view.flush();
+    const header = view.host.querySelector('.ui-conversation-header');
+    assert.ok(header);
+    let labels = menuText(header);
+    assert.equal(labels[labels.indexOf('Mark unread') + 1], 'Mute');
+    clickMenu(header, 'Mute');
+    await wait(30);
+    view.flush();
+    const open = view.host.querySelector('.ui-conversation-header')!;
+    labels = menuText(open);
+    assert.equal(labels.includes('Unmute'), true);
+    assert.equal(labels.includes('Mute'), false);
+    assert.equal(open.querySelector('.ui-mute-mark')?.textContent, 'Mute');
+    clickMenu(open, 'Unmute');
+    await wait(30);
+    view.flush();
+    assert.equal(view.host.querySelector('.ui-conversation-header .ui-mute-mark'), null);
+    assert.equal(menuText(view.host.querySelector('.ui-conversation-header')!).includes('Mute'), true);
+  } finally {
+    view.done();
+  }
+});
+
+test('a muted row stays in All, its source, Needed, and None, and the chip stays', async () => {
+  const needed = { ...MAIL_ROW, id: 'need', sender: 'Ada Lovelace', needsAttention: 'yes' };
+  const none = { ...MAIL_ROW, id: 'none', sender: 'Grace Hopper', title: 'Later', date: MAIL_ROW.date - 1, needsAttention: 'no' };
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [needed, none] };
+    if (name === 'mute') return { muted: true };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    for (const row of [...view.host.querySelectorAll('.ui-row')]) clickMenu(row, 'Mute');
+    await wait(30);
+    view.flush();
+    const names = () => [...view.host.querySelectorAll('.ui-row-name')].map(row => row.textContent);
+    assert.deepEqual(names(), ['Ada Lovelace', 'Grace Hopper']);
+    assert.equal(view.host.querySelectorAll('.ui-row .ui-mute-mark').length, 2);
+    assert.equal(view.host.querySelector('.ui-row [data-attention="yes"]')?.textContent, 'Needed');
+    assert.equal(view.host.querySelector('.ui-row [data-attention="no"]')?.textContent, 'None');
+    clickMenu(view.host.querySelector('.ui-mail-bar')!, 'Personal Gmail');
+    view.flush();
+    assert.deepEqual(names(), ['Ada Lovelace', 'Grace Hopper']);
+    clickMenu(view.host.querySelector('.ui-mail-bar')!, 'Needed');
+    view.flush();
+    assert.deepEqual(names(), ['Ada Lovelace']);
+    assert.equal(view.host.querySelector('.ui-row .ui-mute-mark')?.textContent, 'Mute');
+    assert.equal(view.host.querySelector('.ui-row [data-attention="yes"]')?.textContent, 'Needed');
+    clickMenu(view.host.querySelector('.ui-mail-bar')!, 'None');
+    view.flush();
+    assert.deepEqual(names(), ['Grace Hopper']);
+    assert.equal(view.host.querySelector('.ui-row .ui-mute-mark')?.textContent, 'Mute');
+    assert.equal(view.host.querySelector('.ui-row [data-attention="no"]')?.textContent, 'None');
+    clickMenu(view.host.querySelector('.ui-mail-bar')!, 'All');
+    view.flush();
+    assert.deepEqual(names(), ['Ada Lovelace', 'Grace Hopper']);
+  } finally {
+    view.done();
+  }
+});
+
+test('a failed mute restores Mute and keeps the row', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [{ ...MAIL_ROW, needsAttention: 'yes' }] };
+    if (name === 'mute') throw new Error('offline');
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const row = view.host.querySelector('.ui-row')!;
+    clickMenu(row, 'Mute');
+    await wait(30);
+    view.flush();
+    const labels = menuText(view.host.querySelector('.ui-row')!);
+    assert.equal(labels.includes('Mute'), true);
+    assert.equal(labels.includes('Unmute'), false);
+    assert.equal(view.host.querySelectorAll('.ui-row').length, 1);
+    assert.equal(view.host.querySelector('.ui-row-name')?.textContent, 'Ada Lovelace');
+    assert.equal(view.host.querySelector('.ui-row [data-attention="yes"]')?.textContent, 'Needed');
+    assert.equal(view.host.querySelector('.ui-row .ui-mute-mark'), null);
+  } finally {
+    view.done();
+  }
+});
+
+test('a muted row with no decision leaves the filter menu at All, Unread, and the sources', async () => {
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [{ ...MAIL_ROW, muted: true }] };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    const labels = menuText(view.host.querySelector('.ui-mail-bar')!);
+    assert.deepEqual(labels, ['All', 'Unread', 'WhatsApp', 'Personal Gmail', 'Inhouse Gmail', 'Messages', 'LinkedIn', 'New', 'Send log', 'Refresh']);
+    assert.equal(view.host.querySelector('.ui-row .ui-mute-mark')?.textContent, 'Mute');
+  } finally {
+    view.done();
+  }
+});
+
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */
 function install(page: JSDOM): void {
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'localStorage'] as const;

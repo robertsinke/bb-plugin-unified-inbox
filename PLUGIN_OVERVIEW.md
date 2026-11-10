@@ -1,6 +1,6 @@
 ## What you get
 
-Unified Inbox lists Gmail, WhatsApp, Messages, and LinkedIn in one tab. You read a conversation, reply where that source can send, and start a new WhatsApp chat from a phone number. A PNG, JPEG, GIF, or WebP image in a mail message is shown in that message. Other files stay download chips.
+Unified Inbox lists Gmail, WhatsApp, Messages, and LinkedIn in one tab. You read a conversation, reply where that source can send, and start a new WhatsApp chat from a phone number. You can mute a conversation and it stays in the list. A PNG, JPEG, GIF, or WebP image in a mail message is shown in that message. Other files stay download chips.
 
 Each source keeps one login. WhatsApp is one number. LinkedIn is one profile. Gmail is the mailbox you connect. Messages is the local account on this Mac.
 

@@ -79,7 +79,7 @@ export interface GatewayDriver {
 export type Note = (level: 'info' | 'warn', line: string) => void;
 
 export interface GatewayDeps {
-  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'forget' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet'>;
+  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'forget' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet' | 'mute' | 'unmute' | 'muted'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm' | 'row'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
@@ -101,6 +101,11 @@ export interface GatewayDeps {
   clearAttention?: (account: Account, id: string) => void;
   /** Put back the Needed label from the clear just made. */
   restoreAttention?: (account: Account, id: string) => boolean;
+  /**
+   * One classification after unmute, only when the conversation is still cached.
+   * The unmute response itself does not push.
+   */
+  classifyUnmuted?: (account: Account, id: string) => void;
   note?: Note;
   /** The mailbox list and the legacy-id map a panel reads after startup. */
   mailboxes?: { accounts: string[]; legacy: Record<string, string>; conflicts: { account: string; address: string }[] };
@@ -127,7 +132,7 @@ export interface GatewayDeps {
  */
 const MESSAGES_HINT = 'Check that imsg is installed and BB has Full Disk Access.';
 
-export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, resolveWhatsApp, attentionOf, attentionDismissed, clearAttention, restoreAttention, note, mailboxes, gmail }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
+export function createGateway({ cache, search, audit, gate, registry, now, driver, pairing, resolveWhatsApp, attentionOf, attentionDismissed, clearAttention, restoreAttention, classifyUnmuted, note, mailboxes, gmail }: GatewayDeps): PluginRpcHandlers<typeof rpcContract> {
   const refresh = createInboxRefresh({
     sync: (account, limit) => registry[account].sync({ limit: limit ?? registry[account].source.pageSize }),
     read: account => cache.freshness(account),
@@ -146,7 +151,8 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     const decoratedRow = registry[row.account].decorate?.(row) ?? row;
     const needsAttention = attentionOf?.(decoratedRow.account, decoratedRow.id);
     const dismissed = attentionDismissed?.(decoratedRow.account, decoratedRow.id) === true;
-    return needsAttention ? { ...decoratedRow, needsAttention, ...(dismissed ? { attentionDismissed: true } : {}) } : decoratedRow;
+    const marked = cache.muted(decoratedRow.account, decoratedRow.id) ? { ...decoratedRow, muted: true as const } : decoratedRow;
+    return needsAttention ? { ...marked, needsAttention, ...(dismissed ? { attentionDismissed: true } : {}) } : marked;
   });
 
   /**
@@ -250,6 +256,15 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
     restore_attention({ account, id }) {
       if (!restoreAttention?.(account, id)) throw new Error('This label can no longer be restored.');
       return { needsAttention: 'yes' as const };
+    },
+    mute({ account, id }) {
+      cache.mute(account, id);
+      return { muted: true as const };
+    },
+    unmute({ account, id }) {
+      cache.unmute(account, id);
+      if (cache.list().some(row => row.account === account && row.id === id)) classifyUnmuted?.(account, id);
+      return { muted: false as const };
     },
     async sync({ account, limit }) {
       if (!registry[account]) throw new Error('That mailbox is not connected.');
