@@ -68,6 +68,17 @@ test('background reads cannot interrupt an active interactive operation', async 
   assert.deepEqual(events, ['send-start', 'send-end', 'read']);
 });
 
+test('a read the browser did not answer resets the page', async () => {
+  const f = fixture();
+  await assert.rejects(
+    f.access.read(async () => { throw new Error('The LinkedIn browser did not answer Runtime.evaluate.'); }),
+    /did not answer/,
+  );
+  assert.equal(f.stops(), 1);
+  await assert.rejects(f.access.read(async () => { throw new Error('LinkedIn 500 for /voyager/api/me'); }), /500/);
+  assert.equal(f.stops(), 1, 'a refused response leaves the page in place');
+});
+
 test('interactive failures still reset the browser before the next operation', async () => {
   const f = fixture();
   await assert.rejects(f.access.write(async () => { throw new Error('failed send'); }), /failed send/);

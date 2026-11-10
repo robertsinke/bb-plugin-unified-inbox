@@ -329,7 +329,7 @@ test('a LinkedIn browser miss keeps the older cursor so the next press retries t
   await f.gateway.list({ older: true, account: 'linkedin' });
   const missed = await f.gateway.list({ older: true, account: 'linkedin' });
   assert.equal(missed.more, true, 'the walk still has a page to read');
-  assert.match(missed.errors[0], /unavailable/);
+  assert.match(missed.errors[0], /did not answer in time/);
   await f.gateway.sync({ account: 'linkedin' });
   const retried = await f.gateway.list({ older: true, account: 'linkedin' });
   assert.deepEqual(asked, [undefined, 'start', 'page-3', 'page-3'], 'the refresh does not send the walk back to the start');

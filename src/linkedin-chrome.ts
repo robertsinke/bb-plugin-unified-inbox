@@ -330,7 +330,12 @@ export async function adoptRunningBrowser(
   }
 }
 
-/** Serializes page use and suspends idle teardown during it. Only failed writes reset the page. */
+/** A command the browser did not answer. The page that held it is not safe to reuse. */
+function browserDidNotAnswer(error: unknown): boolean {
+  return /did not answer/.test(error instanceof Error ? error.message : '');
+}
+
+/** Serializes page use and suspends idle teardown during it. A stalled read resets the page. Other read failures leave it. */
 export function createLinkedInPageAccess<P>(deps: {
   load(): Promise<P>;
   stop(): Promise<void>;
@@ -345,7 +350,7 @@ export function createLinkedInPageAccess<P>(deps: {
         const page = await deps.load();
         try { return await operation(page); }
         catch (error) {
-          if (resetOnError) await deps.stop();
+          if (resetOnError || browserDidNotAnswer(error)) await deps.stop();
           throw error;
         }
       } finally { deps.keepWarm(); }
@@ -379,7 +384,7 @@ export async function evaluateInLinkedInProfile(expression: string): Promise<unk
 }
 
 /** Moves the plugin's LinkedIn tab to one allowlisted path. A refused path throws before navigating. */
-/** List/probe scripts only issue GETs. Failure or timeout preserves the interactive page/recorder. */
+/** List/probe scripts only issue GETs. A timeout resets the page. Any other read failure preserves it. */
 export async function evaluateLinkedInListRead(expression: string): Promise<unknown> {
   return withLinkedInRead(page => evaluate(page, expression, LIST_READ_TIMEOUT));
 }

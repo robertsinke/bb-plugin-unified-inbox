@@ -51,6 +51,7 @@ function listError(registry: Record<Account, Adapter>, account: Account, cause: 
   // still worth one line: "LinkedIn unavailable" once hid an orphaned browser holding the profile,
   // and no amount of re-checking a connection would have said so.
   note?.('warn', `${registry[account].source.label} failed: ${message || String(cause)}`);
+  if (linkedInBrowserMissed(cause)) return `${registry[account].source.label} did not answer in time.`;
   return `${registry[account].source.label} unavailable. Check its connection.`;
 }
 
