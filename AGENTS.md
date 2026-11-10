@@ -36,6 +36,7 @@ as `s` — write `\\s`. Production CSS loads `inbox.css → chat.css → layout.
 | a problem already solved, and the trap it taught | `docs/solutions/` — relevant before debugging the same area again |
 | every document, one page | `docs/_index.md` (generated — `node --experimental-strip-types _tools/docs-index.ts`) |
 | **which module owns which invariant** | **`src/CONTEXT.md`** — read this before grepping |
+| the words for the product | `UBIQUITOUS_LANGUAGE.md` — one word for one thing; the code wins if they disagree |
 | the shared adapter contract | `src/adapters/README.md`, `src/adapters/types.ts` |
 | the RPC surface | `src/rpc-contract.ts` (the gateway handlers are `createGateway` in `src/gateway.ts`) |
 
