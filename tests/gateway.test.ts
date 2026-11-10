@@ -35,6 +35,9 @@ interface FixtureOptions {
   /** What the index ranks for a query, and the rows only it holds. */
   ranked?: { id: string; score: number }[];
   indexRows?: Conversation[];
+  attentionOf?: GatewayDeps['attentionOf'];
+  /** The classification unmute schedules. The response itself is not a push. */
+  classifyUnmuted?: GatewayDeps['classifyUnmuted'];
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
@@ -64,6 +67,7 @@ function fixture(options: FixtureOptions = {}) {
     hasSpent() { return false; },
   };
   const freshness = new Map<Account, SourceFreshness>();
+  const muted = new Set<string>();
   const cache: GatewayDeps['cache'] = {
     freshness: account => freshness.get(account) ?? unknownFreshness(),
     saveFreshness: (account, state) => { freshness.set(account, state); },
@@ -73,6 +77,9 @@ function fixture(options: FixtureOptions = {}) {
     clear: () => { calls.push('clear'); cacheRows.length = 0; },
     forget: account => { calls.push(`forget:${account}`); const index = cacheRows.findIndex(row => row.account === account); if (index >= 0) cacheRows.splice(index, 1); },
     setSentSnippet: () => {},
+    mute: (account, id) => { muted.add(`${account}\0${id}`); },
+    unmute: (account, id) => { muted.delete(`${account}\0${id}`); },
+    muted: (account, id) => muted.has(`${account}\0${id}`),
   };
   const search: GatewayDeps['search'] = {
     search: async () => options.ranked ?? [],
@@ -138,8 +145,10 @@ function fixture(options: FixtureOptions = {}) {
     pairing: options.pairing ?? (async () => ({ state: 'unpaired' })),
     note: (level, line) => notes.push(`${level} ${line}`),
     gmail: options.gmail,
+    attentionOf: options.attentionOf,
+    classifyUnmuted: options.classifyUnmuted,
   });
-  return { gateway, calls, auditRows, cacheRows, registry, notes };
+  return { gateway, calls, auditRows, cacheRows, registry, notes, muted };
 }
 
 test('the panel receives each source\'s declaration, and the contract accepts it', async () => {
@@ -172,6 +181,38 @@ test('a search answers with the row it matched, whether the cache holds it or on
   assert.deepEqual(answer.ids.map(row => [row.account, row.id]), [['whatsapp', 'chat-99'], ['whatsapp', 'chat-1']], 'the ranking keeps its shape');
   assert.deepEqual(answer.items.map(row => [row.id, row.title]), [['chat-99', 'Grace Hopper'], ['chat-1', 'Ada']], 'and every id comes with the row to draw it');
   assert.equal(rpcContract.search.output.safeParse(answer).success, true, 'the wire carries both');
+});
+
+test('unmute of a cached conversation asks the watcher and does not push by itself', async () => {
+  const watched: string[] = [];
+  const row: Conversation = { account: 'whatsapp', id: 'chat', title: 'Ada', preview: 'new line', date: NOW, unread: false, needsAttention: 'yes' };
+  const f = fixture({
+    attentionOf: () => 'yes',
+    classifyUnmuted: (account, id) => watched.push(`${account}:${id}`),
+    ranked: [{ id: 'whatsapp\u0000chat', score: 2 }],
+  });
+  f.cacheRows.push(row);
+  f.muted.add('whatsapp\0chat');
+
+  const listed = await f.gateway.cached(null);
+  assert.equal(listed.items[0].muted, true, 'the list carries the mute mark');
+  assert.equal(listed.items[0].needsAttention, 'yes', 'the stored decision stays on the row');
+  const found = await f.gateway.search({ query: 'line' });
+  assert.equal(found.items[0].muted, true, 'a search hit carries the same mark');
+  assert.equal(found.items[0].needsAttention, 'yes');
+
+  const answer = await f.gateway.unmute({ account: 'whatsapp', id: 'chat' });
+  assert.deepEqual(answer, { muted: false }, 'the unmute response itself does not push');
+  assert.deepEqual(watched, ['whatsapp:chat'], 'unmute schedules one classification');
+  const after = await f.gateway.cached(null);
+  assert.equal(after.items[0].id, 'chat', 'the row stays in the list');
+  assert.equal(after.items[0].muted, undefined);
+  assert.equal(after.items[0].needsAttention, 'yes');
+
+  watched.length = 0;
+  const absent = await f.gateway.unmute({ account: 'gmail-personal', id: 'missing' });
+  assert.deepEqual(absent, { muted: false });
+  assert.deepEqual(watched, [], 'a conversation that is not in the cache is not asked');
 });
 
 test('an older page asks the source for the number of rows that source declares', async () => {

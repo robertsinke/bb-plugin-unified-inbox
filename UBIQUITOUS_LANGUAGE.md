@@ -36,6 +36,7 @@ The words for the product. `src/CONTEXT.md` says which module owns a rule. This 
 | **Decision** | The choice that a conversation is Needed or None. It exists only when the Decisions plugin is installed. | Verdict, attention, score |
 | **Needed** | The conversation is due a response. | Needs attention, important |
 | **None** | The conversation is not due a response. | Clear, done, dismissed |
+| **Mute** | The owner's mark on a conversation. The row stays in the list. The Decisions plugin is not asked. | Notification setting, archive, WhatsApp's mute |
 
 ## Sending
 
@@ -70,6 +71,7 @@ The words for the product. `src/CONTEXT.md` says which module owns a rule. This 
 - An **Account** is connected on **Settings**. The inbox does not open **Settings**.
 - A **Conversation** belongs to exactly one **Account**.
 - A **Decision** says a **Conversation** is **Needed** or **None**.
+- A **Mute** keeps that **Conversation** in the list. The Decisions plugin is not asked.
 - With no Decisions plugin, the **Decision** does not exist. The menu hides **Needed** and **None**. Old saved choices stay hidden. The owner set this on 2026-11-09.
 - A **Reply** is a **Send** into an existing **Conversation**.
 - A **Send** on the WhatsApp **Account** can start a **Conversation** when the phone number is confirmed. That send is still a **Send**. It is not a separate kind of thing.

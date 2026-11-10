@@ -145,6 +145,10 @@ export interface InboxSession {
   clearAttention(item: InboxItem): Promise<void>;
   /** Undo the last clear and restore the score it held. */
   restoreAttention(item: InboxItem): Promise<void>;
+  /** Mute this conversation. The row stays, and the Decision on it stays. */
+  mute(item: InboxItem): Promise<void>;
+  /** Clear mute. A cached conversation is classified again. This call does not push. */
+  unmute(item: InboxItem): Promise<void>;
   refresh(sources?: Account[]): Promise<void>;
   /** The next older page from every source that still has one. The list calls this as it scrolls. */
   more(): Promise<void>;
@@ -348,7 +352,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     const current = state.items.find(item => item.account === selected.account && item.id === selected.id);
     if (!current) return;
     const rowChanged = current.date !== selected.date || current.preview !== selected.preview;
-    const labelChanged = current.needsAttention !== selected.needsAttention || current.attentionDismissed !== selected.attentionDismissed;
+    const labelChanged = current.needsAttention !== selected.needsAttention || current.attentionDismissed !== selected.attentionDismissed || Boolean(current.muted) !== Boolean(selected.muted);
     if (!rowChanged && !labelChanged) return;
     state.selected = current;
     if (!rowChanged || !followsList(state.capabilities, current.account)) return;
@@ -698,7 +702,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     notify();
   }
 
-  function paintAttention(rows: InboxItem[], account: Account, id: string, patch: Pick<InboxItem, 'needsAttention' | 'attentionDismissed'>): InboxItem[] {
+  function paintAttention(rows: InboxItem[], account: Account, id: string, patch: Partial<Pick<InboxItem, 'needsAttention' | 'attentionDismissed' | 'muted'>>): InboxItem[] {
     return rows.map(row => row.account === account && row.id === id ? { ...row, ...patch } : row);
   }
 
@@ -734,6 +738,27 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     notify();
     try {
       await deps.rpc.call('restore_attention', { account: item.account, id: item.id });
+    } catch {
+      state.items = previousItems;
+      state.hits = previousHits;
+      state.selected = previousSelected;
+      notify();
+    }
+  }
+
+  async function setMuted(item: InboxItem, muted: boolean): Promise<void> {
+    if (Boolean(item.muted) === muted) return;
+    const previousItems = state.items;
+    const previousHits = state.hits;
+    const previousSelected = state.selected;
+    const patch = { muted };
+    state.items = paintAttention(state.items, item.account, item.id, patch);
+    if (state.hits) state.hits = paintAttention(state.hits, item.account, item.id, patch);
+    if (state.selected?.account === item.account && state.selected.id === item.id) state.selected = { ...state.selected, ...patch };
+    notify();
+    try {
+      if (muted) await deps.rpc.call('mute', { account: item.account, id: item.id });
+      else await deps.rpc.call('unmute', { account: item.account, id: item.id });
     } catch {
       state.items = previousItems;
       state.hits = previousHits;
@@ -1135,6 +1160,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     back,
     clearAttention,
     restoreAttention,
+    mute: item => setMuted(item, true),
+    unmute: item => setMuted(item, false),
     refresh,
     more,
     showListed,
