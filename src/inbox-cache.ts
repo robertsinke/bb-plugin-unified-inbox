@@ -101,9 +101,9 @@ export type CachedItem = { account: Account; id:string; title:string; preview:st
 export type CacheChange = { kind:'items'; account:CachedItem['account'] } | { kind:'thread'; account:CachedItem['account']; id:string } | { kind:'clear' };
 export function createInboxCache(db: Database.Database, options: { alsoClear?: Array<() => void> } = {}) {
   // What a cache clear covers is wider than this module's own tables: the WhatsApp transport keeps
-  // its messages and envelopes in the same database (plan D5), and the privacy promise in README.md
-  // covers those copies too. The store that owns that DDL registers its own clearer here rather than
-  // this module learning another schema.
+  // its messages and envelopes in the same database (plan D5). The store that owns that DDL registers
+  // its own clearer here rather than this module learning another schema. The command a person runs
+  // is in docs/operator.md.
   const alsoClear = options.alsoClear ?? [];
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_cache (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, preview TEXT NOT NULL, date INTEGER NOT NULL, unread INTEGER NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_sync (account TEXT PRIMARY KEY, history_id TEXT NOT NULL);

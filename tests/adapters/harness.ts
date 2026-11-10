@@ -191,6 +191,8 @@ export interface HarnessOptions {
   /** Replace the whole Gmail transport factory, for a test that needs the real client. */
   gmail?: GmailTransport;
   linkedInThread?: () => Promise<unknown>;
+  /** One shared-post read. The default answers an empty card and records the call. */
+  linkedInPost?: (activityUrn: string) => Promise<{ title?: string; author?: string; imageUrl?: string }>;
   /** Replace one older-page read, for the walk the adapter does past the newest page. */
   linkedInOlder?: (cursor: string, count: number) => unknown;
   /** Replace one Messages history response, for attachment cases that need a real file name. */
@@ -281,6 +283,11 @@ export function harness(options: HarnessOptions = {}): Harness {
       thread: async () => {
         calls.push('linkedin:thread');
         return options.linkedInThread ? await options.linkedInThread() as { messages: unknown[] } : { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
+      },
+      post: async (activityUrn: string) => {
+        calls.push(`linkedin:post@${activityUrn}`);
+        const card = options.linkedInPost ? await options.linkedInPost(activityUrn) : { title: '', author: '', imageUrl: '' };
+        return { title: card.title ?? '', author: card.author ?? '', imageUrl: card.imageUrl ?? '' };
       },
       older: async (cursor: string, count: number) => {
         calls.push(`linkedin:older@${cursor}/${count}`);

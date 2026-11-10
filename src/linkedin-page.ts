@@ -149,7 +149,7 @@ const BODY = `
         const key = identityKey(e['*sender'] || e['*actor']);
         const mine = key === meKey;
         // The message urn is what a later media request names, so the picture travels with it.
-        return { id: String(e.entityUrn || ''), sender: mine ? 'You' : names.get(key) || 'LinkedIn', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: mine, mediaUrl: photoOf(e), activityUrn: activityOf(e) };
+        return { id: String(e.entityUrn || ''), sender: mine ? 'You' : names.get(key) || 'LinkedIn', senderUrn: key ? 'urn:li:' + key : '', text: String(e.body?.text || e.renderContentFallbackText || ''), date: Number(e.deliveredAt || 0), fromMe: mine, mediaUrl: photoOf(e), activityUrn: activityOf(e) };
       }) };
     }
 
@@ -241,6 +241,58 @@ const BODY = `
 
     return { conversations, invitations };
 `;
+
+/** An activity urn the thread already trusts, or a refusal. Anything else never reaches the page. */
+export function linkedinActivityUrn(value: unknown): string {
+  if (typeof value === 'string' && /^urn:li:activity:\d+$/.test(value)) return value;
+  throw new Error('That is not a LinkedIn post this plugin can read.');
+}
+
+/**
+ * One feed update, reduced in the page. Captured 2026-11-10: `GET /voyager/api/feed/updates/{urn}`
+ * answers `UpdateV2`. The words are `commentary.text.text`, the author is `actor.name.text`, and the
+ * picture is the first content image's `vectorImage` (`rootUrl` plus the last artifact). The card
+ * keeps the start of a long commentary. The actor's own face is not the post picture.
+ */
+const POST_BODY = `
+    const enc = u => encodeURIComponent(u).replace(/\\(/g, '%28').replace(/\\)/g, '%29');
+    const pair = (document.cookie.split('; ').find(c => c.startsWith('JSESSIONID=')) || '').split('=')[1] || '';
+    const headers = { 'csrf-token': decodeURIComponent(pair).replace(/^"|"$/g, ''), accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' };
+    const get = async url => { const response = await fetch(url, { headers, credentials: 'include' }); if (!response.ok) throw new Error('LinkedIn ' + response.status + ' for ' + url.split('?')[0]); return JSON.parse(await response.text()); };
+    const linkedinImage = value => {
+      try { const url = new URL(String(value)); return url.protocol === 'https:' && (url.hostname === 'licdn.com' || url.hostname.endsWith('.licdn.com')) ? url.href : ''; }
+      catch { return ''; }
+    };
+    const imageOf = vector => {
+      const display = vector || {};
+      const identifiers = (display.elements || []).flatMap(element => element.identifiers || []).map(value => value.identifier).filter(value => typeof value === 'string');
+      const direct = identifiers.find(value => value.startsWith('https://'));
+      if (direct) return linkedinImage(direct);
+      const root = String(display.rootUrl || '');
+      const path = (display.artifacts || []).map(value => value.fileIdentifyingUrlPathSegment).filter(value => typeof value === 'string').at(-1);
+      return root && path ? linkedinImage(root + path) : '';
+    };
+    const clip = (value, limit) => String(value || '').trim().slice(0, limit);
+    const json = await get('/voyager/api/feed/updates/' + enc(urn));
+    const update = (json.included || []).find(item => item && item.$type === 'com.linkedin.voyager.feed.render.UpdateV2');
+    if (!update) throw new Error('LinkedIn did not return that post.');
+    const vector = update.content && Array.isArray(update.content.images) ? update.content.images[0]?.attributes?.[0]?.vectorImage : null;
+    return { title: clip(update.commentary?.text?.text, 300), author: clip(update.actor?.name?.text, 200), imageUrl: imageOf(vector) };
+`;
+
+/** The page read for one shared post. A bad urn throws here, before any script is built. */
+export function linkedinPostExpression(activityUrn: string): string {
+  const urn = linkedinActivityUrn(activityUrn);
+  return `(async () => {
+  const urn = ${JSON.stringify(urn)};
+  try {
+    const payload = await (async (urn) => {${POST_BODY}})(urn);
+    return { ok: true, payload };
+  } catch (error) {
+    return { ok: false, error: String((error && error.message) || error).split(String.fromCharCode(10))[0] };
+  }
+})()`;
+}
 
 /** A page count LinkedIn will answer, or a refusal: above the ceiling it answers an empty page. */
 function olderCount(value: number): number {

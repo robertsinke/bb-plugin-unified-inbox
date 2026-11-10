@@ -356,8 +356,8 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       return { jid: await resolveWhatsApp(digits) };
     },
     // One media path for every source: the request says how the file is addressed, and the
-    // adapter that owns the source answers. A shared post answers with a link because its
-    // payload carries no thumbnail.
+    // adapter that owns the source answers. A shared post with a stored picture answers
+    // with that picture. A share with no picture answers with its link.
     async media({ account: source, ...request }) {
       return registry[source].media(request);
     },

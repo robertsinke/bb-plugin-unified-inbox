@@ -59,7 +59,7 @@ test('a full-token match outranks an otherwise equal prefix-only match', () => {
 
 test('prepared documents rank the same as raw documents', () => {
   const docs = [
-    { id: 'a', text: 'Marnin: Ja' },
+    { id: 'a', text: 'Nils: Ja' },
     { id: 'b', text: 'Jan: Nee' },
     { id: 'c', text: 'Marnie: Later' },
   ];
@@ -68,5 +68,5 @@ test('prepared documents rank the same as raw documents', () => {
 });
 
 test('one-character queries are ignored', () => {
-  assert.deepEqual(bm25Rank('M', [{ id: 'a', text: 'Marnin' }]), []);
+  assert.deepEqual(bm25Rank('M', [{ id: 'a', text: 'Nils' }]), []);
 });

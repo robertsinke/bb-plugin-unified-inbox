@@ -16,12 +16,17 @@ export const item = z.object({ account, id: z.string(), title: z.string(), previ
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const quote = z.object({ targetId: z.string().optional(), sender: z.string().optional(), text: z.string().optional() });
+const share = z.object({
+  title: z.string().max(300),
+  author: z.string().max(200).optional(),
+  hasImage: z.boolean(),
+}).strict();
 const poll = z.object({
   question: z.string().max(2000),
   selectableCount: z.number().int().nonnegative(),
   options: z.array(z.object({ name: z.string().max(500), count: z.number().int().nonnegative(), selected: z.boolean() })).max(12),
 });
-export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), quote: quote.optional(), poll: poll.optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), inline: z.array(z.object({ contentId: z.string().min(1).max(255), filename: z.string().min(1).max(255) }).strict()).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
+export const message = z.object({ edited: z.boolean().optional(), replyContext: z.boolean().optional(), quote: quote.optional(), poll: poll.optional(), imsgId: z.string().optional(), imsgAttachments: z.array(imsgAttachment).optional(), sender: z.string(), text: z.string(), date: z.number(), fromMe: z.boolean().optional(), html: z.string().max(800_000).optional(), to: z.string().optional(), cc: z.string().optional(), replyTo: z.string().optional(), subject: z.string().optional(), messageId: z.string().optional(), references: z.string().optional(), suggestedTo: z.string().optional(), suggestedCc: z.string().optional(), attachments: z.array(z.string().max(255)).max(20).optional(), inline: z.array(z.object({ contentId: z.string().min(1).max(255), filename: z.string().min(1).max(255) }).strict()).max(20).optional(), gmailId: z.string().max(512).optional(), media: messageMedia.optional(), link: z.string().optional(), share: share.optional(), reactions: z.array(z.object({ sender: z.string(), label: z.string() })).optional() });
 const actionInput = z.object({
   account,
   id: z.string().min(1).max(512),

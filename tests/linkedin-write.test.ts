@@ -11,6 +11,8 @@ import {
   recorderStatsExpression,
   linkedinInvitationWrite,
   type InvitationAction,
+  linkedinReactWrite,
+  linkedinReplyWrite,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
@@ -377,6 +379,60 @@ test('the built send request is the observed one, byte for byte', () => {
   assert.equal(isMessageSend(write!, "urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)"), true);
   assert.equal(isMessageSend(write!, 'urn:li:msg_conversation:(urn:li:fsd_profile:somebody-else,2-x)'), false);
 });
+test('the built reaction is the observed one, byte for byte, in both directions', () => {
+  // Captured 2026-11-10 from one message in the visible UI: a thumbs-up, then its removal.
+  // The live urn is replaced here with the same shape. With that urn and 👍 pinned, the builder
+  // must reproduce each request exactly.
+  const MESSAGE = 'urn:li:msg_message:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-MTc5MzUwMDI5ODg3MmIyMjAzNi0xMDAmZDViYmEwOTQtNDlhNC00M2M0LTkyNTEtNjZlODQ0YTdmZDU4XzAxMg==)';
+  const BODY = `{"messageUrn":"${MESSAGE}","emoji":"👍"}`;
+  const set = linkedinReactWrite(MESSAGE, '👍');
+  const removed = linkedinReactWrite(MESSAGE, '👍', true);
+  assert.ok(set && removed);
+  assert.equal(set.method, 'POST');
+  assert.equal(set.url, '/voyager/api/voyagerMessagingDashMessengerMessages?action=reactWithEmoji');
+  assert.equal(set.body, BODY);
+  assert.equal(removed.url, '/voyager/api/voyagerMessagingDashMessengerMessages?action=unreactWithEmoji');
+  assert.equal(removed.body, BODY);
+
+  // The emoji field is the reaction. Another of the four changes that field and adds no second one.
+  const heart = linkedinReactWrite(MESSAGE, '❤️');
+  assert.ok(heart);
+  const heartBody = JSON.parse(heart.body) as { messageUrn: string; emoji: string };
+  assert.deepEqual(Object.keys(heartBody), ['messageUrn', 'emoji']);
+  assert.equal(heartBody.emoji, '❤️');
+  assert.equal(heartBody.messageUrn, MESSAGE);
+  assert.equal(heart.url, set.url);
+
+  // A conversation urn is not a message urn, and an emoji outside the four is not a reaction.
+  assert.equal(linkedinReactWrite('urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-abc)', '👍'), null);
+  assert.equal(linkedinReactWrite('urn:li:msg_message:(urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAme,2-YWJj),2-dGV4dA==)', '👍'), null);
+  assert.equal(linkedinReactWrite(MESSAGE, '‼️'), null);
+  assert.equal(linkedinReactWrite(MESSAGE, ''), null);
+});
+
+test('the built reply to one message is the observed one, byte for byte', () => {
+  // Captured 2026-11-10 by choosing Reply on one message and sending. The live urns are replaced
+  // with the same shape. The tracking blob and the quoted type names stay the captured bytes.
+  const CONVERSATION = 'urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-ZmZmZmZmZmYtMDAwMC00MTExLTgyMjItMzMzMzMzMzMzMzMzXzAxMg==)';
+  const MESSAGE = 'urn:li:msg_message:(urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001,2-MTc5MzUwMDI5ODg3MmIyMjAzNi0xMDAmZDViYmEwOTQtNDlhNC00M2M0LTkyNTEtNjZlODQ0YTdmZDU4XzAxMg==)';
+  const SENDER = 'urn:li:fsd_profile:ACoAAAexampleProfileId0000000000000001';
+  const write = linkedinReplyWrite({
+    conversationUrn: CONVERSATION,
+    text: 'reply test',
+    messageUrn: MESSAGE,
+    sentAt: 1793500298872,
+    senderUrn: SENDER,
+    quotedText: 'test message',
+    originToken: '0c587269-d011-45ed-be99-dca33c0f544f',
+  });
+  assert.ok(write);
+  assert.equal(write.url, '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage');
+  assert.equal(write.body, `{"message":{"body":{"attributes":[],"text":"reply test"},"renderContentUnions":[{"repliedMessageContent":{"originalSenderUrn":"urn:li:msg_messagingParticipant:${SENDER}","originalSendAt":1793500298872,"originalMessageUrn":"${MESSAGE}","messageBody":{"_type":"com.linkedin.pemberly.text.AttributedText","attributes":[],"text":"test message","_recipeType":"com.linkedin.1ea7e24db829a1347b841f2dd496da36"}}}],"conversationUrn":"${CONVERSATION}","originToken":"0c587269-d011-45ed-be99-dca33c0f544f"},"mailboxUrn":"${SENDER}","trackingId":"\\fXriÐ\\u0011Eí¾\u0099Ü£<\\u000fTO","dedupeByClientGeneratedToken":false}`);
+  assert.equal(linkedinReplyWrite({ conversationUrn: CONVERSATION, text: '', messageUrn: MESSAGE, sentAt: 1, senderUrn: SENDER, quotedText: 'hi' }), null);
+  assert.equal(linkedinReplyWrite({ conversationUrn: 'not-a-conversation', text: 'hi', messageUrn: MESSAGE, sentAt: 1, senderUrn: SENDER, quotedText: 'hi' }), null);
+  assert.equal(linkedinReplyWrite({ conversationUrn: CONVERSATION, text: 'hi', messageUrn: 'urn:li:msg_message:nope', sentAt: 1, senderUrn: SENDER, quotedText: 'hi' }), null);
+});
+
 test('the built invitation answer is the observed one, byte for byte, in both directions', () => {
   // Captured 2026-11-02 through the page's own buttons: one real accept (Ada), one real ignore
   // (Grace). With the recorded per-request randomness pinned, the builder must reproduce each

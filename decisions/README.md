@@ -38,4 +38,7 @@ The same rule applies to the rest of the tree, at a different speed:
 | `specs/` | how a feature was scoped | historical once shipped; open with a status block |
 | `docs/plans/` | how work was planned | historical; open with "Superseded" |
 | `docs/research/` | what was measured and argued | kept as evidence; mark what a decision closed |
-| `PLUGIN_OVERVIEW.md`, `README.md` | how it works now | **must** be current — this is the one to maintain |
+| `README.md` | install and use | **must** be current |
+| `PLUGIN_OVERVIEW.md` | the store page | **must** be current |
+| `docs/operator.md` | commands a person runs | **must** be current |
+| `src/CONTEXT.md` | which module owns which behavior | **must** be current |

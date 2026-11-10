@@ -64,6 +64,15 @@ test('context names the conversation and keeps the newest messages', () => {
   assert.match(context, /draft.*owner to review/i);
 });
 
+test('a shared post is not a blank mention line', () => {
+  const words = inboxMentionContext({ account: 'linkedin', label: 'LinkedIn', id: 'urn:li:msg_conversation:1', messages: [{ sender: 'Ada', text: '', date: 1_700_000_000_000, share: { title: 'A note about the work' } }] });
+  assert.match(words, /Ada: A note about the work/);
+  const bare = inboxMentionContext({ account: 'linkedin', label: 'LinkedIn', id: 'urn:li:msg_conversation:1', messages: [{ sender: 'Ada', text: '', date: 1_700_000_000_000, link: 'https://www.linkedin.com/feed/update/urn:li:activity:1/' }] });
+  assert.match(bare, /Ada: Shared a post/);
+  const caption = inboxMentionContext({ account: 'linkedin', label: 'LinkedIn', id: 'urn:li:msg_conversation:1', messages: [{ sender: 'Ada', text: 'See this', date: 1_700_000_000_000, share: { title: 'A note about the work' } }] });
+  assert.match(caption, /Ada: See this A note about the work/);
+});
+
 test('a media-only message keeps its placeholder', () => {
   const context = inboxMentionContext({ account: 'gmail-business', label: 'Inhouse Gmail', id: '18f2c', preview: 'Invoice', messages: [{ sender: 'Vendor', text: '', date: 1_700_000_000_000, media: { kind: 'image' } }] });
   assert.match(context, /Vendor: \[image\]/);

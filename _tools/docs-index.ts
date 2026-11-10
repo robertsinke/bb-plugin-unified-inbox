@@ -67,8 +67,8 @@ export async function render(): Promise<{ index: string; count: number; captured
   for (const path of files) {
     const text = await readFile(join(ROOT, path), 'utf8');
     const { title, description, status, date } = facts(text);
-    // The two root documents have no frontmatter and need none: docs/CONTEXT.md says they are the ones that
-    // must stay current, so the index states that for them rather than asking them to declare it.
+    // The two root documents have no frontmatter and need none. docs/CONTEXT.md says they stay current,
+    // so the index states that for them rather than asking them to declare it.
     const declared = path.endsWith('README.md') || path === 'PLUGIN_OVERVIEW.md' ? 'current' : status;
     rows.push({ path, title: clean(title || path), description: clean(description), status: clean(declared), date });
   }
@@ -83,6 +83,8 @@ export async function render(): Promise<{ index: string; count: number; captured
 
   const groups: [string, (file: Doc) => boolean][] = [
     ['Current', file => !file.path.startsWith('docs/') && !file.path.startsWith('specs/') && !file.path.startsWith('decisions/')],
+    // A markdown file directly in docs/ is not a shelf. mail-approval.md was walked and then dropped.
+    ['Reference', file => /^docs\/[^/]+\.md$/.test(file.path)],
     ['Decisions', file => file.path.startsWith('decisions/')],
     ['Specs', file => file.path.startsWith('specs/')],
     ['Plans', file => file.path.startsWith('docs/plans/')],

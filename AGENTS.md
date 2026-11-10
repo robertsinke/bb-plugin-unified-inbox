@@ -28,7 +28,8 @@ as `s` — write `\\s`. Production CSS loads `inbox.css → chat.css → layout.
 
 | you need | read |
 |---|---|
-| how it behaves now | `PLUGIN_OVERVIEW.md`, `README.md` |
+| how it behaves for a person | `README.md` (install and use), `PLUGIN_OVERVIEW.md` (store page) |
+| commands a person runs by hand | `docs/operator.md` |
 | why a choice was made | `decisions/` — frozen, each dated and `Verified against the code` (`decisions/README.md`) |
 | what a feature was scoped to | `specs/` — historical once shipped; opens with a status block |
 | how work was planned, what was measured | `docs/plans/`, `docs/research/` — historical; a finished plan says "Superseded" |
@@ -40,7 +41,7 @@ as `s` — write `\\s`. Production CSS loads `inbox.css → chat.css → layout.
 | the shared adapter contract | `src/adapters/README.md`, `src/adapters/types.ts` |
 | the RPC surface | `src/rpc-contract.ts` (the gateway handlers are `createGateway` in `src/gateway.ts`) |
 
-Four kinds of document age at four speeds; `PLUGIN_OVERVIEW.md` is the only one that must stay current.
+Four kinds of document age at four speeds. `README.md`, `PLUGIN_OVERVIEW.md`, and `docs/operator.md` stay current. They have different jobs, so do not paste one into another.
 If a decision and the code disagree, the code wins and the decision needs a current-state note, not an edit.
 
 ## Rules that bind an agent here

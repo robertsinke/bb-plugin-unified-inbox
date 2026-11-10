@@ -175,7 +175,7 @@ export function createGmailFaces(options: GmailFacesOptions): GmailFaces {
     }
     // One line per round, however many listings refused: a missing consent is one thing to fix, and
     // a draw must not fill the log with a line per listing or a line per row.
-    if (refused.length) note(`Gmail faces for ${account} are off: ${refused.join('; ')}. Rows draw initials; re-consent steps are in README.md, "Gmail contact photos".`);
+    if (refused.length) note(`Gmail faces for ${account} are off: ${refused.join('; ')}. Rows draw initials; re-consent steps are in docs/operator.md.`);
     return answered ? { photos } : undefined;
   }
 

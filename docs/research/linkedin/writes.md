@@ -1,7 +1,7 @@
 ---
 title: "LinkedIn writes: what is recorded, and how a replay is allowed"
 status: current
-date: 2026-11-01
+date: 2026-11-10
 ---
 
 # LinkedIn writes: what is recorded, and how a replay is allowed
@@ -118,9 +118,47 @@ carries the short key — the `2-…` inside the full urn's parentheses — and 
 visible one: search the name, open the row the search offers. The send guard compares the approval's
 conversation against that key, read down from either form.
 
-## What is still uncaptured
+## Reaction: reactWithEmoji, and unreactWithEmoji
 
-One real write has been recorded and read back (a deliberate 404 probe), which proves the path.
+Captured 2026-11-10 in one open thread, on the owner's own "test message", through the message's
+emoji control. Setting 👍 sent this. Removing that same 👍 sent the second request. The message
+was left without the reaction.
+
+```
+POST /voyager/api/voyagerMessagingDashMessengerMessages?action=reactWithEmoji
+{"messageUrn":"<urn:li:msg_message:(mailbox,key)>","emoji":"👍"}
+
+POST /voyager/api/voyagerMessagingDashMessengerMessages?action=unreactWithEmoji
+{"messageUrn":"<urn:li:msg_message:(mailbox,key)>","emoji":"👍"}
+```
+
+The message urn is `urn:li:msg_message:(<mailbox>,<key>)`. It is not a conversation urn. The body
+has those two fields in that order and no origin token. The emoji field is the reaction, so the
+four shared reactions fill that field. Heart, dislike, and laugh were not each clicked. A targeted
+## Reply to one message: createMessage with repliedMessageContent
+
+Captured 2026-11-10 by choosing Reply on one message and sending. The request is the same
+`createMessage` as a conversation reply. The difference is one `repliedMessageContent`:
+
+```
+POST /voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage
+{ "message": { "body": { "attributes": [], "text": "<reply>" },
+    "renderContentUnions": [{ "repliedMessageContent": {
+      "originalSenderUrn": "urn:li:msg_messagingParticipant:<profile urn>",
+      "originalSendAt": <ms>,
+      "originalMessageUrn": "<message urn>",
+      "messageBody": { "_type": "com.linkedin.pemberly.text.AttributedText",
+        "attributes": [], "text": "<quoted text>",
+        "_recipeType": "com.linkedin.1ea7e24db829a1347b841f2dd496da36" } } }],
+    "conversationUrn": "<conversation urn>", "originToken": "<fresh uuid>" },
+  "mailboxUrn": "<profile urn from the conversation>",
+  "trackingId": "<opaque blob, replayed as recorded>",
+  "dedupeByClientGeneratedToken": false }
+```
+
+The sender urn, the time, and the quoted text come from the message the thread read already holds.
+A reply with no message id stays the plain send.
+
 ## Invitation ignore: an RSC action, not voyager
 
 Captured 2026-11-02 by clicking "Ignore an invitation to connect from Grace Hopper" on
@@ -184,4 +222,5 @@ the invitation actions live outside voyager. Same-hostile checks stay — scheme
 traversal, control characters.
 
 Every LinkedIn write this inbox can make is now built from a real capture: reply, mark read,
-invitation accept, invitation ignore. Slice D's observation-first acceptance is met for all of them.
+invitation accept, invitation ignore, a reaction, removing a reaction, and a reply to one message. Slice D's
+observation-first acceptance is met for all of them.

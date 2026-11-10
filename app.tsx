@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { definePluginApp, experimental_Icon as Icon, experimental_useAppPanel, ThreadChat, useBbNavigate, useComposers, useRpc, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './src/rpc-contract';
@@ -554,6 +554,38 @@ function PollChoices({ poll, disabled, onChoose }: { poll: NonNullable<Message['
   return <div className="ui-poll">{poll.question ? <div className="ui-poll-question">{poll.question}</div> : null}<div className="ui-poll-options" role="group" aria-label={poll.question || 'Poll'}>{poll.options.map(option => <button key={option.name} type="button" className="ui-poll-option" aria-pressed={option.selected} disabled={disabled} onClick={() => toggle(option.name)}><span className="ui-poll-bar" style={{ width: `${total ? (option.count / total) * 100 : 0}%` }} /><span className="ui-poll-name">{option.name}</span><span className="ui-poll-count">{option.count}</span></button>)}</div></div>;
 }
 
+/** A shared post: the post's words and picture, and a click that opens the post. */
+function ShareCard({ message: m, onOpenLink }: { message: Message; onOpenLink: (url: string) => void }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const share = m.share;
+  const link = m.link?.trim() ?? '';
+  const title = share?.title.trim() ?? '';
+  const author = share?.author?.trim() ?? '';
+  const [src, setSrc] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const messageId = m.messageId?.trim() ?? '';
+    if (!share?.hasImage || !messageId) return;
+    let alive = true;
+    void rpc.call('media', { account: 'linkedin', kind: 'message', id: messageId, index: 0 }).then(result => {
+      if (!alive) return;
+      if (result.dataUrl) setSrc(result.dataUrl);
+      else setFailed(true);
+    }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [m.messageId, rpc, share?.hasImage]);
+  if (!title && !author && !share?.hasImage) {
+    if (!link) return null;
+    return <button type="button" className="ui-text-button" onClick={() => onOpenLink(link)}>Open shared post</button>;
+  }
+  return <button type="button" className="ui-share" aria-label={title || author ? undefined : 'Open shared post'} onClick={() => { if (link) onOpenLink(link); }}>
+    {src ? <img src={src} alt="" /> : null}
+    {author ? <span className="ui-share-author">{author}</span> : null}
+    {title ? <span className="ui-share-text">{title}</span> : null}
+    {share?.hasImage && !src && failed ? <span className="ui-media-note">This picture could not be loaded.</span> : null}
+  </button>;
+}
+
 function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLabel, canReact: reactionsOn, canQuoteReply: quotesOn, canVote: votesOn, busy, onReact, onReply, onVote }: { message: Message; group: boolean; onOpenLink: (url: string) => void; imsgChatId?: string; account: Account; selfLabel: string; canReact: boolean; canQuoteReply: boolean; canVote: boolean; busy: boolean; onReact: (messageId: string, emoji: string, remove: boolean) => void; onReply: (messageId: string) => void; onVote: (messageId: string, options: string[]) => void }) {
   const text = m.text.trim();
   const hasText = Boolean(text) && (!m.media || text !== `[${m.media.kind}]`);
@@ -564,25 +596,10 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
   const chips = m.reactions?.length ? reactionChips(m.reactions) : [];
   const mine = (emoji: string) => Boolean(selfLabel) && (m.reactions ?? []).some(reaction => reaction.label === emoji && reaction.sender === selfLabel);
   const frame = useRef<HTMLElement>(null);
-  const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
   const [open, setOpen] = useState(false);
-  const actions = ((reactionsOn && !m.fromMe) || quotesOn) && Boolean(messageId);
-  function place(event: { clientX: number; clientY: number }) {
-    const node = frame.current;
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    const bar = node.querySelector('.ui-bubble-actions');
-    const width = bar instanceof HTMLElement ? bar.offsetWidth : 0;
-    const height = bar instanceof HTMLElement ? bar.offsetHeight : 0;
-    let x = event.clientX - rect.left - width / 2;
-    const y = event.clientY - rect.top - height - 6;
-    const room = rect.width - width;
-    x = room < 8 ? (node.closest('.ui-chat-outgoing') ? room : 0) : Math.min(Math.max(0, x), room);
-    setSpot({ x, y });
-    setOpen(true);
-  }
+  const actions = (reactionsOn || quotesOn) && Boolean(messageId);
   function close() { setOpen(false); }
-  return <article ref={frame} className={bubbleClass(account)} onMouseEnter={actions ? place : undefined} onMouseLeave={actions ? close : undefined}>
+  return <article ref={frame} className={bubbleClass(account)} onMouseEnter={actions ? () => setOpen(true) : undefined} onMouseLeave={actions ? close : undefined}>
     <span className="ui-sr">{m.fromMe ? 'You' : m.sender || 'WhatsApp'}</span>
     {!inlineSender && !m.fromMe && m.sender && <div className="ui-bubble-sender">{m.sender}</div>}
     {quoteText ? <blockquote className="ui-quote">{quoteSender ? <span className="ui-quote-sender">{quoteSender}</span> : null}<span className="ui-quote-text">{quoteText}</span></blockquote> : m.replyContext ? <p className="ui-quote ui-quote-marker">Reply to an earlier message</p> : null}
@@ -590,10 +607,11 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
     {m.poll ? <PollChoices poll={m.poll} disabled={!votesOn || busy || !messageId} onChoose={names => onVote(messageId, names)} /> : null}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
+    {(m.share || m.link) && !m.media ? <ShareCard message={m} onOpenLink={onOpenLink} /> : null}
     {m.edited && <span className="ui-media-note">Edited</span>}
     {m.date > 0 && <time className="ui-bubble-time">{new Date(m.date).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>}
     {chips.length ? <div className="ui-reaction-pills" aria-label="Reactions">{chips.map(chip => <span key={chip.label} className="ui-reaction-pill" title={chip.senders.join(', ')}>{chip.label}{chip.senders.length > 1 ? <span className="ui-reaction-count">{chip.senders.length}</span> : null}</span>)}</div> : null}
-    {actions ? <div className={`ui-bubble-actions${open ? ' is-open' : ''}`} style={spot ? { '--ui-action-x': `${spot.x}px`, '--ui-action-y': `${spot.y}px` } as CSSProperties : undefined}>{reactionsOn && !m.fromMe ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
+    {actions ? <div className={`ui-bubble-actions${open ? ' is-open' : ''}`}>{reactionsOn ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
   </article>;
 }
 function openTaggedConversation(session: InboxSession, target: InboxMentionOpen) {

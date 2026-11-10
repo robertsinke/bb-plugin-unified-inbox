@@ -121,6 +121,8 @@ export type MentionMessage = {
   date: number;
   media?: { kind: string };
   poll?: { question: string; options: { name: string }[] };
+  link?: string;
+  share?: { title: string };
 };
 
 function stamp(date: number) {
@@ -131,8 +133,10 @@ function line(message: MentionMessage) {
   const poll = message.poll
     ? [message.poll.question, ...message.poll.options.map(option => option.name)].filter(Boolean).join(', ')
     : '';
-  const text = message.text.replace(/\s+/g, ' ').trim() || poll || (message.media ? `[${message.media.kind}]` : '');
-  return `[${stamp(message.date)}] ${message.sender}: ${text.slice(0, MAX_MESSAGE_CHARS)}`;
+  const text = message.text.replace(/\s+/g, ' ').trim();
+  const share = message.share?.title.replace(/\s+/g, ' ').trim() || (message.link ? 'Shared a post' : '');
+  const body = text && share && !text.includes(share) ? `${text} ${share}` : text || share || poll || (message.media ? `[${message.media.kind}]` : '');
+  return `[${stamp(message.date)}] ${message.sender}: ${body.slice(0, MAX_MESSAGE_CHARS)}`;
 }
 
 /** What the agent needs to answer one tagged conversation. */

@@ -1,4 +1,19 @@
-import { accentToken, type Account } from './adapters/types.ts';
+import { accentToken, legacyGmailAccounts, type Account } from './adapters/types.ts';
+
+/** Mailbox address → legacy id, filled from `mailbox_status` on this machine. Not written to git. */
+const liveLegacy = new Map<string, string>();
+
+export function setGmailAccentMap(legacy: Record<string, string>): void {
+  liveLegacy.clear();
+  for (const id of legacyGmailAccounts) {
+    const address = legacy[id]?.trim().toLowerCase();
+    if (address) liveLegacy.set(address, id);
+  }
+}
+
+function accentFor(account: string): string {
+  return liveLegacy.get(account.toLowerCase()) ?? accentToken(account);
+}
 
 /**
  * The one bubble every source draws. Width, radius, padding and time placement
@@ -13,10 +28,10 @@ export const BUBBLE_BASE = 'ui-bubble';
  * language: there is no other expression that produces the base.
  */
 export function bubbleClass(account: Account): string {
-  return `${BUBBLE_BASE} is-${accentToken(account)}`;
+  return `${BUBBLE_BASE} is-${accentFor(account)}`;
 }
 
 /** The class on a row avatar. The source-icon color rules are descendants of this token. */
 export function sourceClass(account: Account): string {
-  return `ui-${accentToken(account)}`;
+  return `ui-${accentFor(account)}`;
 }

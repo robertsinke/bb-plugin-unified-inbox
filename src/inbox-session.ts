@@ -14,6 +14,7 @@ import { canMarkRead, canPollVote, canQuoteReply, canReact, canSend, followsList
 import type { AttentionVerdict } from './attention-label.ts';
 import { accounts } from './adapters/types.ts';
 import { migrateDraftAccountIds } from './inbox-drafts.ts';
+import { setGmailAccentMap } from './inbox-appearance.ts';
 import type { Account, Conversation, GmailAccount, Message, SourceMap } from './adapters/types.ts';
 // The seam to the gateway is the contract, not a loose `(name, input)` pair: a renamed
 // method or a reshaped input is a compile error here, where the session calls it, and
@@ -438,7 +439,9 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       } catch { /* a source with no declaration is named by its account key and polled not at all */ }
       try {
         const status = await deps.rpc.call('mailbox_status', null);
+        setGmailAccentMap(status?.legacy ?? {});
         migrateDraftAccountIds(storage, status?.legacy ?? {});
+        notify();
       } catch { /* drafts stay on the key they were saved under */ }
       await readCache();
       void loadAudit();

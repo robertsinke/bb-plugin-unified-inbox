@@ -12,7 +12,7 @@ Gmail uses a Desktop OAuth client that you create in your own Google Cloud proje
 
 WhatsApp connects from a QR code on the settings page. The phone treats that link as a linked device, in the same way as WhatsApp Web. A phone code is available when a scan is not. Pairing spends one of the account's linked-device slots.
 
-LinkedIn sign-in opens a Chrome window that belongs to this plugin. Sign in there.
+LinkedIn sign-in opens a Chrome window that belongs to this plugin. Sign in there. A shared post in an open chat shows the post's words and picture. The list still says "Shared a post". In an open chat, hover a message to react with a heart, a like, a dislike, or a laugh, or to reply to that message.
 
 Messages reads the local Messages database through imsg. Install imsg on the Mac, and grant BB Full Disk Access. This plugin does not install imsg, and it does not grant that permission.
 

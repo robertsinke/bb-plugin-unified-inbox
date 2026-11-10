@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LINKEDIN_PREVIEW_LABELS, linkedinPageExpression } from '../src/linkedin-page.ts';
+import { LINKEDIN_PREVIEW_LABELS, linkedinActivityUrn, linkedinPageExpression, linkedinPostExpression } from '../src/linkedin-page.ts';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
 
@@ -126,6 +126,7 @@ test('a shared post reads out its activity urn and invents no image', async () =
 test('a text message keeps its text and gains no media', async () => {
   const payload = await readThread([message({ body: { text: 'See you at six' }, renderContent: [{}] })]);
   assert.equal(payload.messages[0].text, 'See you at six');
+  assert.equal(payload.messages[0].senderUrn, SENDER);
   assert.equal(payload.messages[0].mediaUrl, '');
   assert.equal(payload.messages[0].activityUrn, '');
 });
@@ -257,6 +258,82 @@ test('a first page with no further cursor returns its rows and ends the walk', a
   assert.equal(requested.length, 2, 'one page, and nothing after it');
   assert.deepEqual(payload.conversations.map((row: { id: string }) => row.id), [NEWEST_ID]);
   assert.equal(payload.nextCursor, '');
+});
+
+const UPDATE_IMAGE = 'https://media.licdn.com/dms/image/v2/D4E22AQpost/900/0/1700000000000?e=1&v=beta&t=sig900';
+
+/** One captured UpdateV2, reduced to the fields the card reads. Cookies are not part of this fixture. */
+function updateFixture(overrides: { title?: string; author?: string; image?: boolean } = {}) {
+  const image = overrides.image === false ? undefined : {
+    images: [{
+      attributes: [{
+        vectorImage: {
+          rootUrl: 'https://media.licdn.com/dms/image/v2/D4E22AQpost/',
+          artifacts: [{ fileIdentifyingUrlPathSegment: '900/0/1700000000000?e=1&v=beta&t=sig900', width: 900 }],
+        },
+      }],
+    }],
+  };
+  return {
+    included: [{
+      $type: 'com.linkedin.voyager.feed.render.UpdateV2',
+      commentary: { text: { text: overrides.title ?? 'A note about the work' } },
+      actor: { name: { text: overrides.author ?? 'Ada Lovelace' } },
+      ...(image ? { content: image } : {}),
+    }],
+  };
+}
+
+async function readPost(activityUrn: string, body: unknown) {
+  const requested: string[] = [];
+  const fetcher = async (url: string) => {
+    requested.push(url);
+    if (!String(url).includes('/voyager/api/feed/updates/')) throw new Error(`unexpected URL ${url}`);
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const expression = linkedinPostExpression(activityUrn);
+  const run = new AsyncFunction('document', 'fetch', `return (${expression});`);
+  const result = await run({ cookie: 'JSESSIONID="AQEDARtoken"' }, fetcher);
+  return { result, requested };
+}
+
+test('a shared post read returns the words, the author, and the CDN image', async () => {
+  const { result, requested } = await readPost('urn:li:activity:7123456789012345678', updateFixture());
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.payload.title, 'A note about the work');
+  assert.equal(result.payload.author, 'Ada Lovelace');
+  assert.equal(result.payload.imageUrl, UPDATE_IMAGE);
+  assert.match(requested[0], /\/voyager\/api\/feed\/updates\/urn%3Ali%3Aactivity%3A7123456789012345678/);
+});
+
+test('a shared post with no picture keeps the words and an empty image', async () => {
+  const { result } = await readPost('urn:li:activity:1', updateFixture({ image: false }));
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.payload.title, 'A note about the work');
+  assert.equal(result.payload.imageUrl, '');
+});
+
+test('a shared post image off the LinkedIn CDN is dropped', async () => {
+  const body = updateFixture();
+  const update = body.included[0];
+  assert.ok(update?.content);
+  update.content.images[0].attributes[0].vectorImage.rootUrl = 'https://evil.example/dms/';
+  const { result } = await readPost('urn:li:activity:1', body);
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.payload.imageUrl, '');
+  assert.equal(result.payload.title, 'A note about the work');
+});
+
+test('a feed payload that is not an update is a failure', async () => {
+  const { result } = await readPost('urn:li:activity:1', { included: [] });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /did not return that post/);
+});
+
+test('an id that is not an activity urn is refused before the page runs', () => {
+  assert.throws(() => linkedinPostExpression('urn:li:fsd_update:(urn:li:activity:1)'), /not a LinkedIn post/);
+  assert.throws(() => linkedinActivityUrn('https://evil.example'), /not a LinkedIn post/);
+  assert.doesNotThrow(() => linkedinPostExpression('urn:li:activity:7123456789012345678'));
 });
 
 test('a cursor or a page size LinkedIn could not quote is refused before the page runs', () => {

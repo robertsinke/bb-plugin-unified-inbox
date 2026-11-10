@@ -9,8 +9,16 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
-| [`README.md`](../README.md) | current | 2026-11-05 |  |
 | [`PLUGIN_OVERVIEW.md`](../PLUGIN_OVERVIEW.md) | current |  |  |
+| [`README.md`](../README.md) | current |  |  |
+
+## Reference
+
+| document | status | date | says |
+| --- | --- | --- | --- |
+| [`docs/operator.md`](operator.md) | current | 2026-11-10 | Commands for an existing gws login, the credential files, the send log, and a cache clear. |
+| [`docs/mail-approval.md`](mail-approval.md) | current | 2026-11-03 | Mail approval RPC, rollout settings, pinning, refusal codes, and remaining panel integration limits. |
+| [`docs/notes-icons.md`](notes-icons.md) | current | 2026-11-01 |  |
 
 ## Decisions
 
@@ -40,6 +48,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | document | status | date | says |
 | --- | --- | --- | --- |
 | [`docs/plans/2026-11-10-001-feat-mute-conversations-plan.md`](plans/2026-11-10-001-feat-mute-conversations-plan.md) | completed | 2026-11-10 | The owner can mute any conversation. The row stays in the list. The Decisions plugin is not asked. |
+| [`docs/plans/2026-11-10-002-feat-linkedin-shared-post-card-plan.md`](plans/2026-11-10-002-feat-linkedin-shared-post-card-plan.md) | active | 2026-11-10 | A shared post in an open LinkedIn chat shows the post's words and picture. The list does not wait on that read |
 | [`docs/plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md`](plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md) | active | 2026-11-09 |  |
 | [`docs/plans/2026-11-09-002-feat-marketplace-inbox-ux-plan.md`](plans/2026-11-09-002-feat-marketplace-inbox-ux-plan.md) | active | 2026-11-09 | A new person can connect Gmail, WhatsApp, LinkedIn, and Messages and use the inbox. The store page describes t |
 | [`docs/plans/2026-11-08-001-feat-account-connect-settings-plan.md`](plans/2026-11-08-001-feat-account-connect-settings-plan.md) | active | 2026-11-08 |  |
@@ -64,6 +73,8 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/research/linkedin/feed-update-read.md`](research/linkedin/feed-update-read.md) | current | 2026-11-10 | The signed-in page reads one activity with the feed updates request. The card uses three fields. |
+| [`docs/research/linkedin/writes.md`](research/linkedin/writes.md) | current | 2026-11-10 |  |
 | [`docs/research/2026-11-05-baileys-rc14-against-the-pin.md`](research/2026-11-05-baileys-rc14-against-the-pin.md) | settled | 2026-11-05 | rc14 installs, patches after a one-line anchor fix, keeps 487 tests green, grows the bundle by 426 bytes, and  |
 | [`docs/research/2026-11-05-baileys-whatsapp-transport.md`](research/2026-11-05-baileys-whatsapp-transport.md) | superseded | 2026-11-05 | What the plugin asks of WhatsAgent today, what an in-plugin Baileys transport would make us own, the first pro |
 | [`docs/research/2026-11-05-gmail-faces-what-each-source-costs.md`](research/2026-11-05-gmail-faces-what-each-source-costs.md) | current | 2026-11-05 | The two live Gmail credentials carry no contact scope; Google has no photo-only scope, so a face means read ac |
@@ -76,7 +87,6 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 | [`docs/research/linkedin/sidecar-restart-review.md`](research/linkedin/sidecar-restart-review.md) | settled | 2026-11-03 | inspection of installed `mcp-server-linkedin` 4.28.0 source and documented CLI only. No sidecar was started, n |
 | [`docs/research/linkedin/unread-preserving-sync-options.md`](research/linkedin/unread-preserving-sync-options.md) | settled | 2026-11-03 |  |
 | [`docs/research/linkedin/obscura-as-linkedin-browser.md`](research/linkedin/obscura-as-linkedin-browser.md) | settled | 2026-11-02 | Protocol, persistence, macOS support, measured startup and memory, and containment for obscura 0.2.5 against t |
-| [`docs/research/linkedin/writes.md`](research/linkedin/writes.md) | current | 2026-11-01 |  |
 | [`docs/research/linkedin/browser-session-diagnostic.md`](research/linkedin/browser-session-diagnostic.md) | historical | 2026-10-29 |  |
 | [`docs/research/linkedin/spike-sidecar.md`](research/linkedin/spike-sidecar.md) | settled | 2026-10-29 |  |
 | [`docs/research/imessage/imessage-integration-research.md`](research/imessage/imessage-integration-research.md) | settled | 2026-10-28 | Feasibility of reading and acting on Messages conversations from Unified Inbox |

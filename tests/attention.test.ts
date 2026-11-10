@@ -745,7 +745,7 @@ test('your latest line is asked as a task you left, and that score is the conver
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   const store = createAttentionStore(db);
-  const open = { sender: 'Joseph', text: 'Can you take a look?', fromMe: false };
+  const open = { sender: 'Omar', text: 'Can you take a look?', fromMe: false };
   const mine = { sender: 'You', text: 'I will read it today.', fromMe: true };
   cache.save('linkedin', [{ account: 'linkedin', id: 'chat', title: 'Omar', preview: mine.text, date: 2, unread: false, sentSnippet: mine.text }]);
   cache.saveThread('linkedin', 'chat', [open, mine]);

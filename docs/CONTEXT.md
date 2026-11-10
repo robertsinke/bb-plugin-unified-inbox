@@ -1,7 +1,8 @@
 # docs — four shelves, four ages
 
-Everything here is history except `PLUGIN_OVERVIEW.md` at the repo root. This file says which shelf answers
-which question, so a reader stops at one shelf instead of walking the whole tree.
+The four shelves below are history. Current pages for a person are `README.md` (install and use) and
+`PLUGIN_OVERVIEW.md` (the store page). This file says which shelf answers which question, so a reader
+stops at one shelf instead of walking the whole tree.
 
 | shelf | holds | is it current? | how to read a file there |
 |---|---|---|---|
@@ -42,6 +43,12 @@ and do not leave a reader chasing a path that was never taken.
    notes that predate frontmatter.
 3. Link to the neighbours it extends — a link beats a copy, and one fact lives in one place.
 4. Run `node --experimental-strip-types _tools/docs-index.ts` so `docs/_index.md` still matches what is on disk.
+
+## Current files in this folder
+
+`docs/operator.md` holds commands a person runs: an existing `gws` login, credential paths, the send log,
+and a cache clear. `docs/mail-approval.md` holds the mail approval contract. Both stay current. Do not
+copy them into `README.md`.
 
 ## What does not go here
 

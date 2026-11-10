@@ -111,6 +111,10 @@ function fixture(sendReply: any = { id: 'm-sent' }) {
         calls.push('linkedin:thread');
         return { messages: [{ sender: 'Ada', text: 'Hello from LinkedIn', date: 1_700_000_000_000, fromMe: false }] };
       },
+      post: async () => {
+        calls.push('linkedin:post');
+        return { title: '', author: '', imageUrl: '' };
+      },
       older: async (cursor: string, count: number) => {
         calls.push(`linkedin:older@${cursor}/${count}`);
         return { conversations: [{ id: LINKEDIN_OLDER_ID, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false }], nextCursor: '' };
@@ -238,7 +242,7 @@ test('LinkedIn reads through its own entry points and refuses every write', asyn
   const f = fixture();
   try {
     const adapter = f.registry.linkedin;
-    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false, pollVote: false });
+    assert.deepEqual(adapter.capabilities(), { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: true, reactRemove: true, quoteReply: true, pollVote: false });
 
     // `list` answers from the cache, so it costs no browser read.
     f.calls.length = 0;

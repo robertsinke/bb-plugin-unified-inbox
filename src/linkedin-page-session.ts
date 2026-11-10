@@ -16,7 +16,7 @@
  * cannot read is refused here rather than cast into "not accepted, status 0".
  */
 import { isConversationId } from './linkedin-inbox.ts';
-import { linkedinPageExpression } from './linkedin-page.ts';
+import { linkedinPageExpression, linkedinPostExpression } from './linkedin-page.ts';
 import { linkedinProbeExpression } from './linkedin-probe.ts';
 import {
   clearRecordedWritesExpression,
@@ -76,9 +76,13 @@ export type LinkedInRecorderStats = {
 /** What the recorder kept, newest first, and what its wrappers saw. */
 export type LinkedInRecorder = { writes: RecordedWrite[]; seen: LinkedInRecorderStats | null };
 
+export type LinkedInPost = { title: string; author: string; imageUrl: string };
+
 export interface LinkedInPageSession {
   list(): Promise<LinkedInListPayload>;
   thread(id: string): Promise<LinkedInThreadPayload>;
+  /** One shared post: its words, its author, and a CDN image URL when the update has one. */
+  post(activityUrn: string): Promise<LinkedInPost>;
   /** One page of conversations older than a cursor; the payload says where the next one begins. */
   older(cursor: string, count: number): Promise<LinkedInOlderPayload>;
   probe(mailbox?: string): Promise<LinkedInProbePayload>;
@@ -120,6 +124,15 @@ function listPayload(value: unknown): LinkedInListPayload {
   const { conversations, invitations } = payload;
   if (!Array.isArray(conversations) || !Array.isArray(invitations)) throw new Error(`LinkedIn did not return a usable response. ${SIGN_IN_HINT}`);
   return { ...(typeof payload.mailboxUrn === 'string' ? { mailboxUrn: payload.mailboxUrn } : {}), conversations, invitations };
+}
+
+function postPayload(value: unknown): LinkedInPost {
+  const payload = payloadOf(value);
+  return {
+    title: typeof payload.title === 'string' ? payload.title : '',
+    author: typeof payload.author === 'string' ? payload.author : '',
+    imageUrl: typeof payload.imageUrl === 'string' ? payload.imageUrl : '',
+  };
 }
 
 function threadPayload(value: unknown): LinkedInThreadPayload {
@@ -203,6 +216,10 @@ export function createLinkedInPageSession(
       // The boundary is the urn, not the caller: nothing that is not a conversation reaches the page.
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
       return threadPayload(await evaluate(linkedinPageExpression({ mode: 'thread', id })));
+    },
+    async post(activityUrn: string) {
+      // The expression throws before evaluate when the urn is not an activity, so a bad id never reaches the page.
+      return postPayload(await evaluate(linkedinPostExpression(activityUrn)));
     },
     /** One page further back. The cursor is the adapter's, and the page read refuses one it cannot quote. */
     async older(cursor: string, count: number) {

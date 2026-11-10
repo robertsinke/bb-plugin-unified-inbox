@@ -22,8 +22,15 @@ test('a photo in a mail thread stays within the column', () => {
   assert.match(media, /max-width:\s*min\(340px,\s*100%\)/);
 });
 
-test('a closed reply bar on your own message stays inside the bubble', () => {
-  const closed = rule('chat.css', '.ui-chat-outgoing .ui-bubble-actions:not(.is-open)');
-  assert.match(closed, /left:\s*auto/);
-  assert.match(closed, /right:\s*8px/);
+test('the reaction bar sits beside the middle of the bubble and shows on hover', () => {
+  const bar = rule('chat.css', '.ui-bubble-actions');
+  assert.match(bar, /top:\s*50%/);
+  assert.match(bar, /transform:\s*translateY\(-50%\)/);
+  assert.doesNotMatch(bar, /left:\s*50%/);
+  const incoming = rule('chat.css', '.ui-chat-incoming .ui-bubble-actions');
+  assert.match(incoming, /left:\s*100%/);
+  const outgoing = rule('chat.css', '.ui-chat-outgoing .ui-bubble-actions');
+  assert.match(outgoing, /right:\s*100%/);
+  const shown = rule('chat.css', '.ui-bubble:hover>.ui-bubble-actions,.ui-bubble-actions.is-open,.ui-bubble-actions:has(:focus-visible)');
+  assert.match(shown, /opacity:\s*1/);
 });

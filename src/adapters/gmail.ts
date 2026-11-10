@@ -12,6 +12,7 @@ import { sourceAvatarUrl } from '../avatar-url.ts';
 import { z } from 'zod';
 import { canChange } from './capability.ts';
 import type { RegistryDeps } from './deps.ts';
+import { legacyAccountMap } from '../inbox-mention.ts';
 import { isLegacyGmailAccount, legacyGmailAddresses } from './types.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities,
@@ -33,7 +34,7 @@ const HTML_LIMIT = 800_000;
  * An address-named mailbox sends as that address.
  */
 export function gmailFromAddress(account: string): string {
-  if (isLegacyGmailAccount(account)) return legacyGmailAddresses[account];
+  if (isLegacyGmailAccount(account)) return legacyAccountMap()[account] || legacyGmailAddresses[account];
   return account;
 }
 

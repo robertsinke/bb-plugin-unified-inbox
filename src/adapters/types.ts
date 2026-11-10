@@ -27,7 +27,10 @@ export const accounts = [...legacyGmailAccounts, ...chatAccounts] as const;
 export type LegacyGmailAccount = (typeof legacyGmailAccounts)[number];
 export type ChatAccount = (typeof chatAccounts)[number];
 
-/** The address each legacy file sends as. The accent class keeps this id after the file is renamed. */
+/**
+ * Stand-in addresses for a legacy id. A renamed mailbox on a machine takes its accent and its
+ * From address from that machine's legacy map, which is not stored in this repo.
+ */
 export const legacyGmailAddresses: Record<LegacyGmailAccount, string> = {
   'gmail-personal': 'personal@example.com',
   'gmail-business': 'work@example.com',
@@ -414,6 +417,12 @@ export interface Message {
   imsgId?: string;
   /** A message that is a link rather than a picture or text (a shared post). */
   link?: string;
+  /** A LinkedIn shared post. The picture is fetched through `media` when `hasImage` is set. */
+  share?: {
+    title: string;
+    author?: string;
+    hasImage: boolean;
+  };
 }
 
 /**

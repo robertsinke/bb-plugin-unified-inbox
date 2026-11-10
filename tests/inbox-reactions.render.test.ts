@@ -181,7 +181,7 @@ test('a bubble shows reactions and quote text, and a click sends one reaction or
     });
 
     const mine = bubble(host, 'mine');
-    assert.equal(mine.querySelector('.ui-reaction-set'), null, 'a message you sent has no reaction buttons');
+    assert.equal(mine.querySelectorAll('.ui-reaction-set button').length, REACTION_SET.length);
     assert.equal([...mine.querySelectorAll('button')].some(button => button.textContent === 'Reply'), true);
 
     const reply = [...quoted.querySelectorAll('button')].find(button => button.textContent === 'Reply');

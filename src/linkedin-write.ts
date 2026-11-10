@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { conversationMailboxOf, isConversationUrn } from './linkedin-conversation.ts';
+import { isReactionEmoji } from './reaction-set.ts';
 /**
  * LinkedIn writes, recorded rather than guessed.
  *
  * LinkedIn's GraphQL writes are unversioned and their shapes move without notice, so this module
  * never authors a mutation: the page recorder watches one real action made through the visible UI,
  * and this file replays exactly that request — method, path, body — with the session's own csrf
- * token and credentials. Templating exists for the one transformation a reply needs (swap the
- * outgoing text); anything the template does not explain is refused, so the caller records a fresh
- * action instead of sending something this code does not understand.
+ * token and credentials. Templating exists where a capture named a field: a reply swaps its text,
+ * and a reaction fills the message urn and the one emoji field. Anything the template does not
+ * explain is refused, so the caller records a fresh action instead of sending something this code
+ * does not understand.
  *
  * Nothing here is wired to the RPC surface. Recording and replaying are separate steps the owner
  * drives, and the first real send is verified by hand.
@@ -323,6 +325,92 @@ export function linkedinSendWrite(conversationUrn: string, text: string, originT
       trackingId: SEND_TRACKING_ID,
       dedupeByClientGeneratedToken: false,
     }),
+    capturedAt: 0,
+  };
+}
+
+/**
+ * A message urn as LinkedIn names one in a reaction. Captured 2026-11-10: the urn is
+ * `urn:li:msg_message:(<mailbox>,<key>)`, the same mailbox a conversation urn uses, and it is not a
+ * conversation urn with `msg_message` written over the front.
+ */
+const MESSAGE_URN = /^(?=[\s\S]{1,512}$)urn:li:msg_message:\((urn:li:fsd_(?:profile|company):[^,()\s]+),([^,()\s]+)\)$/;
+
+/** True when the value is a message urn a reaction can name. */
+export function isMessageUrn(value: unknown): value is string {
+  return typeof value === 'string' && MESSAGE_URN.test(value);
+}
+
+/**
+ * The tracking blob the captured reply carried. A reply replays these bytes. Building a new one
+ * would invent a serialization the capture does not explain.
+ */
+const REPLY_TRACKING_ID = '\fXri\u00d0\u0011E\u00ed\u00be\u0099\u00dc\u00a3<\u000fTO';
+
+/** The quoted-body type names the captured reply carried, unchanged. */
+const REPLY_BODY_TYPE = 'com.linkedin.pemberly.text.AttributedText';
+const REPLY_BODY_RECIPE = 'com.linkedin.1ea7e24db829a1347b841f2dd496da36';
+
+const PROFILE_URN = /^urn:li:fsd_(?:profile|company):[^,()\s]+$/;
+
+/**
+ * A reply to one message, built from the createMessage captured 2026-11-10. The body is the plain
+ * send, with one `repliedMessageContent` naming the message, its sender, its time, and its text.
+ * `originToken` is fresh per send. The quoted type names stay the captured strings.
+ */
+export function linkedinReplyWrite(input: {
+  conversationUrn: string;
+  text: string;
+  messageUrn: string;
+  sentAt: number;
+  senderUrn: string;
+  quotedText: string;
+  originToken?: string;
+}): RecordedWrite | null {
+  if (!input || typeof input.text !== 'string' || !input.text) return null;
+  if (typeof input.quotedText !== 'string') return null;
+  if (!Number.isInteger(input.sentAt) || input.sentAt < 1) return null;
+  if (!isMessageUrn(input.messageUrn) || !PROFILE_URN.test(input.senderUrn)) return null;
+  const mailbox = conversationMailboxOf(input.conversationUrn);
+  if (!mailbox) return null;
+  if (writeBytes(input.text) > LINKEDIN_WRITE_LIMIT || writeBytes(input.quotedText) > LINKEDIN_WRITE_LIMIT) return null;
+  return {
+    method: 'POST',
+    url: '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
+    body: JSON.stringify({
+      message: {
+        body: { attributes: [], text: input.text },
+        renderContentUnions: [{
+          repliedMessageContent: {
+            originalSenderUrn: `urn:li:msg_messagingParticipant:${input.senderUrn}`,
+            originalSendAt: input.sentAt,
+            originalMessageUrn: input.messageUrn,
+            messageBody: { _type: REPLY_BODY_TYPE, attributes: [], text: input.quotedText, _recipeType: REPLY_BODY_RECIPE },
+          },
+        }],
+        conversationUrn: input.conversationUrn,
+        originToken: input.originToken ?? randomUUID(),
+      },
+      mailboxUrn: mailbox,
+      trackingId: REPLY_TRACKING_ID,
+      dedupeByClientGeneratedToken: false,
+    }),
+    capturedAt: 0,
+  };
+}
+
+/**
+ * The reaction request, built from the two writes captured 2026-11-10 on one message in the visible
+ * UI. Setting the reaction was `action=reactWithEmoji`. Removing it was `action=unreactWithEmoji`.
+ * Both bodies were exactly `{"messageUrn":"<urn>","emoji":"👍"}`. The emoji field is the reaction, so
+ * the four shared reactions fill that one field. No other field was present, and none is added.
+ */
+export function linkedinReactWrite(messageUrn: unknown, emoji: unknown, remove = false): RecordedWrite | null {
+  if (!isMessageUrn(messageUrn) || !isReactionEmoji(emoji)) return null;
+  return {
+    method: 'POST',
+    url: `/voyager/api/voyagerMessagingDashMessengerMessages?action=${remove ? 'unreactWithEmoji' : 'reactWithEmoji'}`,
+    body: JSON.stringify({ messageUrn, emoji }),
     capturedAt: 0,
   };
 }

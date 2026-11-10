@@ -1,18 +1,20 @@
 // LinkedIn adapter (Migration state 3). It owns the LinkedIn shapes: the live
 // read behind `sync`, the conversation open with its cache fallback,
-// the media answer for a photo or a shared post, and the reply and the read mark, each replayed
-// from the requests the page itself sent for the same actions. An invitation answer
-// and an archive still need their own recorded actions, so they stay refused.
+// the media answer for a photo or a shared post, and the reply, the reaction, and the read mark,
+// each replayed from the requests the page itself sent for the same actions. An archive still
+// needs its own recorded action, so it stays refused.
 import { canChange } from './capability.ts';
 import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
 import { LINKEDIN_WALK_START } from '../linkedin-page.ts';
 import type { LinkedInProbePayload } from '../linkedin-page-session.ts';
-import { readLinkedInImage } from '../linkedin-media.ts';
+import { linkedinCdnUrl, readLinkedInImage } from '../linkedin-media.ts';
 import {
   isMessageSend,
   linkedinInvitationWrite,
+  linkedinReactWrite,
+  linkedinReplyWrite,
   linkedinSendWrite,
   markReadWrite,
   markReadTarget,
@@ -20,6 +22,7 @@ import {
   messageSendTemplate,
   recordedSendText,
 } from '../linkedin-write.ts';
+import { isReactionEmoji } from '../reaction-set.ts';
 import type { RegistryDeps } from './deps.ts';
 import type {
   ActionKind, ActionOptions, ActionResult, Adapter, Capabilities, Conversation, LinkedInRecordOp, LinkedInRecordResult,
@@ -29,7 +32,7 @@ import type {
 /** The mailbox a probe payload reported, or the empty string when it did not report one. */
 const mailboxOf = (payload: { mailboxUrn?: unknown } | null) => linkedinMailboxUrn(payload?.mailboxUrn);
 
-const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: false, reactRemove: false, quoteReply: false, pollVote: false };
+const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: false, invitations: true, media: true, attachments: false, threads: true, followsList: false, react: true, reactRemove: true, quoteReply: true, pollVote: false };
 
 const ACCOUNT = 'linkedin';
 
@@ -39,6 +42,14 @@ const ACCOUNT = 'linkedin';
  * above this one by answering an empty page.
  */
 const PAGE = 20;
+
+/** How long a failed post read stays failed. Same window as a missed WhatsApp picture (`AVATAR_RETRY_MS`). */
+const SHARE_MISS_MS = 60 * 60 * 1000;
+
+function activityFromLink(link: string): string {
+  const match = /^https:\/\/www\.linkedin\.com\/feed\/update\/(urn:li:activity:\d+)\/$/.exec(link);
+  return match?.[1] ?? '';
+}
 
 const SOURCE: SourceDeclaration = { label: 'LinkedIn', icon: 'linkedin', pollIntervalMs: 45_000, pageSize: PAGE };
 
@@ -89,6 +100,58 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       if (found) return found as LinkedInMessage;
     }
     return undefined;
+  }
+
+  /** The open thread's copy of one message, which a reply quotes. */
+  function threadMessage(conversationId: string, messageId: string): LinkedInMessage | undefined {
+    const thread = cache.readThread(ACCOUNT, conversationId);
+    if (!Array.isArray(thread)) return undefined;
+    const found = thread.find(value => {
+      if (!value || typeof value !== 'object') return false;
+      const message = value as LinkedInMessage;
+      return message.messageId === messageId || message.id === messageId;
+    });
+    return found as LinkedInMessage | undefined;
+  }
+
+  /** The panel sees the message. The profile urn stays in the cache, where a reply reads it. */
+  function present(messages: LinkedInMessage[]): OpenResult['messages'] {
+    return messages.map(({ senderUrn: _senderUrn, ...message }) => message);
+  }
+
+  /**
+   * Fills a share card for each post on this page that does not already have one.
+   * One activity at a time. A miss is remembered so the next open does not ask again at once.
+   * The list never calls this.
+   */
+  async function withShares(id: string, messages: LinkedInMessage[]): Promise<LinkedInMessage[]> {
+    const previous = new Map(linkedinMessages({ messages: cache.readThread(ACCOUNT, id) ?? [] }).flatMap(row => row.messageId ? [[row.messageId, row] as const] : []));
+    for (const message of messages) {
+      const activity = message.link ? activityFromLink(message.link) : '';
+      const key = message.messageId;
+      if (!activity || !key) continue;
+      const stored = previous.get(key);
+      if (stored?.share) {
+        message.share = stored.share;
+        if (stored.imageUrl) message.imageUrl = stored.imageUrl;
+        continue;
+      }
+      if (stored?.shareMissAt && Date.now() - stored.shareMissAt < SHARE_MISS_MS) {
+        message.shareMissAt = stored.shareMissAt;
+        continue;
+      }
+      try {
+        const card = await deps.linkedInPage.post(activity);
+        const imageUrl = linkedinCdnUrl(card.imageUrl);
+        const title = card.title.trim().slice(0, 300);
+        const author = card.author.trim().slice(0, 200);
+        message.share = { title, ...(author ? { author } : {}), hasImage: Boolean(imageUrl) };
+        if (imageUrl) message.imageUrl = imageUrl;
+      } catch {
+        message.shareMissAt = Date.now();
+      }
+    }
+    return messages;
   }
 
   return {
@@ -157,10 +220,10 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
 
     async open(id: string, _opts?: OpenOptions): Promise<OpenResult> {
       if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot be opened.');
-      const keep = (): OpenResult => ({ messages: linkedinMessages({ messages: cache.readThread(ACCOUNT, id) ?? [] }) });
+      const keep = (): OpenResult => ({ messages: present(linkedinMessages({ messages: cache.readThread(ACCOUNT, id) ?? [] })) });
       let live: LinkedInMessage[];
       try {
-        live = linkedinMessages(await deps.linkedInPage.thread(id));
+        live = await withShares(id, linkedinMessages(await deps.linkedInPage.thread(id)));
       } catch (error) {
         // A browser that cannot start must not hide messages this plugin already has.
         const cached = keep();
@@ -168,7 +231,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         throw error;
       }
       cache.saveThread(ACCOUNT, id, live);
-      return { messages: live };
+      return { messages: present(live) };
     },
 
     /** A photo is fetched from LinkedIn's CDN; a shared post answers with its link, because it has no thumbnail. */
@@ -176,15 +239,15 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       if (request.kind !== 'message') throw new Error('This account has no attachments.');
       const message = cachedMessage(request.id);
       if (!message) throw new Error('Open this LinkedIn conversation again to show its media.');
+      if (linkedinCdnUrl(message.imageUrl)) return readLinkedInImage(message.imageUrl);
       if (message.link && !message.media) return { dataUrl: '', mime: '', url: message.link };
       if (!message.media) throw new Error('This LinkedIn message carries no media.');
       return readLinkedInImage(message.media.url);
     },
 
     async action(kind: ActionKind, id: string, opts?: ActionOptions): Promise<ActionResult> {
-      // The one change LinkedIn can make from here: the read mark, replayed from the request the
-      // page itself sent for the same menu item. Everything else — a reply, an invitation answer,
-      // an archive — still needs its own recorded action first.
+      // Read marks, reactions, replies, and invitation answers are the requests the page itself
+      // sent. An archive still has no captured action.
       if (CAPABILITIES.invitations && (kind === 'confirm' || kind === 'reject')) {
         // An invitation answer is the same request the page's own button sends: built from the
         // sharedSecret and inviter the read already carried, so any invitation the inbox shows can
@@ -203,12 +266,39 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         if (!outcome.accepted) throw new Error(`LinkedIn did not accept the answer (status ${outcome.status}); the invitation was not ${kind === 'confirm' ? 'accepted' : 'ignored'}.`);
         return { status: kind === 'confirm' ? 'Accepted.' : 'Ignored.' };
       }
-      // No captured reaction request exists, so react stays false and this builds nothing.
-      if (kind === 'react' && !CAPABILITIES.react) throw new Error('This source cannot react to one message. Nothing was sent.');
+      if (CAPABILITIES.react && kind === 'react') {
+        // Set and remove are the two captured reaction actions. A reply is the branch below.
+        if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot take a reaction.');
+        if (opts?.remove === true && !CAPABILITIES.reactRemove) throw new Error('This source cannot remove a reaction. Nothing was sent.');
+        const write = linkedinReactWrite(opts?.messageId, opts?.emoji, opts?.remove === true);
+        if (!write) {
+          if (!isReactionEmoji(opts?.emoji)) throw new Error('That emoji is not one of the four reactions. Nothing was sent.');
+          throw new Error('A reaction needs the message it reacts to. Nothing was sent.');
+        }
+        const outcome = await deps.linkedInPage.replay(write);
+        if (!outcome.accepted) throw new Error(`LinkedIn did not accept the reaction (status ${outcome.status}); it may still have been sent — check the thread before trying again.`);
+        return { status: 'Sent.' };
+      }
       if (CAPABILITIES.send && kind === 'reply') {
-        // A message id is a reply to one message. quoteReply stays false until a capture names that target, so this must not become a conversation send.
-        if (opts?.messageId && !CAPABILITIES.quoteReply) throw new Error('This source cannot reply to one message. Nothing was sent.');
         const text = typeof opts?.text === 'string' ? opts.text.trim() : '';
+        // A message id is a reply to that message. It must not fall through to a plain conversation send.
+        if (opts?.messageId) {
+          if (!isConversationId(id)) throw new Error('That LinkedIn conversation cannot receive a reply.');
+          if (!text) throw new Error('A reply needs the text to send.');
+          const target = threadMessage(id, opts.messageId);
+          const write = target?.messageId && target.senderUrn ? linkedinReplyWrite({
+            conversationUrn: id,
+            text,
+            messageUrn: target.messageId,
+            sentAt: target.date,
+            senderUrn: target.senderUrn,
+            quotedText: target.text,
+          }) : null;
+          if (!write) throw new Error('Open this LinkedIn conversation again before replying to one message.');
+          const outcome = await deps.linkedInPage.replay(write);
+          if (!outcome.accepted) throw new Error(`LinkedIn did not accept the message (status ${outcome.status}); it may still have been sent — check the thread before trying again.`);
+          return { status: 'Sent.' };
+        }
         const write = text ? linkedinSendWrite(id, text) : null;
         if (!write) throw new Error(id.startsWith('urn:li:msg_conversation:') ? 'A reply needs the text to send.' : 'That LinkedIn conversation cannot receive a reply.');
         const outcome = await deps.linkedInPage.replay(write);

@@ -1,6 +1,6 @@
 // U2 — the store the transport needs. What these tests pin: a message that arrived is still readable
 // after a restart with the socket down, the raw envelope answers `getMessage(key)`, a replayed batch
-// adds no row, and `clear_cache` still means what README.md promises.
+// adds no row, and `clear_cache` still clears the stored WhatsApp rows and leaves the account state.
 //
 // No socket, no network: the history fixture below is a captured envelope set, and every write goes
 // through the same `attachIngest` the socket binds to.
