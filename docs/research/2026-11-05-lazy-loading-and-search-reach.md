@@ -1,7 +1,7 @@
 ---
 title: "Lazy loading and search reach: what each source can page by, and what search can see"
 description: "Measured: the panel sees 111 of 699 WhatsApp chats, and search indexes 111 conversations with 999 of 6,186 stored messages. What each source can page by, why the panel already needs no new request shape, what search could reach at what price, and what breaks first."
-status: current
+status: settled
 date: 2026-11-05
 ---
 

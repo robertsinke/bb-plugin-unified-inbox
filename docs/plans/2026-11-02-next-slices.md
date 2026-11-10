@@ -1,6 +1,6 @@
 ---
 title: "Next slices: one toolbox, source adapters, and the writes we turned on"
-status: current
+status: historical
 date: 2026-11-02
 ---
 

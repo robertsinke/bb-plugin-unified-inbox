@@ -24,7 +24,7 @@ A sign-in asks for this scope list:
 
 Enable the People API in the Google Cloud project. Add both contact scopes on the OAuth consent screen.
 
-`_tools/gmail-faces-personal.sh` and `_tools/gmail-faces-business.sh` walk one account each and check the grant. `_tools/gmail-project-move.sh` moves the personal client to its own project. Each script reads the project id from that account's `client_secret.json`.
+`_tools/gmail-faces-personal.sh` and `_tools/gmail-faces-business.sh` walk one account each and check the grant. `_tools/gmail-project-move.sh` moves the personal client to its own project. Each script reads the project id from that account's client secret file.
 
 The settings page is the normal door. The commands below copy an existing `gws` config. They name the two accounts on this machine.
 

@@ -1,5 +1,5 @@
 ---
-status: current
+status: settled
 date: 2026-11-09
 ---
 
