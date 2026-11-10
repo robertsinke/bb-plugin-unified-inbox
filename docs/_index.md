@@ -39,6 +39,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/plans/2026-11-10-001-feat-mute-conversations-plan.md`](plans/2026-11-10-001-feat-mute-conversations-plan.md) | active | 2026-11-10 | The owner can mute any conversation. The row stays in the list. The Decisions plugin is not asked. |
 | [`docs/plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md`](plans/2026-11-09-001-feat-whatsapp-poll-card-plan.md) | active | 2026-11-09 |  |
 | [`docs/plans/2026-11-09-002-feat-marketplace-inbox-ux-plan.md`](plans/2026-11-09-002-feat-marketplace-inbox-ux-plan.md) | active | 2026-11-09 | A new person can connect Gmail, WhatsApp, LinkedIn, and Messages and use the inbox. The store page describes t |
 | [`docs/plans/2026-11-08-001-feat-account-connect-settings-plan.md`](plans/2026-11-08-001-feat-account-connect-settings-plan.md) | active | 2026-11-08 |  |
