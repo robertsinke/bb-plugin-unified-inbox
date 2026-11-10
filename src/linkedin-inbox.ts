@@ -3,7 +3,7 @@ import { sourceAvatarUrl } from './avatar-url.ts';
 import { linkedinCdnUrl } from './linkedin-media.ts';
 import type { MessageMedia } from './adapters/types.ts';
 
-export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string };
+export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string; sentSnippet?: string };
 
 /**
  * A message photo: the marker the inbox renders, plus the CDN URL `media` fetches
@@ -37,7 +37,8 @@ function row(value: unknown): LinkedInRow | null {
   const date = Number(raw.date);
   const sender = text(raw.sender);
   const avatarUrl = sourceAvatarUrl(raw.avatarUrl, 'linkedin');
-  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}) };
+  const mine = raw.fromMe === true && usable.length > 0;
+  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}), ...(mine ? { sentSnippet: usable } : {}) };
 }
 
 /** Inbox rows for LinkedIn conversations and invitations that carry a note, newest first, one row per id. */

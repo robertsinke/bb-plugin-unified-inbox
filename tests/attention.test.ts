@@ -34,6 +34,8 @@ test('a score of 0.7 or more is needed, and every lower score is none', () => {
   const open = { n: 1, text: 'can you reply?', mine: false };
   const done = { n: 2, text: 'Definitely!', mine: true };
   assert.equal(attentionScore([open, done], { [lineKey(open.text, false)]: 0.91, [lineKey(done.text, true)]: 0.09 }), 0.09);
+  assert.equal(attentionScore([open, done], { [lineKey(open.text, false)]: 0.91, [lineKey(done.text, true)]: 0.4 }), 0.4);
+  assert.equal(attentionScore([open, { ...done, text: 'I will send the file' }], { [lineKey(open.text, false)]: 0.1, [lineKey('I will send the file', true)]: 0.8 }), 0.8);
   assert.equal(attentionScore([open], { [lineKey(open.text, false)]: 0.91 }), 0.91);
   const older = Array.from({ length: 10 }, (_, index) => ({ n: index + 1, text: `old ${index}`, mine: false }));
   const recent = Array.from({ length: 8 }, (_, index) => ({ n: index + 11, text: `new ${index}`, mine: false }));
@@ -97,6 +99,7 @@ test('a closing reply you already sent is kept without asking again', async () =
     stateHash: 'old',
     lines: { [lineKey(open.text, false)]: 0.58, [lineKey(done.text, true)]: 0.09 },
     anchor: null,
+    taskAsked: true,
   });
   const watch = watchNewConversations({
     cache,
@@ -196,7 +199,8 @@ test('a new list row is judged once, and opening the thread is not a new message
       assert.ok(Array.isArray(state.messages));
       assert.ok(state.messages.length <= 32);
       asked.push(state.preview);
-      return { answers: { needs_attention: { type: 'noul', noul: 0.91 } } };
+      const key = Object.keys(input.questions)[0];
+      return { answers: { [key]: { type: 'noul', noul: 0.91 } } };
     },
   });
   try {
@@ -212,7 +216,7 @@ test('a new list row is judged once, and opening the thread is not a new message
     cache.saveThread('gmail-personal', 't1', [{ sender: 'Ada', text: 'please reply' }]);
     cache.save('gmail-personal', [row('please reply')]);
     await settle();
-    assert.deepEqual(asked, ['already here', 'please reply'], 'the same conversation is not asked again');
+    assert.deepEqual(asked, ['already here', 'please reply', 'please reply'], 'the thread replaces a snippet that had no speaker');
   } finally {
     watch.stop();
     db.close();
@@ -696,6 +700,44 @@ test('a push that throws leaves the needed verdict stored', async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(store.get('whatsapp', 'chat')?.verdict, 'yes');
     assert.match(lines.join('\n'), /plugin is not installed/);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
+test('your latest line is asked as a task you left, and that score is the conversation', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const open = { sender: 'Joseph', text: 'Can you take a look?', fromMe: false };
+  const mine = { sender: 'You', text: 'I will read it today.', fromMe: true };
+  cache.save('linkedin', [{ account: 'linkedin', id: 'chat', title: 'Omar', preview: mine.text, date: 2, unread: false, sentSnippet: mine.text }]);
+  cache.saveThread('linkedin', 'chat', [open, mine]);
+  store.put('linkedin', 'chat', {
+    verdict: 'yes',
+    noul: 0.95,
+    stateHash: 'old',
+    lines: { [lineKey(open.text, false)]: 0.91, [lineKey(mine.text, true)]: 0.95 },
+    anchor: null,
+  });
+  let criteria: { true: string; false: string } | undefined;
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    ask: async input => {
+      const keys = Object.keys(input.questions);
+      assert.deepEqual(keys, ['line_2']);
+      criteria = input.questions.line_2.criteria;
+      return { answers: { line_2: { noul: 0.12 } } };
+    },
+  });
+  try {
+    await settle();
+    assert.match(criteria?.false ?? '', /other person/);
+    assert.equal(store.get('linkedin', 'chat')?.verdict, 'no');
+    assert.equal(store.get('linkedin', 'chat')?.noul, 0.12);
   } finally {
     watch.stop();
     db.close();

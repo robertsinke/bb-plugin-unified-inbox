@@ -174,8 +174,9 @@ const BODY = `
         const body = previewOf(item);
         if (!key || !body) continue;
         const at = Number(item.deliveredAt || 0);
+        const mine = identityKey(item['*sender'] || item['*actor']) === meKey;
         const seen = previews.get(key);
-        if (!seen || at >= seen.at) previews.set(key, { at, body });
+        if (!seen || at >= seen.at) previews.set(key, { at, body, mine });
       }
       return previews;
     };
@@ -187,8 +188,12 @@ const BODY = `
         const others = (e['*conversationParticipants'] || []).filter(ref => { const key = identityKey(ref); return key && key !== meKey; });
         const people = others.map(ref => names.get(identityKey(ref))).filter(Boolean).join(', ');
         const avatarUrl = others.length === 1 ? avatars.get(identityKey(others[0])) : '';
-        const preview = String(e.descriptionText || '') || previews.get(String(e.entityUrn))?.body || '';
-        return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}) };
+        const latest = previews.get(String(e.entityUrn));
+        const described = String(e.descriptionText || '').trim();
+        const preview = described || latest?.body || '';
+        // The list names the other person even when the newest line is yours. The flag is the speaker.
+        const ownPreview = latest?.mine === true && preview !== '' && (!described || described === latest.body || latest.body.startsWith(described) || described.startsWith(latest.body));
+        return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}), ...(ownPreview ? { fromMe: true } : {}) };
       });
     };
 

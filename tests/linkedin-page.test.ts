@@ -188,6 +188,28 @@ test('the newest conversation page is read exactly as it was: one by-sync-token 
   assert.equal(requested.filter(url => url.includes('nextCursor')).length, 0, 'and it names no cursor');
 });
 
+test('a newest line you sent is marked on the list row', async () => {
+  const expression = linkedinPageExpression({ mode: 'list' });
+  const text = 'I will read it today.';
+  const conversation = olderConversation(NEWEST_ID, { descriptionText: text });
+  const own = {
+    $type: 'com.linkedin.messenger.Message',
+    '*conversation': NEWEST_ID,
+    '*sender': 'urn:li:fsd_profile:ACoAAme',
+    deliveredAt: 1_700_000_000_000,
+    body: { text },
+    renderContent: [{}],
+  };
+  const { payload } = await readOlder(expression, url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes('messengerConversations')) return { data: {}, included: [conversation, own] };
+    if (url.includes('invitationViews')) return { included: [] };
+    throw new Error(`unexpected URL ${url}`);
+  });
+  assert.equal(payload.conversations[0].fromMe, true);
+  assert.equal(payload.conversations[0].preview, text);
+});
+
 test('an older page asks the pinned paged query for the cursor it was handed', async () => {
   const expression = linkedinPageExpression({ mode: 'older', cursor: 'REVTQ0VORElORyYxNzkxJjItYWJj+/=', count: 20 });
   const { payload, requested } = await readOlder(expression, url => {

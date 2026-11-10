@@ -65,14 +65,12 @@ export interface AttentionWording {
   no: string;
 }
 
-/** The sentences used when Decisions has not saved a question, or cannot be reached. */
+/** Fallback when Decisions cannot be reached. The same sentences are the decisions built-in question, rewritten on each start. */
 export const DEFAULT_WORDING: AttentionWording = {
-  question: 'Messages are in order. Look only at message {n}. Does that one message still need the reader to act?',
-  yes: 'It asks the reader to reply, decide, pay, or fix something, and no later message settles that point.',
-  no: 'It does not ask the reader. Their own message does not ask them, unless it leaves a task they have not done. A later message settles it when the other person answers, or when the reader replies. Read or unread is not evidence.',
+  question: 'Messages are in order. Look only at message {n}. mine means the reader sent it. Does that message leave the reader with the next action?',
+  yes: 'The next action belongs to the reader. The other person asked them to reply, decide, pay, or fix something, and no later message settles that. Or the reader sent it and it leaves a task they have not done.',
+  no: 'The next action does not belong to the reader. A message the reader sent gives the next action to the other person. A later message settles an earlier ask when the other person answers or the reader replies. Read or unread is not evidence.',
 };
-
-const PREVIEW_INSTRUCTION = 'Look only at the preview. Does that one line still need the reader to act?';
 
 export function wordingId(wording: AttentionWording): string {
   return createHash('sha256').update(JSON.stringify({
@@ -95,19 +93,13 @@ function sentence(value: string | undefined, fallback: string): string {
   return text ? text.slice(0, 2_000) : fallback;
 }
 
-function sameWording(left: AttentionWording, right: AttentionWording): boolean {
-  return left.question === right.question && left.yes === right.yes && left.no === right.no;
-}
-
 const lineQuestion = (n: number, preview: boolean, wording: AttentionWording) => ({
   type: 'noul' as const,
-  instructions: preview && sameWording(wording, DEFAULT_WORDING)
-    ? PREVIEW_INSTRUCTION
-    : wording.question.replaceAll('{n}', preview ? 'the preview' : String(n)),
+  instructions: wording.question.replaceAll('{n}', preview ? 'the preview' : String(n)),
   criteria: { true: wording.yes, false: wording.no },
 });
 
-/** One yes/no per line. The inbox keeps the highest score, so one line that needs a reply is enough. */
+/** One yes/no per line. The ask uses the saved question for every line, including one you sent. */
 export function attentionQuestions(
   messageNumbers: number[],
   preview = false,
@@ -161,11 +153,14 @@ export function focusMessages<T extends { text: string; mine: boolean; n: number
   return chosen.map((message, index) => ({ ...message, n: index + 1 }));
 }
 
-/** The highest open line. A reply of yours that leaves nothing to do closes the conversation. */
+/**
+ * The next action is yours when their latest line still asks you: those lines keep the highest score.
+ * Your latest line settles their asks. The conversation score is that line, high only when it leaves you a task.
+ */
 export function attentionScore(messages: ScoredLine[], scores: Record<string, number>): number {
   const last = messages.at(-1);
   const lastScore = last ? scores[lineKey(last.text, last.mine)] : undefined;
-  if (last?.mine && lastScore !== undefined && lastScore <= NO_AT) return lastScore;
+  if (last?.mine && lastScore !== undefined) return lastScore;
   const values = messages.flatMap(message => {
     const score = scores[lineKey(message.text, message.mine)];
     return typeof score === 'number' ? [score] : [];
@@ -232,6 +227,8 @@ export interface AttentionRecord {
   dismissed?: boolean;
   /** Wording these scores were asked with. Missing means the original sentences. */
   wordingId?: string | null;
+  /** Your latest line was asked as a task you left. Missing on rows scored before that question. */
+  taskAsked?: boolean;
 }
 
 export interface AttentionStore {
@@ -253,10 +250,10 @@ function readScores(value: unknown): Record<string, number> | null {
   return scores;
 }
 
-function parseLines(raw: string | null): { scores: Record<string, number>; anchor: string | null; held: { noul: number; scores: Record<string, number> } | null; q: string | null } | null {
+function parseLines(raw: string | null): { scores: Record<string, number>; anchor: string | null; held: { noul: number; scores: Record<string, number> } | null; q: string | null; task: boolean } | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { v?: unknown; scores?: unknown; anchor?: unknown; held?: unknown; q?: unknown };
+    const parsed = JSON.parse(raw) as { v?: unknown; scores?: unknown; anchor?: unknown; held?: unknown; q?: unknown; task?: unknown };
     if (parsed.v !== RULES) return null;
     const scores = readScores(parsed.scores) ?? {};
     const anchor = typeof parsed.anchor === 'string' && parsed.anchor.length > 0 ? parsed.anchor : null;
@@ -266,13 +263,13 @@ function parseLines(raw: string | null): { scores: Record<string, number>; ancho
       : null;
     if (!parsed.scores && !held) return null;
     const q = typeof parsed.q === 'string' && parsed.q.length > 0 ? parsed.q : null;
-    return { scores, anchor, held, q };
+    return { scores, anchor, held, q, task: parsed.task === 1 };
   } catch {
     return null;
   }
 }
 
-function packLines(scores: Record<string, number>, anchor: string | null, q: string | null, held?: { noul: number; scores: Record<string, number> }): string | null {
+function packLines(scores: Record<string, number>, anchor: string | null, q: string | null, held?: { noul: number; scores: Record<string, number> }, taskAsked = false): string | null {
   if (Object.keys(scores).length === 0 && !held) return null;
   return JSON.stringify({
     v: RULES,
@@ -280,6 +277,7 @@ function packLines(scores: Record<string, number>, anchor: string | null, q: str
     scores,
     ...(q ? { q } : {}),
     ...(held ? { held } : {}),
+    ...(taskAsked ? { task: 1 } : {}),
   });
 }
 
@@ -303,11 +301,11 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
       const row = read.get(account, id) as { verdict: string; noul: number; stateHash: string; lines: string | null } | undefined;
       if (!row || (row.verdict !== 'yes' && row.verdict !== 'no' && row.verdict !== 'unsettled')) return null;
       const parsed = parseLines(row.lines);
-      return { verdict: attentionVerdict(row.noul), noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null };
+      return { verdict: attentionVerdict(row.noul), noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null, taskAsked: parsed?.task === true };
     },
     put(account, id, record) {
       const lines = record.lines && Object.keys(record.lines).length > 0
-        ? packLines(record.lines, record.anchor, record.wordingId ?? null)
+        ? packLines(record.lines, record.anchor, record.wordingId ?? null, undefined, record.taskAsked === true)
         : null;
       write.run(account, id, record.verdict, record.noul, record.stateHash, lines);
     },
@@ -321,6 +319,7 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
         parsed?.anchor ?? null,
         parsed?.q ?? null,
         { noul: row.noul, scores },
+        parsed?.task === true,
       );
       write.run(account, id, 'no', NO_AT, row.stateHash, lines);
       return true;
@@ -330,7 +329,7 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
       const parsed = row ? parseLines(row.lines) : null;
       if (!row || !parsed?.held) return false;
       const scores = parsed.held.scores;
-      const lines = packLines(scores, parsed.anchor, parsed.q);
+      const lines = packLines(scores, parsed.anchor, parsed.q, undefined, parsed.task);
       write.run(account, id, attentionVerdict(parsed.held.noul), parsed.held.noul, row.stateHash, lines);
       return true;
     },
@@ -460,24 +459,34 @@ export function watchNewConversations(options: {
     const changed = prior != null && saved != null && (prior.wordingId ?? wordingId(DEFAULT_WORDING)) !== currentId;
     const focused = focusMessages(lines, saved, prior?.anchor ?? null);
     state.messages = focused;
+    // agg 4: your latest line is the conversation score, so a hash from agg 3 is asked again.
     const stateHash = createHash('sha256').update(JSON.stringify(custom
-      ? { rules: RULES, agg: 3, q: currentId, state }
-      : { rules: RULES, agg: 3, state })).digest('hex');
+      ? { rules: RULES, agg: 4, q: currentId, state }
+      : { rules: RULES, agg: 4, state })).digest('hex');
     if (prior?.stateHash === stateHash && !changed) return;
     const anchor = focused.length === 0
       ? null
       : prior?.anchor && focused.some(line => lineKey(line.text, line.mine) === prior.anchor)
         ? prior.anchor
         : lineKey(focused[0].text, focused[0].mine);
-    const covered = !changed && focused.length > 0 && !!saved && focused.every(line => typeof saved[lineKey(line.text, line.mine)] === 'number');
+    const last = focused.at(-1);
+    const ownKey = last?.mine === true ? lineKey(last.text, true) : '';
+    // A stored score from the old question treated an ask you sent as your task. Ask that line once.
+    const refreshOwn = ownKey !== '' && prior?.taskAsked !== true && !!saved && typeof saved[ownKey] === 'number';
+    const covered = !changed && !refreshOwn && focused.length > 0 && !!saved && focused.every(line => typeof saved[lineKey(line.text, line.mine)] === 'number');
+    const taskAsked = last?.mine === true || prior?.taskAsked === true;
     if (covered && saved) {
       const noul = attentionScore(focused, saved);
       const scores: Record<string, number> = {};
       for (const line of focused) scores[lineKey(line.text, line.mine)] = saved[lineKey(line.text, line.mine)] as number;
-      publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null }, row);
+      publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row);
       return;
     }
     const { ask, kept } = focused.length === 0 ? { ask: [] as number[], kept: {} } : linesToScore(focused, changed ? null : saved);
+    if (refreshOwn && ownKey !== '' && Object.hasOwn(kept, ownKey)) {
+      delete kept[ownKey];
+      if (last && !ask.includes(last.n)) ask.push(last.n);
+    }
     const answers = lines.length === 0 || ask.length > 0
       ? (await options.ask({ state, questions: attentionQuestions(ask, lines.length === 0, wording) })).answers
       : {};
@@ -497,7 +506,7 @@ export function watchNewConversations(options: {
     const scored = Object.values(scores);
     if (scored.length === 0) throw new Error('The decision model returned no yes/no answer.');
     const noul = attentionScore(focused, scores);
-    publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null }, row);
+    publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row);
   }
 
   function publish(account: Account, id: string, previous: AttentionVerdict | null, record: AttentionRecord, item: { title?: string; preview?: string } | undefined): void {
@@ -562,6 +571,8 @@ export function watchNewConversations(options: {
       return;
     }
     if (change.kind === 'items') noteItems(change.account);
+    // A snippet score has no speaker. The first stored thread is what names who sent the line.
+    if (change.kind === 'thread' && options.store.get(change.account, change.id)?.lines == null) schedule(change.account, change.id);
   };
   options.cache.onChange(onChange);
 
