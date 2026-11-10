@@ -1,6 +1,6 @@
 export type GmailRevision = { id: string; historyId: string; preview: string };
-/** `latest-v1`: the row's time and preview are the newest message, including a sent reply. */
-export const GMAIL_INBOX_SUMMARY_VERSION = 'latest-v1';
+/** `latest-v2`: a mailbox with Cora's important labels or Next Brief lists those threads as well as the inbox. `latest-v1` was inbox-only. */
+export const GMAIL_INBOX_SUMMARY_VERSION = 'latest-v2';
 
 export function gmailSummaryCursor(historyId: string): string {
   return `${GMAIL_INBOX_SUMMARY_VERSION}:${historyId}`;

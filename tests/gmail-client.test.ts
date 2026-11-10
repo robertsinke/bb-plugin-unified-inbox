@@ -66,11 +66,11 @@ test('threadsList puts labelIds, maxResults and pageToken in the query and retur
   const page = { threads: [{ id: 't1', historyId: '99', snippet: 'hello' }], resultSizeEstimate: 42, nextPageToken: 'p2' };
   const { client, calls, tokenCalls } = clientFor([{ body: page }]);
 
-  const answer = await client.threadsList({ labelIds: ['INBOX', 'UNREAD'], maxResults: 10, pageToken: 'p1' });
+  const answer = await client.threadsList({ q: 'in:inbox', labelIds: ['INBOX', 'UNREAD'], maxResults: 10, pageToken: 'p1' });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'GET');
-  assert.equal(calls[0].url, `${API}/users/me/threads?labelIds=INBOX&labelIds=UNREAD&maxResults=10&pageToken=p1`);
+  assert.equal(calls[0].url, `${API}/users/me/threads?q=in%3Ainbox&labelIds=INBOX&labelIds=UNREAD&maxResults=10&pageToken=p1`);
   assert.equal(calls[0].headers.authorization, 'Bearer token-cached');
   assert.equal(calls[0].headers['content-type'], undefined);
   assert.equal(calls[0].body, undefined);

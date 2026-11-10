@@ -38,7 +38,7 @@ function thread(id: string, subject: string, date: number) {
 
 type GmailCall = { method: string; input?: any };
 
-function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: Partial<WhatsAppTransport>) {
+function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: Partial<WhatsAppTransport>, labels: { name: string }[] = []) {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
   const whatsappCalls: string[] = [];
@@ -55,6 +55,7 @@ function fixture(gmail: (call: GmailCall) => unknown, whatsapp?: Partial<WhatsAp
     gmailFaces: () => ({ url: () => undefined }),
     gmail: () => ({
       profile: client('profile'),
+      labelsList: async () => ({ labels }),
       threadsList: client('threadsList'),
       threadGet: client('threadGet'),
       threadsModify: client('threadsModify'),
@@ -91,6 +92,7 @@ test('Gmail pages with its own token, and an older page leaves the cache on the 
     const adapter = createGmailAdapter(f.deps, 'gmail-personal');
 
     const first = await adapter.list();
+    assert.deepEqual(input(f.calls.gmail.find(call => call.method === 'threadsList')!).labelIds, ['INBOX'], 'a mailbox without those labels stays on the inbox');
     assert.deepEqual(first.items.map(item => item.id), ['t1'], 'the newest page is what the list shows');
     assert.equal(first.cursor, 'page-2', 'Gmail says a page exists beyond the newest rows');
     assert.deepEqual(f.cache.list().map(item => item.id), ['t1'], 'the cache still holds the newest page');
@@ -190,6 +192,33 @@ test('WhatsApp pages by the row offset the transport answers, and an older page 
     assert.equal(older.cursor, undefined, 'the last page offers nothing older');
     assert.deepEqual(asked.at(-1), { cursor: '2', limit: 50 }, 'the cursor travels back as the offset the store pages by');
     assert.deepEqual(f.cache.list().map(item => item.id), ['a@s.whatsapp.net', 'b@s.whatsapp.net'], 'an older page does not rewrite the cache');
+  } finally {
+    f.close();
+  }
+});
+
+test('a Gmail list includes Cora important mail that left the inbox, and an archive stays off it', async () => {
+  const f = fixture(call => {
+    if (call.method === 'profile') return { historyId: '77' };
+    if (call.method === 'threadsList') return { threads: [{ id: 't1', historyId: '77', snippet: 'Newest' }, { id: 't2', historyId: '78', snippet: 'Filed' }] };
+    if (call.method === 'threadGet') return thread(input(call).id, input(call).id === 't1' ? 'Newest' : 'Filed', 2);
+    if (call.method === 'threadsModify') return {};
+    throw new Error(`unexpected Gmail call: ${call.method}`);
+  }, undefined, [{ name: 'Cora/Important Info' }, { name: '📥 Next Brief' }, { name: 'Cora/Newsletter' }]);
+  try {
+    const adapter = createGmailAdapter(f.deps, 'gmail-personal');
+    const listed = await adapter.list();
+    const query = input(f.calls.gmail.find(call => call.method === 'threadsList')!);
+    assert.equal(query.labelIds, undefined);
+    assert.match(query.q, /in:inbox/);
+    assert.match(query.q, /label:cora-important-info/);
+    assert.match(query.q, /label:📥-next-brief/);
+    assert.equal(query.q.includes('newsletter'), false);
+    assert.deepEqual(listed.items.map(item => item.id), ['t1', 't2']);
+    await adapter.action('archive', 't2');
+    const again = await adapter.list();
+    assert.deepEqual(again.items.map(item => item.id), ['t1']);
+    assert.deepEqual(f.cache.list().map(item => item.id), ['t1']);
   } finally {
     f.close();
   }

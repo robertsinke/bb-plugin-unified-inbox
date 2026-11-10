@@ -63,6 +63,7 @@ export interface GmailCall {
 /** The label each typed call is recorded under: the endpoint the suite has always named. */
 const GMAIL_LABEL: Record<keyof GmailClient, string> = {
   profile: 'getProfile',
+  labelsList: 'labels:list',
   threadsList: 'threads:list',
   threadGet: 'threads:get',
   threadsModify: 'threads:modify',
@@ -73,6 +74,7 @@ const GMAIL_LABEL: Record<keyof GmailClient, string> = {
 
 function gmailResponse(call: GmailCall): unknown {
   if (call.method === 'profile') return { historyId: '77' };
+  if (call.method === 'labelsList') return { labels: [] };
   if (call.method === 'threadsList') return { threads: [{ id: 't1', historyId: '77', snippet: 'See you at six' }] };
   if (call.method === 'threadGet') return GMAIL_THREAD;
   if (call.method === 'threadsModify') return {};
@@ -241,6 +243,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       };
       return {
         profile: async () => answer({ method: 'profile' }),
+        labelsList: async () => ({ labels: [] }),
         threadsList: async (input = {}) => answer({ method: 'threadsList', input }),
         threadGet: async input => answer({ method: 'threadGet', input }),
         threadsModify: async input => answer({ method: 'threadsModify', input }),

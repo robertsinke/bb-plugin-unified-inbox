@@ -68,8 +68,8 @@ export interface AttentionWording {
 /** Fallback when Decisions cannot be reached. The same sentences are the decisions built-in question, rewritten on each start. */
 export const DEFAULT_WORDING: AttentionWording = {
   question: 'Messages are in order. Look only at message {n}. mine means the reader sent it. Does that message leave the reader with the next action?',
-  yes: 'The next action belongs to the reader. The other person asked them to reply, decide, pay, or fix something, and no later message settles that. Or the reader sent it and it leaves a task they have not done.',
-  no: 'The next action does not belong to the reader. A message the reader sent gives the next action to the other person. A later message settles an earlier ask when the other person answers or the reader replies. Read or unread is not evidence.',
+  yes: 'The next action belongs to the reader. The other person asked them to reply, decide, pay, or fix something, and no later message settles that. A message the reader sent is yes only when it promises work the reader has not done yet, such as sending a file or an answer the reader still owes.',
+  no: 'The next action does not belong to the reader. A message the reader sent gives the next action to the other person. A follow-up, a proposed time, and asking them to let the reader know are their action. Waiting for their answer is not a task the reader still has. A later message settles an earlier ask. Read or unread is not evidence.',
 };
 
 export function wordingId(wording: AttentionWording): string {
@@ -250,7 +250,7 @@ function readScores(value: unknown): Record<string, number> | null {
   return scores;
 }
 
-function parseLines(raw: string | null): { scores: Record<string, number>; anchor: string | null; held: { noul: number; scores: Record<string, number> } | null; q: string | null; task: boolean } | null {
+function parseLines(raw: string | null): { scores: Record<string, number>; anchor: string | null; held: { noul: number; scores: Record<string, number> } | null; q: string | null; task: number } | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { v?: unknown; scores?: unknown; anchor?: unknown; held?: unknown; q?: unknown; task?: unknown };
@@ -263,13 +263,14 @@ function parseLines(raw: string | null): { scores: Record<string, number>; ancho
       : null;
     if (!parsed.scores && !held) return null;
     const q = typeof parsed.q === 'string' && parsed.q.length > 0 ? parsed.q : null;
-    return { scores, anchor, held, q, task: parsed.task === 1 };
+    const task = parsed.task === 2 ? 2 : parsed.task === 1 ? 1 : 0;
+    return { scores, anchor, held, q, task };
   } catch {
     return null;
   }
 }
 
-function packLines(scores: Record<string, number>, anchor: string | null, q: string | null, held?: { noul: number; scores: Record<string, number> }, taskAsked = false): string | null {
+function packLines(scores: Record<string, number>, anchor: string | null, q: string | null, held?: { noul: number; scores: Record<string, number> }, task = 0): string | null {
   if (Object.keys(scores).length === 0 && !held) return null;
   return JSON.stringify({
     v: RULES,
@@ -277,7 +278,8 @@ function packLines(scores: Record<string, number>, anchor: string | null, q: str
     scores,
     ...(q ? { q } : {}),
     ...(held ? { held } : {}),
-    ...(taskAsked ? { task: 1 } : {}),
+    // task 1 scored a follow-up you sent as your task. task 2 asks that line again under the later sentences.
+    ...(task > 0 ? { task } : {}),
   });
 }
 
@@ -301,11 +303,11 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
       const row = read.get(account, id) as { verdict: string; noul: number; stateHash: string; lines: string | null } | undefined;
       if (!row || (row.verdict !== 'yes' && row.verdict !== 'no' && row.verdict !== 'unsettled')) return null;
       const parsed = parseLines(row.lines);
-      return { verdict: attentionVerdict(row.noul), noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null, taskAsked: parsed?.task === true };
+      return { verdict: attentionVerdict(row.noul), noul: row.noul, stateHash: row.stateHash, lines: parsed?.scores ?? null, anchor: parsed?.anchor ?? null, dismissed: parsed?.held != null, wordingId: parsed?.q ?? null, taskAsked: parsed?.task === 2 };
     },
     put(account, id, record) {
       const lines = record.lines && Object.keys(record.lines).length > 0
-        ? packLines(record.lines, record.anchor, record.wordingId ?? null, undefined, record.taskAsked === true)
+        ? packLines(record.lines, record.anchor, record.wordingId ?? null, undefined, record.taskAsked === true ? 2 : 0)
         : null;
       write.run(account, id, record.verdict, record.noul, record.stateHash, lines);
     },
@@ -319,7 +321,7 @@ export function createAttentionStore(db: Database.Database): AttentionStore {
         parsed?.anchor ?? null,
         parsed?.q ?? null,
         { noul: row.noul, scores },
-        parsed?.task === true,
+        parsed?.task ?? 0,
       );
       write.run(account, id, 'no', NO_AT, row.stateHash, lines);
       return true;

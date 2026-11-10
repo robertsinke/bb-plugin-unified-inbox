@@ -98,7 +98,7 @@ function describeFailure(body: unknown, text: string): { reason?: string; messag
 function unitsFor(request: Request): number {
   const path = request.path;
   const format = request.query?.get('format');
-  if (path === '/users/me/profile') return 1;
+  if (path === '/users/me/profile' || path === '/users/me/labels') return 1;
   if (path === '/users/me/threads') return 10;
   if (path.endsWith('/modify')) return 10;
   if (path.endsWith('/send')) return 100;
@@ -185,10 +185,12 @@ export function createGmailClient(options: GmailClientOptions): GmailClient {
   return {
     profile: () => call({ method: 'GET', path: '/users/me/profile' }),
 
+    labelsList: () => call({ method: 'GET', path: '/users/me/labels' }),
+
     threadsList: (input = {}) => call({
       method: 'GET',
       path: '/users/me/threads',
-      query: query([['labelIds', input.labelIds], ['maxResults', input.maxResults], ['pageToken', input.pageToken]]),
+      query: query([['q', input.q], ['labelIds', input.labelIds], ['maxResults', input.maxResults], ['pageToken', input.pageToken]]),
     }),
 
     threadGet: input => call(readPath('threads', input)),

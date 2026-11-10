@@ -706,6 +706,41 @@ test('a push that throws leaves the needed verdict stored', async () => {
   }
 });
 
+test('a follow-up you sent that was scored as your task is asked again', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const mine = { sender: 'You', text: 'Let me know what works for you this week.', fromMe: true };
+  cache.save('linkedin', [{ account: 'linkedin', id: 'chat', title: 'Dylan', preview: mine.text, date: 2, unread: false, sentSnippet: mine.text }]);
+  cache.saveThread('linkedin', 'chat', [mine]);
+  store.put('linkedin', 'chat', {
+    verdict: 'yes',
+    noul: 0.75,
+    stateHash: 'old',
+    lines: { [lineKey(mine.text, true)]: 0.75 },
+    anchor: null,
+    taskAsked: true,
+  });
+  db.prepare(`UPDATE inbox_attention SET lines = json_set(lines, '$.task', 1) WHERE account = 'linkedin' AND id = 'chat'`).run();
+  const watch = watchNewConversations({
+    cache,
+    store,
+    debounceMs: 0,
+    ask: async input => {
+      assert.deepEqual(Object.keys(input.questions), ['line_1']);
+      return { answers: { line_1: { noul: 0.12 } } };
+    },
+  });
+  try {
+    await settle();
+    assert.equal(store.get('linkedin', 'chat')?.verdict, 'no');
+    assert.equal(store.get('linkedin', 'chat')?.noul, 0.12);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
 test('your latest line is asked as a task you left, and that score is the conversation', async () => {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);
@@ -735,7 +770,7 @@ test('your latest line is asked as a task you left, and that score is the conver
   });
   try {
     await settle();
-    assert.match(criteria?.false ?? '', /other person/);
+    assert.match(criteria?.false ?? '', /let the reader know/);
     assert.equal(store.get('linkedin', 'chat')?.verdict, 'no');
     assert.equal(store.get('linkedin', 'chat')?.noul, 0.12);
   } finally {

@@ -130,7 +130,8 @@ export interface GmailReadInput {
  */
 export interface GmailClient {
   profile(): Promise<GmailProfile>;
-  threadsList(input?: { labelIds?: string[]; maxResults?: number; pageToken?: string }): Promise<GmailThreadPage>;
+  labelsList(): Promise<{ labels?: { name?: string }[] }>;
+  threadsList(input?: { q?: string; labelIds?: string[]; maxResults?: number; pageToken?: string }): Promise<GmailThreadPage>;
   threadGet(input: GmailReadInput): Promise<GmailThread>;
   threadsModify(input: { id: string; addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<GmailThread>;
   messageGet(input: GmailReadInput): Promise<GmailMessage>;

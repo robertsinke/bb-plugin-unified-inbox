@@ -68,6 +68,7 @@ function fixture(sendReply: any = { id: 'm-sent' }) {
     cache,
     gmail: account => ({
       profile: async () => { calls.push(`gmail:${account}:getProfile`); return gmail({ method: 'profile' }); },
+      labelsList: async () => ({ labels: [] }),
       threadsList: async input => {
         calls.push(`gmail:${account}:threads:list`);
         return gmail({ method: 'threadsList', input });

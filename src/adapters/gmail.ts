@@ -49,6 +49,17 @@ const CAPABILITIES: Capabilities = { send: true, markRead: true, archive: true, 
  */
 const GMAIL_PACE = { icon: 'gmail' as const, pollIntervalMs: 180_000, pageSize: 10 };
 
+/** Cora files mail here and then removes INBOX. The names are Cora's, not Gmail label ids. */
+const CORA_LISTED = new Set([
+  'Cora/Important Info', 'Cora/Important Context', 'Cora/Important Draft', 'Cora/Important Sop',
+  '📥 Next Brief',
+]);
+
+/** Gmail search spells "Cora/Important Info" as label:cora-important-info, and "📥 Next Brief" as label:📥-next-brief. */
+function coraLabelTerm(name: string): string {
+  return `label:${name.trim().toLowerCase().replace(/[\s/]+/g, '-')}`;
+}
+
 /** Every Gmail mailbox, including a legacy id that has not been renamed, uses this pace. */
 export function gmailSource(account: string): SourceDeclaration {
   if (account === 'gmail-personal') return { label: 'Personal Gmail', ...GMAIL_PACE };
@@ -116,6 +127,20 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
   }
 
   const stored = () => (cache.list() as Conversation[]).filter(item => item.account === account);
+  let listFilter: { q?: string; labelIds?: string[] } | undefined;
+
+  /** Inbox, plus Cora's important labels and Next Brief when this mailbox has them. The page token belongs to that same query. */
+  async function gmailListInput(limit: number, pageToken?: string) {
+    if (!listFilter) {
+      const listed = await gmail(() => mail.labelsList());
+      const terms = (listed.labels ?? []).flatMap(label => {
+        const name = String(label.name ?? '');
+        return CORA_LISTED.has(name) ? [coraLabelTerm(name)] : [];
+      });
+      listFilter = terms.length ? { q: ['in:inbox', ...terms].join(' OR ') } : { labelIds: ['INBOX'] };
+    }
+    return { ...listFilter, maxResults: limit, ...(pageToken ? { pageToken } : {}) };
+  }
 
   async function messageHtml(messageId: string, payload: unknown): Promise<string | undefined> {
     const bodies = pickGmailBodies(payload as Parameters<typeof pickGmailBodies>[0]);
@@ -189,23 +214,30 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
       return await readThreads(limit, cursor, storedItems);
     } catch (cause) {
       // A pause keeps the page the owner already has. An empty cache still says why the read failed.
-      if (quotaStop(cause) && !cursor && storedItems.length) return { items: storedItems.slice(0, limit).map(withFace) };
+      if (quotaStop(cause) && !cursor && storedItems.length) {
+        const hidden = new Set(cache.archived(account));
+        return { items: storedItems.filter(item => !hidden.has(item.id)).slice(0, limit).map(withFace) };
+      }
       if (quotaStop(cause)) throw scrub(cause);
       throw cause;
     }
   }
 
   async function readThreads(limit: number, cursor: string | undefined, storedItems: Conversation[]): Promise<{ items: Conversation[]; cursor?: string }> {
-    const previous = new Map(storedItems.map(item => [item.id, item]));
+    const hidden = new Set(cache.archived(account));
+    const visible = storedItems.filter(item => !hidden.has(item.id));
+    const previous = new Map(visible.map(item => [item.id, item]));
     // An older page is a read only. The cache holds "the newest rows as of the last full
     // refresh", so writing a second page into it would make the next refresh look like the
     // inbox lost rows — and each refresh replaces that account's entries wholesale anyway.
     if (cursor) {
-      const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit, pageToken: cursor }));
+      const older = await gmailListInput(limit, cursor);
+      const page = await gmail(() => mail.threadsList(older));
       // The listing is an id and a snippet. Reading each thread here is a burst of `threads.get`,
       // and that burst is what hits the per-minute quota. The row stays a snippet until it is on screen.
       const items = (page.threads ?? []).map((entry: any) => {
         const id = String(entry.id);
+        if (hidden.has(id)) return null;
         const known = previous.get(id);
         if (known?.sender) return known;
         return {
@@ -217,7 +249,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
           unread: false,
           listedOnly: true as const,
         };
-      });
+      }).filter((item): item is Conversation => item !== null);
       return { items: items.map(withFace), ...nextCursor(page) };
     }
     for (const id of cache.heldReads(account)) {
@@ -233,11 +265,16 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
     const historyId = String(profile.historyId ?? '');
     // The listing runs even when the cached rows are still current, because it is what says
     // whether a page exists beyond this one: "show older" is offered on evidence, not guessed.
-    const page = await gmail(() => mail.threadsList({ labelIds: ['INBOX'], maxResults: limit }));
+    const newest = await gmailListInput(limit);
+    const page = await gmail(() => mail.threadsList(newest));
     const next = nextCursor(page);
-    const complete = storedItems.length && storedItems.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined && item.senderAddress !== undefined);
-    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete) return { items: storedItems.slice(0, limit).map(withFace), ...next };
-    const listed = (page.threads ?? []).map((entry: any) => ({ id: String(entry.id), historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }));
+    const complete = visible.length && visible.slice(0, limit).every(item => item.sender && item.preview && item.recipients !== undefined && item.attachments !== undefined && item.senderAddress !== undefined);
+    // shortcut: an archived row leaves a short page, upgrade when the list must stay full
+    if (gmailCursorUnchanged(cache.cursor(account), gmailSummaryCursor(historyId)) && complete && storedItems.every(item => !hidden.has(item.id))) return { items: visible.slice(0, limit).map(withFace), ...next };
+    const listed = (page.threads ?? []).flatMap((entry: any) => {
+      const id = String(entry.id);
+      return hidden.has(id) ? [] : [{ id, historyId: String(entry.historyId ?? ''), snippet: String(entry.snippet ?? '') }];
+    });
     const changed = new Set<string>(gmailInboxIdsToFetch(cache.cursor(account), cache.revisions(account), listed));
     for (const entry of listed) {
       const known = previous.get(entry.id);
@@ -355,6 +392,7 @@ export function createGmailAdapter(deps: RegistryDeps, account: GmailAccount): A
           throw cause;
         }
         if (kind === 'read') cache.releaseRead(account, id);
+        if (kind === 'archive') cache.keepArchived(account, id);
         return { status: kind === 'archive' ? 'Archived.' : 'Updated.' };
       }
       throw new Error('This action is not supported.');
