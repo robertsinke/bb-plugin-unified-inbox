@@ -67,6 +67,7 @@ export default async function plugin(bb: BbPluginApi) {
   const attentionWatch = watchNewConversations({
     cache,
     store: attention,
+    muted: (account, id) => cache.muted(account, id),
     log: line => bb.log.warn(line),
     ask: input => rememberDecisions(() => bb.sdk.plugins.callRpc({
       pluginId: 'decisions',
