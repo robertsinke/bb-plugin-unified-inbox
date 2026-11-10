@@ -67,6 +67,7 @@ export default async function plugin(bb: BbPluginApi) {
   const attentionWatch = watchNewConversations({
     cache,
     store: attention,
+    muted: (account, id) => cache.muted(account, id),
     log: line => bb.log.warn(line),
     ask: input => rememberDecisions(() => bb.sdk.plugins.callRpc({
       pluginId: 'decisions',
@@ -273,6 +274,8 @@ export default async function plugin(bb: BbPluginApi) {
       attentionDismissed: (account, id) => attention.get(account, id)?.dismissed === true,
       clearAttention: (account, id) => { attention.dismiss(account, id); },
       restoreAttention: (account, id) => attention.restore(account, id),
+      // Unmute clears the flag in the gateway, then this schedules one classification when the row is still cached. That call is not a push.
+      classifyUnmuted: (account, id) => { attentionWatch.arrived(account, id); },
       driver: {
         openInLinkedInProfile,
         inspectLinkedInPage,

@@ -49,7 +49,7 @@ export function migrateGmailAccountIds(db: Database.Database, extra: Record<stri
     const apply = (map: Record<string, string>, audit: boolean) => {
       for (const [from, to] of Object.entries(map)) {
         if (!from || !to || from === to) continue;
-        for (const table of ['inbox_cache', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention']) {
+        for (const table of ['inbox_cache', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'inbox_mute']) {
           if (exists(table)) moveKeyed(table, 'id', from, to);
         }
         if (exists('gmail_faces')) moveKeyed('gmail_faces', 'address', from, to);
@@ -111,7 +111,8 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     CREATE TABLE IF NOT EXISTS inbox_thread (account TEXT NOT NULL, id TEXT NOT NULL, messages TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_freshness (account TEXT PRIMARY KEY, last_attempt INTEGER, last_success INTEGER, last_error TEXT, cache_fallback INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox_unread_mark (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
-    CREATE TABLE IF NOT EXISTS inbox_read_hold (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
+    CREATE TABLE IF NOT EXISTS inbox_read_hold (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
+    CREATE TABLE IF NOT EXISTS inbox_mute (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
   const listeners = new Set<(change: CacheChange) => void>();
   const emit = (change: CacheChange) => { for (const listener of listeners) listener(change); };
   const columns = db.prepare('PRAGMA table_info(inbox_cache)').all() as { name: string }[];
@@ -165,7 +166,7 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
      * shortcut: local drafts are dropped when the settings page handles remove, until then a removed mailbox can still have a draft in the panel.
      */
     forget(account: string) {
-      const tables = ['inbox_cache', 'inbox_sync', 'inbox_freshness', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'gmail_faces'];
+      const tables = ['inbox_cache', 'inbox_sync', 'inbox_freshness', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'inbox_mute', 'gmail_faces'];
       const exists = (name: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
       db.transaction(() => {
         for (const table of tables) {
@@ -213,6 +214,16 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     },
     readHolds(account: CachedItem['account']) {
       return (db.prepare('SELECT id, through_ms AS throughMs FROM inbox_read_hold WHERE account = ?').all(account) as { id: string; throughMs: number | null }[]);
+    },
+    // The owner's choice. `save` rewrites the list and `clear` drops derived marks. This row stays until unmute or `forget`.
+    mute(account: CachedItem['account'], id: string) {
+      db.prepare('INSERT INTO inbox_mute (account, id) VALUES (?, ?) ON CONFLICT(account, id) DO NOTHING').run(account, id);
+    },
+    unmute(account: CachedItem['account'], id: string) {
+      db.prepare('DELETE FROM inbox_mute WHERE account = ? AND id = ?').run(account, id);
+    },
+    muted(account: CachedItem['account'], id: string) {
+      return !!db.prepare('SELECT 1 FROM inbox_mute WHERE account = ? AND id = ?').get(account, id);
     },
     cursor(account: CachedItem['account']) {
       const row = db.prepare('SELECT history_id FROM inbox_sync WHERE account = ?').get(account) as { history_id: string } | undefined;

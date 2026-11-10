@@ -332,6 +332,8 @@ export interface Conversation {
   needsAttention?: 'yes' | 'no';
   /** The owner cleared Needed, and that clear can still be undone. */
   attentionDismissed?: boolean;
+  /** The owner muted this conversation. The row stays. The Decisions plugin is not asked. */
+  muted?: boolean;
   /**
    * The row is the listing snippet. Sender, subject, date and unread arrive when the row is on
    * screen. Gmail older pages only.

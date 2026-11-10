@@ -351,6 +351,7 @@ export interface AttentionAsk {
  * Opening a conversation saves a thread and is not a new message.
  * WhatsApp and Messages hold new messages for one conversation in an 8 second window, then send
  * one ask. Other sources ask as soon as the conversation changes.
+ * A muted conversation is not asked. The verdict already stored stays.
  */
 export function watchNewConversations(options: {
   cache: Cache;
@@ -359,6 +360,8 @@ export function watchNewConversations(options: {
   log?: (line: string) => void;
   /** Quiet window for WhatsApp and Messages. `0` asks at once. Default is 8 seconds. */
   debounceMs?: number;
+  /** The owner's mute. A set flag is not asked, stored, or pushed. */
+  muted?: (account: Account, id: string) => boolean;
   /**
    * The lines already stored for this conversation, when the cache thread can lag.
    * WhatsApp uses this so a reply you sent is part of the ask before the thread is opened again.
@@ -409,12 +412,13 @@ export function watchNewConversations(options: {
 
   const keyOf = (account: Account, id: string) => `${account}\0${id}`;
   const stampOf = (row: CachedItem) => `${row.date}\0${row.preview}\0${row.sentSnippet ?? ''}`;
+  const isMuted = (account: Account, id: string) => options.muted?.(account, id) === true;
 
   async function classify(account: Account, id: string): Promise<void> {
-    if (stopped) return;
+    if (stopped || isMuted(account, id)) return;
     await takeSlot();
     try {
-      if (stopped) return;
+      if (stopped || isMuted(account, id)) return;
       await classifyHeld(account, id);
     } finally {
       releaseSlot();
@@ -497,6 +501,8 @@ export function watchNewConversations(options: {
   }
 
   function publish(account: Account, id: string, previous: AttentionVerdict | null, record: AttentionRecord, item: { title?: string; preview?: string } | undefined): void {
+    // Mute can land after schedule: during the pool, during the ask, or on lines already scored.
+    if (isMuted(account, id)) return;
     options.store.put(account, id, record);
     const notice = attentionPush(previous, record.verdict, {
       account,
@@ -565,6 +571,7 @@ export function watchNewConversations(options: {
   }
 
   function schedule(account: Account, id: string): void {
+    if (isMuted(account, id)) return;
     if (account === 'linkedin' && isInvitationId(id)) return;
     const delay = account === 'whatsapp' || account === 'imessage' ? poolMs : 0;
     if (delay === 0) {
@@ -575,6 +582,7 @@ export function watchNewConversations(options: {
     if (pooled.has(key)) return;
     pooled.set(key, setTimeout(() => {
       pooled.delete(key);
+      if (isMuted(account, id)) return;
       enqueue(account, id);
     }, delay));
   }

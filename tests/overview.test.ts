@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const overview = readFileSync(new URL('../PLUGIN_OVERVIEW.md', import.meta.url), 'utf8');
+const language = readFileSync(new URL('../UBIQUITOUS_LANGUAGE.md', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { bb: { description: string } };
 
 test('the store page is a short buyer description', () => {
@@ -21,5 +22,14 @@ test('the store page is a short buyer description', () => {
   for (const word of ['Decisions', 'push-notifications', 'Needed', 'None']) {
     assert.equal(overview.includes(word), false, word);
   }
+  assert.equal(overview.includes('mute'), true);
   assert.equal(manifest.bb.description.includes('early development'), false);
+});
+
+test('the Mute row names the conversation, keeps the row, and does not ask Decisions', () => {
+  const row = language.split('\n').find(line => line.includes('**Mute**') && line.includes('|'));
+  assert.ok(row, 'the language file has a Mute row');
+  assert.equal(row.includes('conversation'), true);
+  assert.equal(row.includes('stays in the list'), true);
+  assert.equal(row.includes('The Decisions plugin is not asked'), true);
 });

@@ -104,7 +104,7 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-conversation-title{min-width:0;flex:1 1 0%}
 .ui-conversation-title h3{display:flex;align-items:center;gap:6px;width:100%;min-width:0;overflow:hidden}
 .ui-conversation-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ui-conversation-title h3>.ui-chip{flex:none}
+.ui-conversation-title h3>.ui-chip,.ui-conversation-title h3>.ui-mute-mark{flex:none}
 .ui-conversation-actions{display:flex;flex:none;gap:3px}
 .ui-conversation-actions button{position:relative;flex:none}
 .ui-refresh-button{position:relative}
@@ -160,7 +160,8 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .is-unread .ui-row-name{font-weight:600}
 .ui-row-time{grid-area:time;justify-self:end;margin:0;font-size:11px}
 .ui-row-copy>.ui-row-body{grid-area:body;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin:0;padding:0;overflow:hidden;white-space:normal;font-size:12px;line-height:16px;opacity:.68}
-.ui-row-status{grid-area:status;display:flex;align-items:center;justify-content:center;justify-self:end;width:28px}
+.ui-row-status{grid-area:status;display:flex;align-items:center;justify-content:flex-end;justify-self:end;gap:6px;width:auto;min-width:28px}
+.ui-mute-mark{flex:none;font-size:11px;font-weight:600;line-height:1;opacity:.75}
 .ui-row-foot{grid-area:pills;display:flex;align-items:center;min-width:0}
 .ui-row-pills{display:flex;align-items:center;gap:6px;min-width:0}
 .ui-row-pills>.ui-chip[data-attention]{flex:none;width:64px;padding-left:0;padding-right:0;text-align:center}
