@@ -85,6 +85,62 @@ test('an email rename moves keyed rows and leaves the send audit on the legacy i
   } finally { db.close(); }
 });
 
+test('a mute flag stays set when that account is synced', () => {
+  const { db, cache } = fixture();
+  try {
+    cache.mute('gmail-personal', 't1');
+    cache.save('gmail-personal', [{ account: 'gmail-personal', id: 't1', title: 'Hi', preview: '', date: 1, unread: true }]);
+    assert.equal(cache.muted('gmail-personal', 't1'), true);
+  } finally { db.close(); }
+});
+
+test('mute is one row and unmute of a missing row is a no-op', () => {
+  const { db, cache } = fixture();
+  try {
+    cache.unmute('gmail-business', 'missing');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM inbox_mute').get() as { n: number }).n, 0);
+    cache.mute('gmail-personal', 't1');
+    cache.mute('gmail-personal', 't1');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM inbox_mute').get() as { n: number }).n, 1);
+  } finally { db.close(); }
+});
+
+test('clear removes cached rows and leaves the mute flag set', () => {
+  const { db, cache } = fixture();
+  try {
+    cache.save('gmail-personal', [{ account: 'gmail-personal', id: 't1', title: 'Hi', preview: '', date: 1, unread: true }]);
+    cache.mute('gmail-personal', 't1');
+    cache.clear();
+    assert.deepEqual(cache.list(), []);
+    assert.equal(cache.muted('gmail-personal', 't1'), true);
+  } finally { db.close(); }
+});
+
+test('forget removes that account mute and leaves another account', () => {
+  const { db, cache } = fixture();
+  try {
+    cache.mute('gmail-personal', 't1');
+    cache.mute('gmail-business', 't2');
+    cache.forget('gmail-personal');
+    assert.equal(cache.muted('gmail-personal', 't1'), false);
+    assert.equal(cache.muted('gmail-business', 't2'), true);
+  } finally { db.close(); }
+});
+
+test('an email rename moves the mute row and drops the old account id', () => {
+  const db = new Database(':memory:');
+  try {
+    const cache = createInboxCache(db);
+    cache.mute('gmail-personal', 't1');
+    cache.mute('gmail-business', 't2');
+    migrateGmailAccountIds(db, { 'gmail-personal': 'ada@example.com' });
+    assert.equal(cache.muted('ada@example.com', 't1'), true);
+    assert.equal(cache.muted('gmail-personal', 't1'), false);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM inbox_mute WHERE account = ?').get('gmail-personal') as { n: number }).n, 0);
+    assert.equal(cache.muted('gmail-business', 't2'), true);
+  } finally { db.close(); }
+});
+
 test('a paused legacy id does not write cache rows', () => {
   const db = new Database(':memory:');
   try {
