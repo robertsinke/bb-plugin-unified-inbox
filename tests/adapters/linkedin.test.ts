@@ -235,6 +235,23 @@ test('LinkedIn: an older page is one read, and it is not cached', async () => {
   } finally { h.close(); }
 });
 
+test('LinkedIn: an older page stores a profile URL the newest-page save does not delete', async () => {
+  const h = harness({
+    linkedInOlder: () => ({ conversations: [{ id: OLDER, title: 'Grace Hopper', preview: 'Older note', date: 1_600_000_000_000, unread: false, publicIdentifier: 'grace-hopper' }], nextCursor: '' }),
+    linkedInList: () => ({ conversations: [{ id: CONVERSATION, title: 'Ada', preview: 'Hello', date: 1, unread: false, profileMiss: true }], invitations: [] }),
+  });
+  try {
+    h.cache.setProfileLink('linkedin', CONVERSATION, 'https://www.linkedin.com/in/ada-lovelace');
+    await h.registry.linkedin.list('CUR+/=');
+    assert.equal(h.cache.profileLink('linkedin', OLDER), 'https://www.linkedin.com/in/grace-hopper');
+    assert.equal(h.cache.list().some(row => row.id === OLDER), false);
+    await h.registry.linkedin.sync();
+    assert.equal(h.cache.profileLink('linkedin', CONVERSATION), 'https://www.linkedin.com/in/ada-lovelace', 'a failed profile read keeps the URL');
+    assert.equal(h.cache.profileLink('linkedin', OLDER), 'https://www.linkedin.com/in/grace-hopper', 'the newest page does not delete the other conversation');
+    assert.equal(h.registry.linkedin.decorate?.({ account: 'linkedin', id: OLDER, title: 'Grace Hopper', preview: 'Older note', date: 1, unread: false })?.profileUrl, 'https://www.linkedin.com/in/grace-hopper');
+  } finally { h.close(); }
+});
+
 test('LinkedIn: a page with no cursor ends the walk, and a source with nothing to show never starts one', async () => {
   const h = harness({ linkedInOlder: () => ({ conversations: [{ id: OLDER, title: 'Grace', preview: '', date: 1_600_000_000_000, unread: false }], nextCursor: '' }) });
   try {

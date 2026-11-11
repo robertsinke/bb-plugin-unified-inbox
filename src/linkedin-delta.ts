@@ -8,7 +8,7 @@
 import { linkedinMailboxUrn, type LinkedInProbe } from './linkedin-probe.ts';
 
 /** Bumped when the marker's meaning changes, which turns every stored marker back into a full read. */
-export const LINKEDIN_MARKER_PREFIX = 'linkedin-v1';
+export const LINKEDIN_MARKER_PREFIX = 'linkedin-v2';
 
 const FIELDS = ['newestActivityAt', 'unreadTotal', 'conversationCount', 'newestInvitationAt', 'invitationCount', 'unreadInvitations'] as const;
 

@@ -334,6 +334,8 @@ export interface Conversation {
   recipients?: string;
   attachments?: string[];
   participants?: string[];
+  /** The other member's public LinkedIn profile. Present only after a one-member read stored one. */
+  profileUrl?: string;
   /** The decision model's yes/no for this conversation. Absent until a new message has been judged. */
   needsAttention?: 'yes' | 'no';
   /** The owner cleared Needed, and that clear can still be undone. */

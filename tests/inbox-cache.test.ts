@@ -4,7 +4,24 @@ import Database from 'better-sqlite3';
 import { createInboxCache, migrateGmailAccountIds, pauseAccountWrites, resumeAccountWrites } from '../src/inbox-cache.ts';
 function fixture() { const db=new Database(':memory:'); db.exec('CREATE TABLE inbox_cache (account TEXT NOT NULL,id TEXT NOT NULL,title TEXT NOT NULL,preview TEXT NOT NULL,date INTEGER NOT NULL,unread INTEGER NOT NULL,PRIMARY KEY(account,id))'); return {db,cache:createInboxCache(db)}; }
 test('same IDs remain isolated by account and survive replacement',()=>{const {db,cache}=fixture();try {cache.save('gmail-personal',[{account:'gmail-personal',id:'1',title:'P',preview:'',date:1,unread:true}]);cache.save('gmail-business',[{account:'gmail-business',id:'1',title:'B',preview:'',date:2,unread:false}]); assert.deepEqual(cache.list().map(x=>x.title),['B','P']);cache.save('gmail-personal',[]);assert.deepEqual(cache.list().map(x=>x.title),['B']);} finally {db.close();}});
-test('clear removes only plugin cached records',()=>{const {db,cache}=fixture();try {cache.save('gmail-personal',[{account:'gmail-personal',id:'1',title:'P',preview:'',date:1,unread:false}]);cache.clear();assert.deepEqual(cache.list(),[]);}finally{db.close();}});
+test('clear removes only plugin cached records',()=>{const {db,cache}=fixture();try {cache.save('gmail-personal',[{account:'gmail-personal',id:'1',title:'P',preview:'',date:1,unread:false}]);cache.setProfileLink('linkedin','urn:li:msg_conversation:1','https://www.linkedin.com/in/ada-lovelace');cache.clear();assert.deepEqual(cache.list(),[]);assert.equal(cache.profileLink('linkedin','urn:li:msg_conversation:1'),undefined);}finally{db.close();}});
+
+test('a profile URL survives a newest-page replace and a per-account forget leaves the other account', () => {
+  const { db, cache } = fixture();
+  try {
+    const url = 'https://www.linkedin.com/in/ada-lovelace';
+    cache.setProfileLink('linkedin', 'urn:li:msg_conversation:a', url);
+    cache.setProfileLink('gmail-personal', 't1', url);
+    cache.save('linkedin', [{ account: 'linkedin', id: 'urn:li:msg_conversation:b', title: 'B', preview: '', date: 1, unread: false }]);
+    assert.equal(cache.profileLink('linkedin', 'urn:li:msg_conversation:a'), url);
+    assert.equal(cache.list().some(row => row.id === 'urn:li:msg_conversation:a'), false);
+    cache.setProfileLink('linkedin', 'urn:li:msg_conversation:a', 'https://evil.example/in/ada');
+    assert.equal(cache.profileLink('linkedin', 'urn:li:msg_conversation:a'), url);
+    cache.forget('linkedin');
+    assert.equal(cache.profileLink('linkedin', 'urn:li:msg_conversation:a'), undefined);
+    assert.equal(cache.profileLink('gmail-personal', 't1'), url);
+  } finally { db.close(); }
+});
 test('a sent reply is stored on the row and reported as a list change', () => {
   const { db, cache } = fixture();
   try {

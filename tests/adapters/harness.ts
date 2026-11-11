@@ -195,6 +195,8 @@ export interface HarnessOptions {
   linkedInPost?: (activityUrn: string) => Promise<{ title?: string; author?: string; imageUrl?: string }>;
   /** Replace one older-page read, for the walk the adapter does past the newest page. */
   linkedInOlder?: (cursor: string, count: number) => unknown;
+  /** Replace the newest-page read, for a profile identifier the default stub does not carry. */
+  linkedInList?: () => { conversations: unknown[]; invitations: unknown[] };
   /** Replace one Messages history response, for attachment cases that need a real file name. */
   imsgHistory?: (params?: Record<string, unknown>) => unknown;
   /** Replace the Messages chat list, for the paging and search-corpus cases. */
@@ -275,6 +277,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     linkedInPage: {
       list: async () => {
         calls.push('linkedin:list');
+        if (options.linkedInList) return options.linkedInList();
         return {
           conversations: [{ id: LINKEDIN_ID, title: 'Ada Lovelace', preview: 'Hello from LinkedIn', date: 1_700_000_000_000, unread: true }],
           invitations: [{ id: LINKEDIN_INVITE, title: 'Grace Hopper', preview: 'A note with the invitation', date: 1_700_000_000_000, unread: true, sender: 'Grace Hopper', token: 'tok123', inviterProfileId: 'ACoAAAGRACE', firstName: 'Grace' }],

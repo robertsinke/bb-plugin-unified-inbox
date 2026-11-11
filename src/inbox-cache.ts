@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { Account } from './adapters/types.ts';
+import { isLinkedInProfileUrl } from './linkedin-inbox.ts';
 import { unknownFreshness, type SourceFreshness } from './inbox-refresh.ts';
 
 /** Rows written before `personal` / `business` became `gmail-personal` / `gmail-business`. */
@@ -113,7 +114,8 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
     CREATE TABLE IF NOT EXISTS inbox_unread_mark (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_read_hold (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
     CREATE TABLE IF NOT EXISTS inbox_mute (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
-    CREATE TABLE IF NOT EXISTS inbox_gmail_archive (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));`);
+    CREATE TABLE IF NOT EXISTS inbox_gmail_archive (account TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account,id));
+    CREATE TABLE IF NOT EXISTS inbox_profile_link (account TEXT NOT NULL, id TEXT NOT NULL, url TEXT NOT NULL, PRIMARY KEY(account,id));`);
   const listeners = new Set<(change: CacheChange) => void>();
   const emit = (change: CacheChange) => { for (const listener of listeners) listener(change); };
   const columns = db.prepare('PRAGMA table_info(inbox_cache)').all() as { name: string }[];
@@ -160,14 +162,14 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
       const row = db.prepare('SELECT updated_at FROM inbox_thread WHERE account = ? AND id = ?').get(account, id) as { updated_at: number | null } | undefined;
       return row?.updated_at ?? null;
     },
-    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); db.prepare('DELETE FROM inbox_read_hold').run(); for (const clear of alsoClear) clear(); emit({kind:'clear'}); },
+    clear() { db.prepare('DELETE FROM inbox_cache').run(); db.prepare('DELETE FROM inbox_sync').run(); db.prepare('DELETE FROM inbox_freshness').run(); db.prepare('DELETE FROM inbox_revision').run(); db.prepare('DELETE FROM inbox_thread').run(); db.prepare('DELETE FROM inbox_unread_mark').run(); db.prepare('DELETE FROM inbox_read_hold').run(); db.prepare('DELETE FROM inbox_profile_link').run(); for (const clear of alsoClear) clear(); emit({kind:'clear'}); },
     /**
      * Drop one account's cached rows. Does not call the all-source clear, so WhatsApp
      * and LinkedIn files stay. Panel drafts live in localStorage; this cannot see them.
      * shortcut: local drafts are dropped when the settings page handles remove, until then a removed mailbox can still have a draft in the panel.
      */
     forget(account: string) {
-      const tables = ['inbox_cache', 'inbox_sync', 'inbox_freshness', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'inbox_mute', 'inbox_gmail_archive', 'gmail_faces'];
+      const tables = ['inbox_cache', 'inbox_sync', 'inbox_freshness', 'inbox_revision', 'inbox_thread', 'inbox_unread_mark', 'inbox_read_hold', 'inbox_attention', 'inbox_mute', 'inbox_gmail_archive', 'gmail_faces', 'inbox_profile_link'];
       const exists = (name: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
       db.transaction(() => {
         for (const table of tables) {
@@ -260,6 +262,17 @@ export function createInboxCache(db: Database.Database, options: { alsoClear?: A
         const parsed = JSON.parse(row.messages);
         return Array.isArray(parsed) ? parsed : null;
       } catch { return null; }
+    },
+    profileLink(account: CachedItem['account'], id: string) {
+      const row = db.prepare('SELECT url FROM inbox_profile_link WHERE account = ? AND id = ?').get(account, id) as { url: string } | undefined;
+      return row && isLinkedInProfileUrl(row.url) ? row.url : undefined;
+    },
+    setProfileLink(account: CachedItem['account'], id: string, url: string) {
+      if (!isLinkedInProfileUrl(url)) return;
+      db.prepare('INSERT INTO inbox_profile_link (account, id, url) VALUES (?, ?, ?) ON CONFLICT(account, id) DO UPDATE SET url = excluded.url').run(account, id, url);
+    },
+    dropProfileLink(account: CachedItem['account'], id: string) {
+      db.prepare('DELETE FROM inbox_profile_link WHERE account = ? AND id = ?').run(account, id);
     },
     saveThread(account: CachedItem['account'], id: string, messages: unknown[], updatedAt: number | null = Date.now()) {
       if (pausedWrites.has(account)) return;

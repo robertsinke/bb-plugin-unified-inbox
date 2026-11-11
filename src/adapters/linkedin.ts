@@ -4,7 +4,7 @@
 // each replayed from the requests the page itself sent for the same actions. An archive still
 // needs its own recorded action, so it stays refused.
 import { canChange } from './capability.ts';
-import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, type LinkedInMessage } from '../linkedin-inbox.ts';
+import { isConversationId, isInvitationId, linkedinItems, linkedinMessages, rememberProfileLinks, type LinkedInMessage } from '../linkedin-inbox.ts';
 import { linkedinDelta, linkedinMarker, linkedinMarkerMailbox } from '../linkedin-delta.ts';
 import { linkedinMailboxUrn, linkedinProbe, type LinkedInProbe } from '../linkedin-probe.ts';
 import { LINKEDIN_WALK_START } from '../linkedin-page.ts';
@@ -79,6 +79,14 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
    */
   const fromNewestPage = (rows: Conversation[]) => (rows.length ? { cursor: LINKEDIN_WALK_START } : {});
   const { cache } = deps;
+  const profileStore = {
+    set: (id: string, url: string) => cache.setProfileLink(ACCOUNT, id, url),
+    drop: (id: string) => cache.dropProfileLink(ACCOUNT, id),
+  };
+  const asConversations = (payload: { conversations?: unknown; invitations?: unknown }): Conversation[] => linkedinItems(payload).map((item): Conversation => {
+    const { profileMiss: _miss, profileUrl: _url, ...rest } = item;
+    return { ...rest, account: ACCOUNT };
+  });
 
   /**
    * The cached message a media request names. A LinkedIn message lives only
@@ -165,11 +173,22 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
      * and nothing else — an older page is drawn, never cached, because `cache.save` replaces an
      * account's rows wholesale and this page is older than the newest one.
      */
+    decorate(item: Conversation): Conversation {
+      const profileUrl = cache.profileLink(ACCOUNT, item.id);
+      if (!profileUrl) {
+        if (!item.profileUrl) return item;
+        const { profileUrl: _drop, ...rest } = item;
+        return rest;
+      }
+      return { ...item, profileUrl };
+    },
+
     async list(cursor?: string): Promise<ListResult> {
       const rows = cache.list().filter(item => item.account === ACCOUNT) as Conversation[];
       if (cursor === undefined) return { items: rows, errors: [], ...fromNewestPage(rows) };
       const page = await deps.linkedInPage.older(cursor, PAGE);
-      const items = linkedinItems({ conversations: page.conversations }).map((item): Conversation => ({ ...item, account: ACCOUNT }));
+      rememberProfileLinks(page.conversations, profileStore);
+      const items = asConversations({ conversations: page.conversations });
       return { items, errors: [], ...(page.nextCursor ? { cursor: page.nextCursor } : {}) };
     },
 
@@ -341,6 +360,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
       }
 
       const listed = await deps.linkedInPage.list();
+      rememberProfileLinks(listed.conversations, profileStore);
       // The invitation action params are not part of a row, so they are kept beside the cache,
       // replaced wholesale by every read: a stale token cannot outlive the invitation it answered.
       invitationActions.clear();
@@ -349,7 +369,7 @@ export function createLinkedInAdapter(deps: RegistryDeps): Adapter {
         const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id : '';
         if (params && isInvitationId(id)) invitationActions.set(id, params);
       }
-      const items = linkedinItems(listed).map((item): Conversation => ({ ...item, account: ACCOUNT }));
+      const items = asConversations(listed);
       cache.save(ACCOUNT, items);
       // Only a probe can describe the state this read produced, so the marker is stored from it.
       if (probe) cache.setCursor(ACCOUNT, linkedinMarker(probe, mailboxOf(payload)));

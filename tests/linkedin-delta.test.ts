@@ -71,6 +71,16 @@ test('a malformed marker never skips: it falls back to a full read', () => {
   }
 });
 
+test('a stored linkedin-v1 marker is unreadable, so the next sync reads', () => {
+  const probe = { newestActivityAt: 10, unreadTotal: 2, conversationCount: 3, newestInvitationAt: 4, invitationCount: 5, unreadInvitations: 1 };
+  const previous = `linkedin-v1:${JSON.stringify(probe)}`;
+  assert.equal(parseLinkedInMarker(previous), null);
+  assert.deepEqual(linkedinDelta({ stored: previous, probe }), { action: 'read', reason: 'marker' });
+  const current = linkedinMarker(probe);
+  assert.ok(current.startsWith(`${LINKEDIN_MARKER_PREFIX}:`));
+  assert.deepEqual(linkedinDelta({ stored: current, probe }), { action: 'skip' });
+});
+
 test('a marker whose fields happened to match an empty probe still reads when it is malformed', () => {
   // The dangerous case: junk that looks unchanged. Absent evidence must not skip.
   const junk = `${LINKEDIN_MARKER_PREFIX}:${JSON.stringify({ ...EMPTY_LINKEDIN_PROBE, newestActivityAt: 'now' })}`;
