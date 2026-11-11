@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isInvitationId, isConversationId, linkedinItems, linkedinMessages } from '../src/linkedin-inbox.ts';
+import { isInvitationId, isConversationId, linkedinItems, linkedinMessages, linkedinProfileUrl, rememberProfileLinks } from '../src/linkedin-inbox.ts';
 
 const conversation = { id: 'urn:li:msg_conversation:(urn:li:fsd_profile:A,2-B)', title: 'Nils Holm', preview: 'You: Hi Nils', date: 1_800_000_000_000, unread: true };
 const invitation = { id: 'urn:li:fsd_invitation:7000000000000000003', title: 'Bea Stone', preview: 'Hello. Would you like to meet?', date: 1_800_000_100_000, unread: true, sender: 'Bea Stone' };
@@ -44,6 +44,45 @@ test('linkedinItems never renders a boolean flag as a preview', () => {
   assert.equal(items[0].preview, '');
   // The same flag on a connection request leaves nothing to show, so the row is not an inbox row.
   assert.deepEqual(linkedinItems({ invitations: [{ id: 'urn:li:fs_relInvitation:1', title: 'Someone', preview: 'true', date: 1 }] }), []);
+});
+
+test('a safe public identifier becomes the public profile URL', () => {
+  const items = linkedinItems({ conversations: [{ ...conversation, publicIdentifier: 'ada-lovelace' }] });
+  assert.equal(items[0].profileUrl, 'https://www.linkedin.com/in/ada-lovelace');
+});
+
+test('an identifier on another included person, or an unsafe one, is not a profile URL', () => {
+  for (const publicIdentifier of ['', '.', '..', 'a'.repeat(101), 'ada/lovelace', 'ada?x', 'ada#x', 'ada lovelace']) {
+    const items = linkedinItems({ conversations: [{ ...conversation, publicIdentifier }] });
+    assert.equal(items[0].profileUrl, undefined, publicIdentifier);
+  }
+  const unicode = linkedinItems({ conversations: [{ ...conversation, publicIdentifier: 'åda-lovelace' }] });
+  assert.equal(unicode[0].profileUrl, 'https://www.linkedin.com/in/%C3%A5da-lovelace');
+});
+
+test('a remembered profile URL stays when the profile read fails and goes when the read says otherwise', () => {
+  const id = conversation.id;
+  const stored = new Map<string, string>();
+  const store = {
+    set: (key: string, url: string) => { stored.set(key, url); },
+    drop: (key: string) => { stored.delete(key); },
+  };
+  rememberProfileLinks([{ id, publicIdentifier: 'ada-lovelace' }], store);
+  assert.equal(stored.get(id), 'https://www.linkedin.com/in/ada-lovelace');
+  rememberProfileLinks([{ id, profileMiss: true }], store);
+  assert.equal(stored.get(id), 'https://www.linkedin.com/in/ada-lovelace');
+  rememberProfileLinks([{ id }], store);
+  assert.equal(stored.has(id), false);
+  rememberProfileLinks([{ id, publicIdentifier: 'ada-lovelace' }, { id: 'urn:li:fs_relInvitation:1', publicIdentifier: 'ada-lovelace' }], store);
+  assert.equal(stored.has('urn:li:fs_relInvitation:1'), false);
+  assert.equal(stored.get(id), 'https://www.linkedin.com/in/ada-lovelace');
+});
+
+test('an invitation keeps no profile URL', () => {
+  const id = 'urn:li:fs_relInvitation:1';
+  const items = linkedinItems({ invitations: [{ id, title: 'Ada', preview: 'Hello', date: 1, publicIdentifier: 'ada-lovelace' }] });
+  assert.equal(items[0].profileUrl, undefined);
+  assert.equal(linkedinProfileUrl('ada-lovelace'), 'https://www.linkedin.com/in/ada-lovelace');
 });
 
 test('linkedinItems returns no rows and no error for an empty payload', () => {

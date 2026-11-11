@@ -75,6 +75,8 @@ const BODY = `
 
     const names = new Map();
     const avatars = new Map();
+    const slugs = new Map();
+    const slugMiss = new Map();
     const avatarOf = person => {
       const picture = person?.profilePicture || person?.picture || person || {};
       // Shapes differ: a profile nests displayImage.vectorImage, a company logo wraps { image }, older payloads hand the vector image itself.
@@ -126,11 +128,18 @@ const BODY = `
           avatars.set(key, linkedinImage(avatarOf({ profilePicture: organization.logo })));
         } else {
           const profile = await get('/voyager/api/identity/dash/profiles/' + enc('urn:li:' + key));
-          const person = (profile.included || []).find(e => e && e.firstName) || profile.data || {};
+          const wanted = 'urn:li:' + key;
+          const matched = (profile.included || []).find(e => e && String(e.entityUrn || '') === wanted);
+          const person = matched || (profile.included || []).find(e => e && e.firstName) || profile.data || {};
           names.set(key, [person.firstName, person.lastName].filter(Boolean).join(' '));
           avatars.set(key, linkedinImage(avatarOf(person)));
+          slugs.set(key, typeof matched?.publicIdentifier === 'string' ? matched.publicIdentifier : '');
+          slugMiss.delete(key);
         }
-      } catch { /* a name is presentation detail; the row still carries its id and message */ }
+      } catch {
+        slugMiss.set(key, true);
+        /* a name is presentation detail; the row still carries its id and message */
+      }
       return names.get(key);
     };
 
@@ -193,7 +202,11 @@ const BODY = `
         const preview = described || latest?.body || '';
         // The list names the other person even when the newest line is yours. The flag is the speaker.
         const ownPreview = latest?.mine === true && preview !== '' && (!described || described === latest.body || latest.body.startsWith(described) || described.startsWith(latest.body));
-        return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}), ...(ownPreview ? { fromMe: true } : {}) };
+        const onlyKey = others.length === 1 ? identityKey(others[0]) : '';
+        const member = onlyKey.indexOf('fsd_profile:') === 0 ? onlyKey : '';
+        const publicIdentifier = member && slugMiss.get(member) !== true ? String(slugs.get(member) || '') : '';
+        const profileMiss = member && slugMiss.get(member) === true;
+        return { id: String(e.entityUrn), title: String(e.title || '') || people, preview, date: Number(e.lastActivityAt || 0), unread: Number(e.unreadCount || 0) > 0, sender: people, ...(avatarUrl ? { avatarUrl } : {}), ...(publicIdentifier ? { publicIdentifier } : {}), ...(profileMiss ? { profileMiss: true } : {}), ...(ownPreview ? { fromMe: true } : {}) };
       });
     };
 

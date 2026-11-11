@@ -3,7 +3,28 @@ import { sourceAvatarUrl } from './avatar-url.ts';
 import { linkedinCdnUrl } from './linkedin-media.ts';
 import type { MessageMedia } from './adapters/types.ts';
 
-export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string; sentSnippet?: string };
+export type LinkedInRow = { id: string; title: string; preview: string; date: number; unread: boolean; sender?: string; avatarUrl?: string; sentSnippet?: string; profileUrl?: string; profileMiss?: boolean };
+
+/** A public profile URL for one path segment, or nothing. The page copies the identifier. This builds the URL. */
+export function linkedinProfileUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 100) return undefined;
+  if (value === '.' || value === '..') return undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 32 || code === 127) return undefined;
+    const char = value[index];
+    if (char === '/' || char === '\\' || char === '?' || char === '#') return undefined;
+  }
+  return `https://www.linkedin.com/in/${encodeURIComponent(value)}`;
+}
+
+/** The stored URL is the one this builder would emit for its own segment. Anything else stays closed. */
+export function isLinkedInProfileUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.startsWith('https://www.linkedin.com/in/')) return false;
+  let slug = '';
+  try { slug = decodeURIComponent(value.slice('https://www.linkedin.com/in/'.length)); } catch { return false; }
+  return linkedinProfileUrl(slug) === value;
+}
 
 /**
  * A message photo: the marker the inbox renders, plus the CDN URL `media` fetches
@@ -67,7 +88,28 @@ function row(value: unknown): LinkedInRow | null {
   const sender = text(raw.sender);
   const avatarUrl = sourceAvatarUrl(raw.avatarUrl, 'linkedin');
   const mine = raw.fromMe === true && usable.length > 0;
-  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}), ...(mine ? { sentSnippet: usable } : {}) };
+  const invitation = isInvitationId(id);
+  const profileUrl = invitation ? undefined : linkedinProfileUrl(raw.publicIdentifier);
+  const profileMiss = !invitation && raw.profileMiss === true;
+  return { id, title, preview: usable, date: Number.isFinite(date) && date > 0 ? date : 0, unread: raw.unread === true, ...(sender ? { sender } : {}), ...(avatarUrl ? { avatarUrl } : {}), ...(mine ? { sentSnippet: usable } : {}), ...(profileUrl ? { profileUrl } : {}), ...(profileMiss ? { profileMiss: true } : {}) };
+}
+
+/**
+ * Write the profile table from one page of conversation rows. A miss keeps the stored URL.
+ * A successful read with no safe identifier, or a conversation that is no longer one member, clears it.
+ * Invitations are not rows in this table.
+ */
+export function rememberProfileLinks(rows: unknown, store: { set(id: string, url: string): void; drop(id: string): void }): void {
+  if (!Array.isArray(rows)) return;
+  for (const value of rows) {
+    if (!value || typeof value !== 'object') continue;
+    const raw = value as { id?: unknown; publicIdentifier?: unknown; profileMiss?: unknown };
+    if (typeof raw.id !== 'string' || !raw.id || isInvitationId(raw.id)) continue;
+    if (raw.profileMiss === true) continue;
+    const url = linkedinProfileUrl(raw.publicIdentifier);
+    if (url) store.set(raw.id, url);
+    else store.drop(raw.id);
+  }
 }
 
 /** Inbox rows for LinkedIn conversations and invitations that carry a note, newest first, one row per id. */

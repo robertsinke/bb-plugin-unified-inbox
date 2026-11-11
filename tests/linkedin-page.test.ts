@@ -336,6 +336,71 @@ test('an id that is not an activity urn is refused before the page runs', () => 
   assert.doesNotThrow(() => linkedinPostExpression('urn:li:activity:7123456789012345678'));
 });
 
+const ADA = 'urn:li:fsd_profile:ACoAAada';
+const OTHER = 'urn:li:fsd_profile:ACoAAother';
+const COMPANY = 'urn:li:fsd_company:1441';
+
+function memberConversation(participants: string[]) {
+  return olderConversation(NEWEST_ID, {
+    title: '',
+    descriptionText: 'Hello',
+    '*conversationParticipants': ['urn:li:fsd_profile:ACoAAme', ...participants],
+  });
+}
+
+function profileEntity(urn: string, slug: string, firstName = 'Ada') {
+  return { entityUrn: urn, firstName, lastName: 'Lovelace', publicIdentifier: slug };
+}
+
+/** One newest-page read. A profile route throws when `failProfile` is set. */
+async function readList(participants: string[], profiles: unknown[], failProfile = false) {
+  const expression = linkedinPageExpression({ mode: 'list' });
+  return readOlder(expression, url => {
+    if (url.includes('/voyager/api/me')) return ME;
+    if (url.includes('identity/dash/profiles')) {
+      if (failProfile) throw new Error('profile down');
+      return { included: profiles };
+    }
+    if (url.includes('organization/companies')) return { data: { localizedName: 'Acme' } };
+    if (url.includes('messengerConversations')) return { data: {}, included: [memberConversation(participants)] };
+    if (url.includes('invitationViews')) return { included: [] };
+    throw new Error(`unexpected URL ${url}`);
+  });
+}
+
+test('one other member copies publicIdentifier from the profile that was requested', async () => {
+  const { payload } = await readList([ADA], [
+    profileEntity(OTHER, 'not-ada', 'Other'),
+    profileEntity(ADA, 'ada-lovelace'),
+  ]);
+  assert.equal(payload.conversations[0].publicIdentifier, 'ada-lovelace');
+  assert.equal(payload.conversations[0].sender, 'Ada Lovelace');
+  assert.equal(payload.conversations[0].profileMiss, undefined);
+});
+
+test('a publicIdentifier on a different named entity is not the counterpart', async () => {
+  const { payload } = await readList([ADA], [profileEntity(OTHER, 'not-ada', 'Other')]);
+  assert.equal(payload.conversations[0].publicIdentifier, undefined);
+  assert.equal(payload.conversations[0].profileMiss, undefined);
+});
+
+test('a failed profile request is a miss and still returns the row', async () => {
+  const { payload } = await readList([ADA], [], true);
+  assert.equal(payload.conversations.length, 1);
+  assert.equal(payload.conversations[0].publicIdentifier, undefined);
+  assert.equal(payload.conversations[0].profileMiss, true);
+});
+
+test('a group, a company page, and a conversation with no counterpart carry no identifier', async () => {
+  const group = await readList([ADA, OTHER], [profileEntity(ADA, 'ada-lovelace'), profileEntity(OTHER, 'other-person', 'Grace')]);
+  assert.equal(group.payload.conversations[0].publicIdentifier, undefined);
+  const company = await readList([COMPANY], []);
+  assert.equal(company.payload.conversations[0].publicIdentifier, undefined);
+  assert.equal(company.payload.conversations[0].profileMiss, undefined);
+  const empty = await readList([], []);
+  assert.equal(empty.payload.conversations[0].publicIdentifier, undefined);
+});
+
 test('a cursor or a page size LinkedIn could not quote is refused before the page runs', () => {
   // The cursor is serialized as JSON, so this is a refusal of nonsense rather than an escape.
   assert.throws(() => linkedinPageExpression({ mode: 'older', cursor: "x')||fetch('//evil", count: 20 }), /not a page of LinkedIn conversations/);
