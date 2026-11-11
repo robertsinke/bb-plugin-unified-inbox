@@ -154,6 +154,31 @@ test('clearing a needed label marks the row and the open conversation none', asy
   assert.equal(rpc.calls.filter(call => call.name === 'restore_attention').length, 1);
 });
 
+test('a profile URL reaches the open conversation without re-reading it', async () => {
+  const target = row({ account: 'linkedin', id: 'urn:li:msg_conversation:1', title: 'Ada', sender: 'Ada', unread: false });
+  let listed: InboxItem[] = [target];
+  const rpc = fakeRpc({
+    capabilities: () => ({ ...declarations(), linkedin: { ...EVERYTHING, followsList: false } }),
+    cached: () => ({ items: listed }),
+    sync: input => ({ items: input.account === 'linkedin' ? listed : [], updatedAt: 1 }),
+    open: () => ({ messages: [liveMessage] }),
+    open_profile: () => ({ opened: false, error: 'Could not open that profile.' }),
+  });
+  const session = createInboxSession({ rpc, now: () => 0 });
+  await settle();
+  await session.open(target);
+  const opensBefore = rpc.calls.filter(call => call.name === 'open').length;
+  listed = [{ ...target, profileUrl: 'https://www.linkedin.com/in/ada-lovelace' }];
+  await session.refresh(['linkedin']);
+  assert.equal(rpc.calls.filter(call => call.name === 'open').length, opensBefore);
+  assert.equal(session.snapshot().selected?.profileUrl, 'https://www.linkedin.com/in/ada-lovelace');
+  listed = [{ ...target, date: target.date + 1 }];
+  await session.refresh(['linkedin']);
+  assert.equal(rpc.calls.filter(call => call.name === 'open').length, opensBefore, 'LinkedIn does not follow the list, so a date change does not reopen');
+  await session.openProfile(target);
+  assert.equal(session.snapshot().status, 'Could not open that profile.');
+});
+
 test('a new attention label reaches the open conversation without re-reading it', async () => {
   const target = row({ unread: false, needsAttention: 'yes' });
   let listed: InboxItem[] = [target];

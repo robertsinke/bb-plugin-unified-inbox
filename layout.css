@@ -104,6 +104,7 @@ button.ui-row-open,button.ui-row-open p,.ui-row-title,.ui-message-body,.ui-bubbl
 .ui-conversation-title{min-width:0;flex:1 1 0%}
 .ui-conversation-title h3{display:flex;align-items:center;gap:6px;width:100%;min-width:0;overflow:hidden}
 .ui-conversation-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-profile-link{border:0;padding:0;margin:0;background:transparent;font:inherit;color:inherit;text-align:inherit;cursor:pointer;max-width:100%}
 .ui-conversation-title h3>.ui-chip,.ui-conversation-title h3>.ui-mute-mark{flex:none}
 .ui-conversation-actions{display:flex;flex:none;gap:3px}
 .ui-conversation-actions button{position:relative;flex:none}

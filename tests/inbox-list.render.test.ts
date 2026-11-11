@@ -639,6 +639,58 @@ test('a muted row with no decision leaves the filter menu at All, Unread, and th
   }
 });
 
+test('a LinkedIn name opens the stored profile and other names stay text', async () => {
+  const same = { account: 'linkedin', id: 'urn:li:msg_conversation:(urn:li:fsd_profile:A,2-B)', title: 'Ada Lovelace', sender: 'Ada Lovelace', preview: 'Hello', date: 3, unread: false, profileUrl: 'https://www.linkedin.com/in/ada-lovelace' };
+  const titled = { account: 'linkedin', id: 'urn:li:msg_conversation:(urn:li:fsd_profile:A,2-C)', title: 'Project', sender: 'Ada Lovelace', preview: 'Hello', date: 2, unread: false, profileUrl: 'https://www.linkedin.com/in/ada-lovelace' };
+  const plain = { account: 'linkedin', id: 'urn:li:msg_conversation:(urn:li:fsd_profile:A,2-D)', title: 'Grace Hopper', sender: 'Grace Hopper', preview: 'Hi', date: 1, unread: false };
+  const view = mountInbox(name => {
+    if (name === 'cached') return { items: [same, titled, plain, MAIL_ROW] };
+    if (name === 'open' || name === 'cached_open') return { messages: [] };
+    if (name === 'open_profile') return { opened: false, error: 'Could not open that profile.' };
+    return rpcAnswer(name);
+  });
+  try {
+    await wait(50);
+    view.flush();
+    assert.equal(view.host.querySelectorAll('.ui-row .ui-profile-link').length, 0, 'the list name is not a profile link');
+    const openNamed = async (name: string) => {
+      const row = [...view.host.querySelectorAll('.ui-row')].find(entry => entry.querySelector('.ui-row-open-hit')?.getAttribute('aria-label') === `Open ${name}`);
+      assert.ok(row, name);
+      click(row.querySelector('.ui-row-open-hit')!);
+      await wait(50);
+      view.flush();
+    };
+    const back = async () => {
+      click(view.host.querySelector('[aria-label="Back to inbox"]')!);
+      await wait(30);
+      view.flush();
+    };
+    await openNamed('Ada Lovelace');
+    const header = view.host.querySelector('.ui-conversation-header')!;
+    const name = header.querySelector('h3 .ui-profile-link');
+    assert.equal(name?.textContent, 'Ada Lovelace');
+    assert.equal(name?.getAttribute('href'), null);
+    assert.equal(header.querySelector('.ui-conversation-meta')?.tagName, 'SPAN');
+    name?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, metaKey: true }));
+    await wait(30);
+    view.flush();
+    assert.equal(view.calls.some(call => call.name === 'open_profile' && (call.input as { id?: string }).id === same.id), true);
+    assert.equal(view.host.querySelector('.ui-notice')?.textContent, 'Could not open that profile.');
+    await back();
+    await openNamed('Project');
+    const second = view.host.querySelector('.ui-conversation-header')!;
+    assert.equal(second.querySelector('h3 .ui-profile-link'), null);
+    assert.equal(second.querySelector('h3 .ui-conversation-name')?.textContent, 'Project');
+    assert.equal(second.querySelector('.ui-conversation-meta')?.tagName, 'BUTTON');
+    assert.equal(second.querySelector('.ui-conversation-meta')?.textContent, 'Ada Lovelace');
+    await back();
+    await openNamed('Plan');
+    assert.equal(view.host.querySelector('.ui-conversation-header .ui-profile-link'), null);
+  } finally {
+    view.done();
+  }
+});
+
 /** jsdom owns the globals React reads. Installed once, kept for the whole file. */
 function install(page: JSDOM): void {
   const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'localStorage'] as const;
