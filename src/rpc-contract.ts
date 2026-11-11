@@ -12,7 +12,7 @@ import { isReactionEmoji } from './reaction-set.ts';
 
 /** A chat id, a legacy Gmail id, or a mailbox address. The registry still rejects an id it does not hold. */
 const account = z.string().min(1).max(320).refine(isAccountId, 'Unknown account');
-export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no']).optional(), attentionDismissed: z.boolean().optional(), muted: z.boolean().optional(), listedOnly: z.boolean().optional() });
+export const item = z.object({ account, id: z.string(), title: z.string(), preview: z.string(), date: z.number(), unread: z.boolean(), sender: z.string().optional(), avatarUrl: z.string().url().max(2048).optional(), profileUrl: z.string().url().max(2048).optional(), recipients: z.string().max(4000).optional(), attachments: z.array(z.string().max(255)).max(20).optional(), participants: z.array(z.string()).optional(), needsAttention: z.enum(['yes', 'no']).optional(), attentionDismissed: z.boolean().optional(), muted: z.boolean().optional(), listedOnly: z.boolean().optional() });
 const messageMedia = z.object({ messageId: z.string(), kind: z.enum(MEDIA_KINDS), cached: z.boolean(), available: z.boolean(), mime: z.string().optional(), filename: z.string().optional(), size: z.number().positive().optional(), seconds: z.number().positive().optional(), voice: z.boolean().optional(), url: z.string().optional() });
 const imsgAttachment = z.object({ index: z.number().int().nonnegative(), name: z.string(), available: z.boolean() });
 const quote = z.object({ targetId: z.string().optional(), sender: z.string().optional(), text: z.string().optional() });
@@ -111,6 +111,7 @@ export const rpcContract = defineRpcContract({
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
+  open_profile: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ opened: z.boolean(), error: z.string().max(400).optional() }).strict() },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
   linkedin_ui: { input: z.object({

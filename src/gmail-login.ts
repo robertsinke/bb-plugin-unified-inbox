@@ -46,7 +46,7 @@ export interface GmailLoginOptions {
   /** Add does not send this. A file is replaced only when this is true for the address Google returns. */
   replace?: boolean;
   dir?: string;
-  open?: (url: string) => void | Promise<void>;
+  open?: (url: string) => void | Promise<void> | Promise<boolean>;
   fetch?: TokenFetch;
   profile?: (token: string) => Promise<string | undefined>;
   userinfo?: (token: string) => Promise<string | undefined>;
@@ -63,15 +63,20 @@ export function cancelGmailLogin(): void {
   cancelActive?.();
 }
 
-/** The platform opener. The plugin does not start a browser of its own. */
-export function openSystemBrowser(url: string): void {
-  const child = process.platform === 'darwin'
-    ? spawn('open', [url], { stdio: 'ignore', detached: true })
-    : process.platform === 'win32'
-      ? spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true, windowsHide: true })
-      : spawn('xdg-open', [url], { stdio: 'ignore', detached: true });
-  child.on('error', () => { /* a failed open ends as a timeout, with nothing written */ });
-  child.unref();
+/** The platform opener. The plugin does not start a browser of its own. True means the process started. */
+export function openSystemBrowser(url: string): Promise<boolean> {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (opened: boolean) => { if (!settled) { settled = true; resolve(opened); } };
+    const child = process.platform === 'darwin'
+      ? spawn('open', [url], { stdio: 'ignore', detached: true })
+      : process.platform === 'win32'
+        ? spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true, windowsHide: true })
+        : spawn('xdg-open', [url], { stdio: 'ignore', detached: true });
+    child.once('error', () => finish(false));
+    child.once('spawn', () => finish(true));
+    child.unref();
+  });
 }
 
 /** False when the authorization URL did not carry this S256 challenge. The token post is skipped. */
@@ -239,7 +244,7 @@ function waitForCode(input: {
   authUrl: string;
   timeoutMs: number;
   signal?: AbortSignal;
-  open: (url: string) => void | Promise<void>;
+  open: (url: string) => void | Promise<void> | Promise<boolean>;
 }): Promise<string> {
   const { server, port, state, authUrl, timeoutMs, signal, open } = input;
   return new Promise((resolve, reject) => {
@@ -279,7 +284,7 @@ function waitForCode(input: {
       sendPage(res, port, done);
     });
     Promise.resolve()
-      .then(() => open(authUrl))
+      .then(() => Promise.resolve(open(authUrl)).then(() => undefined))
       .catch(() => finish(new Error('Gmail sign-in could not open the browser. Nothing was written.')));
   });
 }

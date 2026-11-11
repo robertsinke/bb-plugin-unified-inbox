@@ -10,6 +10,7 @@ import type { InboxCache } from './adapters/deps.ts';
 import { registryCapabilities, registrySources } from './adapters/index.ts';
 import { approvalFor, type SendGate } from './adapters/policy.ts';
 import type { Account, Adapter, Conversation } from './adapters/types.ts';
+import { isLinkedInProfileUrl } from './linkedin-inbox.ts';
 import { conversationKeyOf, describeControlExpression, pageTextExpression, sendClickRecord } from './linkedin-ui.ts';
 import type { PageControl, SendApproval, SendTarget } from './linkedin-ui.ts';
 import { isMessageSend } from './linkedin-write.ts';
@@ -69,6 +70,8 @@ export interface GatewayDriver {
   clickNamedControl(name: string, role?: string, approval?: SendApproval, target?: SendTarget): Promise<{ clicked: boolean; name?: string; reason?: string; recipients?: string[] }>;
   typeIntoNamedControl(name: string, text: string, role?: string, replace?: boolean): Promise<{ typed: boolean; reason?: string }>;
   openLinkedInSignIn(): Promise<string>;
+  /** Launch a URL in the system browser. Absent in a test that never opens one. */
+  openSystemBrowser?(url: string): Promise<boolean>;
 }
 
 /**
@@ -80,7 +83,7 @@ export interface GatewayDriver {
 export type Note = (level: 'info' | 'warn', line: string) => void;
 
 export interface GatewayDeps {
-  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'forget' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet' | 'mute' | 'unmute' | 'muted'>;
+  cache: Pick<InboxCache, 'list' | 'readThread' | 'clear' | 'forget' | 'freshness' | 'saveFreshness' | 'threadUpdatedAt' | 'setSentSnippet' | 'mute' | 'unmute' | 'muted' | 'profileLink'>;
   search: Pick<ReturnType<typeof createSearchIndex>, 'search' | 'status' | 'warm' | 'row'>;
   audit: Pick<ReturnType<typeof createSendAudit>, 'list'>;
   gate: SendGate;
@@ -280,6 +283,19 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       const result = await registry[account].open(id);
       void search.warm();
       return { ...result, cacheFallback: result.cacheFallback ?? false, updatedAt: cache.threadUpdatedAt(account, id) };
+    },
+    /**
+     * Open a stored LinkedIn profile in the system browser. The caller names the conversation.
+     * The URL comes from the profile table, and it is checked again before launch.
+     */
+    async open_profile({ account, id }) {
+      const refused = (error: string) => ({ opened: false as const, error });
+      if (account !== 'linkedin') return refused('That account has no public profile link.');
+      const url = cache.profileLink(account, id);
+      if (!url || !isLinkedInProfileUrl(url)) return refused('That profile link is not available.');
+      if (!driver.openSystemBrowser) return refused('Could not open that profile.');
+      const opened = await driver.openSystemBrowser(url);
+      return opened ? { opened: true as const } : refused('Could not open that profile.');
     },
     // Slice D, observation first: arming watches the page's own fetch, and `writes` reports only
     // what a real action produced. Nothing here sends anything.

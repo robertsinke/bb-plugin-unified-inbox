@@ -38,6 +38,11 @@ interface FixtureOptions {
   attentionOf?: GatewayDeps['attentionOf'];
   /** The classification unmute schedules. The response itself is not a push. */
   classifyUnmuted?: GatewayDeps['classifyUnmuted'];
+  /** A stored profile URL the opener may launch. The id defaults to t1. */
+  profileUrl?: string;
+  profileId?: string;
+  /** What the system-browser opener reports. True when omitted. */
+  openProfile?: boolean;
 }
 
 /** The names the real adapters declare; a fake states them here rather than reading them out of the registry. */
@@ -68,6 +73,8 @@ function fixture(options: FixtureOptions = {}) {
   };
   const freshness = new Map<Account, SourceFreshness>();
   const muted = new Set<string>();
+  const profileLinks = new Map<string, string>();
+  if (options.profileUrl) profileLinks.set(`linkedin\0${options.profileId ?? 't1'}`, options.profileUrl);
   const cache: GatewayDeps['cache'] = {
     freshness: account => freshness.get(account) ?? unknownFreshness(),
     saveFreshness: (account, state) => { freshness.set(account, state); },
@@ -80,6 +87,7 @@ function fixture(options: FixtureOptions = {}) {
     mute: (account, id) => { muted.add(`${account}\0${id}`); },
     unmute: (account, id) => { muted.delete(`${account}\0${id}`); },
     muted: (account, id) => muted.has(`${account}\0${id}`),
+    profileLink: (account, id) => profileLinks.get(`${account}\0${id}`),
   };
   const search: GatewayDeps['search'] = {
     search: async () => options.ranked ?? [],
@@ -102,6 +110,10 @@ function fixture(options: FixtureOptions = {}) {
     },
     typeIntoNamedControl: async () => ({ typed: true }),
     openLinkedInSignIn: async () => '/tmp/inbox-profile',
+    openSystemBrowser: async url => {
+      calls.push(`driver:open:${url}`);
+      return options.openProfile ?? true;
+    },
   };
   const personal: Partial<Adapter> = {
     // A cache-only decoration, the shape WhatsApp's group participants use.
@@ -568,4 +580,27 @@ test('a vote records the chosen names and then asks the adapter once', async () 
   assert.deepEqual(answered, { status: 'Sent.' });
   assert.deepEqual(seen, [{ messageId: 'm1', options: ['Yes'] }]);
   assert.equal(f.auditRows[0]?.decision, 'allowed');
+});
+
+test('a stored LinkedIn profile URL is the only address the system browser opens', async () => {
+  const url = 'https://www.linkedin.com/in/ada-lovelace';
+  const f = fixture({ profileUrl: url, profileId: 'urn:li:msg_conversation:1' });
+  assert.equal(rpcContract.open_profile.input.safeParse({ account: 'linkedin', id: 'urn:li:msg_conversation:1', url }).success, false);
+  assert.deepEqual(await f.gateway.open_profile({ account: 'linkedin', id: 'urn:li:msg_conversation:1' }), { opened: true });
+  assert.deepEqual(f.calls.filter(call => call.startsWith('driver:open:')), [`driver:open:${url}`]);
+
+  const missing = fixture();
+  assert.deepEqual(await missing.gateway.open_profile({ account: 'linkedin', id: 'missing' }), { opened: false, error: 'That profile link is not available.' });
+  assert.equal(missing.calls.some(call => call.startsWith('driver:open:')), false);
+
+  const other = fixture({ profileUrl: url });
+  assert.deepEqual(await other.gateway.open_profile({ account: 'gmail-personal', id: 't1' }), { opened: false, error: 'That account has no public profile link.' });
+  assert.equal(other.calls.some(call => call.startsWith('driver:open:')), false);
+
+  const bad = fixture({ profileUrl: 'https://evil.example/in/ada' });
+  assert.deepEqual(await bad.gateway.open_profile({ account: 'linkedin', id: 't1' }), { opened: false, error: 'That profile link is not available.' });
+  assert.equal(bad.calls.some(call => call.startsWith('driver:open:')), false);
+
+  const failed = fixture({ profileUrl: url, profileId: 'urn:li:msg_conversation:1', openProfile: false });
+  assert.deepEqual(await failed.gateway.open_profile({ account: 'linkedin', id: 'urn:li:msg_conversation:1' }), { opened: false, error: 'Could not open that profile.' });
 });

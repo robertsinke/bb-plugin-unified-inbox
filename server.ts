@@ -285,6 +285,7 @@ export default async function plugin(bb: BbPluginApi) {
         clickNamedControl,
         typeIntoNamedControl,
         openLinkedInSignIn,
+        openSystemBrowser,
       },
     });
     bb.rpc.register(rpcContract, gateway);
