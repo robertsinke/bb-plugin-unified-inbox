@@ -10,10 +10,7 @@
 .ui-chat-incoming .ui-reaction-pills{left:10px}
 .ui-chat-outgoing .ui-reaction-pills{right:10px}
 .ui-reaction-count{margin-left:2px;font-size:10px;opacity:.7}
-.ui-bubble-actions{position:absolute;top:50%;z-index:2;display:flex;align-items:center;gap:1px;width:max-content;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;background:var(--background,Canvas);box-shadow:0 4px 14px #0004;white-space:nowrap;opacity:0;pointer-events:none;transform:translateY(-50%);transition:opacity 140ms ease}
-/* Beside the bubble, toward the open side. A bar above the message is clipped by the thread pane. */
-.ui-chat-incoming .ui-bubble-actions{left:100%}
-.ui-chat-outgoing .ui-bubble-actions{right:100%}
+.ui-bubble-actions{position:absolute;top:0;left:0;z-index:2;display:flex;align-items:center;gap:1px;width:max-content;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;background:var(--background,Canvas);box-shadow:0 4px 14px #0004;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity 140ms ease}
 .ui-bubble:hover>.ui-bubble-actions,.ui-bubble-actions.is-open,.ui-bubble-actions:has(:focus-visible){opacity:1;pointer-events:auto}
 .ui-reaction-set{display:flex;flex:none}
 .ui-reaction-choice,.ui-reply-choice{flex:none;height:26px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer;white-space:nowrap}

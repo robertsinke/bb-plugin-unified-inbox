@@ -27,6 +27,7 @@ import { expandEmailScrollRegions } from './src/mail-scroll';
 import { MENTION_PROVIDER, mentionId, threadComposer } from './src/inbox-mention';
 import { installInboxMentionOpenListener, subscribeInboxMentionOpen, takeInboxMentionOpen, type InboxMentionOpen } from './src/inbox-mention-open';
 import { browserTabId, focusedBrowserId, messageParts, panelStateFocusedOn, panelStateKey, tabsAfterLink } from './src/message-links';
+import { reactionBarPosition } from './src/reaction-bar.ts';
 import { REACTION_SET } from './src/reaction-set.ts';
 import { canAnswerInvitation, canArchive, canMarkRead, canPollVote, canQuoteReply, canReact, canSend, hasThread } from './src/ui-capabilities';
 import { isLegacyGmailAccount, isMailboxAddress, type Account, type Message as InboxMessage } from './src/adapters/types';
@@ -597,9 +598,33 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
   const chips = m.reactions?.length ? reactionChips(m.reactions) : [];
   const mine = (emoji: string) => Boolean(selfLabel) && (m.reactions ?? []).some(reaction => reaction.label === emoji && reaction.sender === selfLabel);
   const frame = useRef<HTMLElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
   const actions = (reactionsOn || quotesOn) && Boolean(messageId);
   function close() { setOpen(false); }
+  useLayoutEffect(() => {
+    if (!open) { setPlace(null); return; }
+    const bubble = frame.current;
+    const node = bar.current;
+    const scroller = bubble?.closest('.ui-thread-scroll');
+    if (!bubble || !node || !(scroller instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = reactionBarPosition({
+        bubble: bubble.getBoundingClientRect(),
+        view: scroller.getBoundingClientRect(),
+        bar: { width: node.offsetWidth, height: node.offsetHeight },
+      });
+      setPlace(current => current && current.top === next.top && current.left === next.left ? current : next);
+    };
+    measure();
+    scroller.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      scroller.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [open]);
   return <article ref={frame} className={bubbleClass(account)} onMouseEnter={actions ? () => setOpen(true) : undefined} onMouseLeave={actions ? close : undefined}>
     <span className="ui-sr">{m.fromMe ? 'You' : m.sender || 'WhatsApp'}</span>
     {!inlineSender && !m.fromMe && m.sender && <div className="ui-bubble-sender">{m.sender}</div>}
@@ -613,7 +638,7 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
     {m.edited && <span className="ui-media-note">Edited</span>}
     {m.date > 0 && <time className="ui-bubble-time">{new Date(m.date).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>}
     {chips.length ? <div className="ui-reaction-pills" aria-label="Reactions">{chips.map(chip => <span key={chip.label} className="ui-reaction-pill" title={chip.senders.join(', ')}>{chip.label}{chip.senders.length > 1 ? <span className="ui-reaction-count">{chip.senders.length}</span> : null}</span>)}</div> : null}
-    {actions ? <div className={`ui-bubble-actions${open ? ' is-open' : ''}`}>{reactionsOn ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
+    {actions ? <div ref={bar} className={`ui-bubble-actions${open ? ' is-open' : ''}`} style={place ? { top: place.top, left: place.left } : undefined}>{reactionsOn ? <div className="ui-reaction-set">{REACTION_SET.map(item => <button key={item.label} type="button" className="ui-reaction-choice" aria-label={item.label} aria-pressed={mine(item.emoji)} disabled={busy} onClick={event => { close(); event.currentTarget.blur(); onReact(messageId, item.emoji, mine(item.emoji)); }}>{item.emoji}</button>)}</div> : null}{quotesOn ? <button type="button" className="ui-reply-choice" onClick={event => { close(); event.currentTarget.blur(); onReply(messageId); }}>Reply</button> : null}</div> : null}
   </article>;
 }
 function openTaggedConversation(session: InboxSession, target: InboxMentionOpen) {

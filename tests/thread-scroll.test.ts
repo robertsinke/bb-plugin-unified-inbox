@@ -22,15 +22,13 @@ test('a photo in a mail thread stays within the column', () => {
   assert.match(media, /max-width:\s*min\(340px,\s*100%\)/);
 });
 
-test('the reaction bar sits beside the middle of the bubble and shows on hover', () => {
+test('the reaction bar is not hung off the side of the bubble, and it shows on hover', () => {
+  const css = readFileSync('chat.css', 'utf8');
+  assert.doesNotMatch(css, /\.ui-chat-(incoming|outgoing) \.ui-bubble-actions\{/);
   const bar = rule('chat.css', '.ui-bubble-actions');
-  assert.match(bar, /top:\s*50%/);
-  assert.match(bar, /transform:\s*translateY\(-50%\)/);
-  assert.doesNotMatch(bar, /left:\s*50%/);
-  const incoming = rule('chat.css', '.ui-chat-incoming .ui-bubble-actions');
-  assert.match(incoming, /left:\s*100%/);
-  const outgoing = rule('chat.css', '.ui-chat-outgoing .ui-bubble-actions');
-  assert.match(outgoing, /right:\s*100%/);
+  assert.match(bar, /position:\s*absolute/);
+  assert.doesNotMatch(bar, /left:\s*100%/);
+  assert.doesNotMatch(bar, /right:\s*100%/);
   const shown = rule('chat.css', '.ui-bubble:hover>.ui-bubble-actions,.ui-bubble-actions.is-open,.ui-bubble-actions:has(:focus-visible)');
   assert.match(shown, /opacity:\s*1/);
 });
