@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, whatsappPhone, whatsappSender, whatsappText, whatsappTitle } from '../src/whatsapp-chat.ts';
+import { groupPreview, isWhatsAppNoise, isWhatsAppNoisePreview, nameWhatsAppMentions, whatsappPhone, whatsappSender, whatsappText, whatsappTitle } from '../src/whatsapp-chat.ts';
 
 test('a message with media of its own names itself only where a control cannot', () => {
   const photo = { kind: 'image' };
@@ -48,6 +48,19 @@ test('phone fallback only formats real phone JIDs', () => {
   assert.equal(whatsappTitle('', '31600000111@s.whatsapp.net'), '+31600000111');
   assert.equal(whatsappTitle('Nils', '100000000000002@lid'), 'Nils');
   assert.equal(whatsappTitle('', '120363000000000001@g.us'), '120363000000000001@g.us');
+});
+
+test('a mention shows a name when one is known and keeps the number when it is not', () => {
+  const text = '@141617990205477 @259768379789544 @2040210153624 zit hier';
+  const named = nameWhatsAppMentions(text, [
+    { jid: '141617990205477@lid', name: 'Felix de Groene' },
+    { jid: '259768379789544@lid', name: '' },
+  ]);
+  assert.equal(named, '@Felix de Groene @259768379789544 @2040210153624 zit hier');
+  assert.equal(nameWhatsAppMentions('@141617990205477 and @141617', [
+    { jid: '141617@lid', name: 'Ada' },
+    { jid: '141617990205477@lid', name: 'Felix' },
+  ]), '@Felix and @Ada', 'a shorter id does not cut into a longer one');
 });
 
 test('stub and protocol events are noise, not messages', () => {

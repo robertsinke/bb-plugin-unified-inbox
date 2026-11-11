@@ -18,6 +18,23 @@ export function whatsappPhone(jid: string): string {
   return /^\d{6,15}$/.test(local) ? `+${local}` : '';
 }
 
+/**
+ * An @mention stays a number until a name is known. Only a listed mention is rewritten, longest
+ * first, so a shorter id cannot cut into a longer one.
+ */
+export function nameWhatsAppMentions(text: string, mentions: Array<{ jid: string; name: string }>): string {
+  const named = mentions.flatMap(mention => {
+    const user = mention.jid.split('@')[0]?.split(':')[0] ?? '';
+    const name = mention.name.trim();
+    return /^\d{6,}$/.test(user) && name ? [{ user, name }] : [];
+  }).sort((a, b) => b.user.length - a.user.length);
+  let out = text;
+  for (const mention of named) {
+    out = out.replace(new RegExp(`(?<![\\w.])@${mention.user}(?!\\d)`, 'g'), () => `@${mention.name}`);
+  }
+  return out;
+}
+
 /** Prefer a saved name, then a dialable phone number, then the raw JID. */
 export function whatsappTitle(name: string, displayJid: string): string {
   const clean = name.trim();

@@ -30,9 +30,9 @@ import { createWhatsAppSendTransport, type WhatsAppSendSocket } from './send.ts'
 import { replayStoredPollUpdates } from './ingest.ts';
 import { usableName, type Message, type WhatsAppStore } from './store.ts';
 import { WHATSAPP_OFFLINE, WHATSAPP_OWN_NUMBER, WHATSAPP_UNKNOWN_NUMBER } from './phone.ts';
-import { whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
+import { nameWhatsAppMentions, whatsappPhone, whatsappText } from '../whatsapp-chat.ts';
 import { isPollCreationType, pollCard, pollFacts, pollFactsFromRaw, pollPartyJid, encryptPollVote } from './poll.ts';
-import { jidNormalizedUser } from 'baileys';
+import { extractMessageContent, getContentType, jidNormalizedUser } from 'baileys';
 import { whatsAppMedia } from '../whatsapp-media.ts';
 
 export type WhatsAppTransportOptions = {
@@ -159,9 +159,48 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
     };
   }
 
+  /**
+   * Mention ids and the forwarded flag live in the envelope, not in the text column. A mention
+   * becomes @name when that person is already known. An unknown id stays a number.
+   */
+  function envelopeNotes(raw: string | null): { forwarded: boolean; mentioned: string[] } {
+    if (!raw) return { forwarded: false, mentioned: [] };
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      const content = extractMessageContent(parsed.message as Parameters<typeof extractMessageContent>[0]);
+      const type = getContentType(content);
+      const value = type && content ? (content as Record<string, { contextInfo?: { isForwarded?: boolean; mentionedJid?: unknown } } | undefined>)[type] : undefined;
+      const info = value?.contextInfo;
+      const mentioned = Array.isArray(info?.mentionedJid) ? info.mentionedJid.filter((jid): jid is string => typeof jid === 'string') : [];
+      return { forwarded: info?.isForwarded === true, mentioned };
+    } catch {
+      return { forwarded: false, mentioned: [] };
+    }
+  }
+
+  /** The name to show for a mention: this jid, then the other alias when the name was stored there. */
+  function mentionName(jid: string): string {
+    const own = contactName(jid);
+    if (own) return own;
+    const contact = store.getContact(jid);
+    const alias = contact?.phone_jid && contact.phone_jid !== jid
+      ? contact.phone_jid
+      : contact?.lid_jid && contact.lid_jid !== jid ? contact.lid_jid : '';
+    return alias ? contactName(alias) : '';
+  }
+
+  function shownText(message: Message): { text: string; forwarded: boolean } {
+    const notes = envelopeNotes(message.raw);
+    const mentions = notes.mentioned.flatMap(jid => {
+      const name = mentionName(jid);
+      return name ? [{ jid, name }] : [];
+    });
+    return { text: nameWhatsAppMentions(message.text ?? '', mentions), forwarded: notes.forwarded };
+  }
+
   function previewOf(message: Message): NonNullable<WhatsAppChatRow['preview']> {
     return {
-      text: whatsappText(message.text ?? '', message.type, whatsAppMedia(message)),
+      text: whatsappText(shownText(message).text, message.type, whatsAppMedia(message)),
       fromMe: message.from_me,
       sender: senderName(message.sender, message.chat_jid),
     };
@@ -240,15 +279,17 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
         const reactions = reactionsOf(id, message.id);
         const quote = quoteOf(message);
         const poll = pollOf(message);
+        const shown = shownText(message);
         return {
           id: message.id,
           chatJid: message.chat_jid,
           fromMe: message.from_me,
           ts: message.ts,
           type: message.type,
-          text: message.text ?? '',
+          text: shown.text,
           sender: message.from_me ? '' : senderName(message.sender, message.chat_jid),
           edited: message.edited_at != null,
+          ...(shown.forwarded ? { forwarded: true } : {}),
           ...(media ? { media } : {}),
           ...(reactions ? { reactions } : {}),
           ...(quote ? { quote } : {}),

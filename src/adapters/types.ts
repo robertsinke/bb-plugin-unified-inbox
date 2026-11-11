@@ -206,6 +206,8 @@ export interface WhatsAppMessageRow {
   /** Display name of who wrote it; empty when the chat's own name stands in (a 1:1). */
   sender: string;
   edited: boolean;
+  /** The envelope says this message was forwarded. Absent means it was not. */
+  forwarded?: boolean;
   media?: WhatsAppMedia;
   /** Stored reactions. A row with an empty sender still carries its emoji. */
   reactions?: Reaction[];
@@ -399,6 +401,8 @@ export interface Message {
   imsgAttachments?: ImsgAttachment[];
   /** Messages edit indicator. */
   edited?: boolean;
+  /** WhatsApp forwarded mark. Absent means the message was not forwarded. */
+  forwarded?: boolean;
   /** Messages thread indicator (context only; full threading is a non-goal). */
   replyContext?: boolean;
   /** The earlier message this one quotes, when the source stored a target, a sender, or text. */

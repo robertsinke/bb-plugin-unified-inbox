@@ -188,6 +188,41 @@ test('a 1:1 row stored with a blank sender is still the other person', async () 
   }
 });
 
+test('a mention shows the known name, and a forwarded message says so', async () => {
+  const { db, store } = fixture();
+  try {
+    const chat = '120363406108604036@g.us';
+    store.upsertChat({ jid: chat, name: 'Elvy Lustrumreis 2026', kind: 'group', last_msg_at: 1_000 });
+    store.upsertContact({ jid: '141617990205477@lid', name: null, push_name: 'Felix de Groene' });
+    const text = '@141617990205477 @2040210153624 zit hier';
+    store.upsertMessage(message({
+      id: 'm-mention',
+      chat_jid: chat,
+      ts: 1_000,
+      sender: '55216284147946@lid',
+      text,
+      raw: JSON.stringify({
+        key: { remoteJid: chat, id: 'm-mention', fromMe: false },
+        message: {
+          extendedTextMessage: {
+            text,
+            contextInfo: {
+              isForwarded: true,
+              mentionedJid: ['141617990205477@lid', '2040210153624@lid'],
+            },
+          },
+        },
+      }),
+    }));
+    const transport = createWhatsAppTransport({ store, ...down });
+    const [row] = await transport.openChat({ id: chat, limit: 10 });
+    assert.equal(row?.text, '@Felix de Groene @2040210153624 zit hier');
+    assert.equal(row?.forwarded, true);
+  } finally {
+    db.close();
+  }
+});
+
 test('open answers the newest rows of one chat, oldest first, and an unknown chat answers nothing', async () => {
   const { db, store } = fixture();
   try {

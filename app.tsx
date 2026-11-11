@@ -606,6 +606,7 @@ function ChatBubble({ message: m, group, onOpenLink, imsgChatId, account, selfLa
     {quoteText ? <blockquote className="ui-quote">{quoteSender ? <span className="ui-quote-sender">{quoteSender}</span> : null}<span className="ui-quote-text">{quoteText}</span></blockquote> : m.replyContext ? <p className="ui-quote ui-quote-marker">Reply to an earlier message</p> : null}
     {m.media?.kind === 'video' ? <WhatsAppVideo media={m.media} /> : m.media?.kind === 'document' ? <WhatsAppDocument media={m.media} /> : m.media?.kind === 'audio' ? <WhatsAppAudio media={m.media} /> : m.media ? <WhatsAppImage media={m.media} /> : null}
     {imsgChatId && m.imsgId && m.imsgAttachments?.map(attachment=><MessagesAttachment key={`${m.imsgId}:${attachment.index}`} chatId={imsgChatId} messageId={m.imsgId!} attachment={attachment}/>)}
+    {m.forwarded ? <span className="ui-media-note">Forwarded</span> : null}
     {m.poll ? <PollChoices poll={m.poll} disabled={!votesOn || busy || !messageId} onChoose={names => onVote(messageId, names)} /> : null}
     {hasText && <div className="ui-bubble-text">{inlineSender && <strong className="ui-bubble-sender-inline">{m.sender}: </strong>}<MessageText text={m.text} onOpenLink={onOpenLink} /></div>}
     {(m.share || m.link) && !m.media ? <ShareCard message={m} onOpenLink={onOpenLink} /> : null}

@@ -154,6 +154,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         date: whatsappTimestamp(row.ts),
         messageId: row.id,
         ...(row.edited ? { edited: true } : {}),
+        ...(row.forwarded ? { forwarded: true } : {}),
         ...(row.media ? { media: row.media } : {}),
         ...(row.reactions?.length ? { reactions: row.reactions } : {}),
         ...(row.quote ? { quote: row.quote } : {}),
