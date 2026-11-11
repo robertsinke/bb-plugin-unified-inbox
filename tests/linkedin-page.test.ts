@@ -353,13 +353,13 @@ function profileEntity(urn: string, slug: string, firstName = 'Ada') {
 }
 
 /** One newest-page read. A profile route throws when `failProfile` is set. */
-async function readList(participants: string[], profiles: unknown[], failProfile = false) {
+async function readList(participants: string[], profiles: unknown[], failProfile = false, data?: unknown) {
   const expression = linkedinPageExpression({ mode: 'list' });
   return readOlder(expression, url => {
     if (url.includes('/voyager/api/me')) return ME;
     if (url.includes('identity/dash/profiles')) {
       if (failProfile) throw new Error('profile down');
-      return { included: profiles };
+      return { ...(data ? { data } : {}), included: profiles };
     }
     if (url.includes('organization/companies')) return { data: { localizedName: 'Acme' } };
     if (url.includes('messengerConversations')) return { data: {}, included: [memberConversation(participants)] };
@@ -373,6 +373,18 @@ test('one other member copies publicIdentifier from the profile that was request
     profileEntity(OTHER, 'not-ada', 'Other'),
     profileEntity(ADA, 'ada-lovelace'),
   ]);
+  assert.equal(payload.conversations[0].publicIdentifier, 'ada-lovelace');
+  assert.equal(payload.conversations[0].sender, 'Ada Lovelace');
+  assert.equal(payload.conversations[0].profileMiss, undefined);
+});
+
+test('a publicIdentifier on the matching profile data is the counterpart when included is empty', async () => {
+  const { payload } = await readList([ADA], [profileEntity(OTHER, 'not-ada', 'Other')], false, {
+    entityUrn: ADA,
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    publicIdentifier: 'ada-lovelace',
+  });
   assert.equal(payload.conversations[0].publicIdentifier, 'ada-lovelace');
   assert.equal(payload.conversations[0].sender, 'Ada Lovelace');
   assert.equal(payload.conversations[0].profileMiss, undefined);

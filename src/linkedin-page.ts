@@ -130,10 +130,13 @@ const BODY = `
           const profile = await get('/voyager/api/identity/dash/profiles/' + enc('urn:li:' + key));
           const wanted = 'urn:li:' + key;
           const matched = (profile.included || []).find(e => e && String(e.entityUrn || '') === wanted);
-          const person = matched || (profile.included || []).find(e => e && e.firstName) || profile.data || {};
+          const data = profile.data && String(profile.data.entityUrn || '') === wanted ? profile.data : null;
+          const person = matched || data || (profile.included || []).find(e => e && e.firstName) || profile.data || {};
           names.set(key, [person.firstName, person.lastName].filter(Boolean).join(' '));
           avatars.set(key, linkedinImage(avatarOf(person)));
-          slugs.set(key, typeof matched?.publicIdentifier === 'string' ? matched.publicIdentifier : '');
+          // A live dash profile puts publicIdentifier on data and leaves included empty.
+          const slugOf = [matched, data].map(e => e && typeof e.publicIdentifier === 'string' ? e.publicIdentifier : '').find(value => value);
+          slugs.set(key, slugOf || '');
           slugMiss.delete(key);
         }
       } catch {
