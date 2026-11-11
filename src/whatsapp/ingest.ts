@@ -349,7 +349,7 @@ export function ingestBaileysContact(store: WhatsAppStore, contact: ContactPatch
 }
 
 /**
- * Record the names WhatsApp hands over with a group's participant list. A group's participants carry
+ * Record a group's subject as its chat name, and the names on its participant list. A group's participants carry
  * a `name` (the address-book entry the owner's contacts hold) and a `notify` (the name someone chose
  * themselves), and neither arrives any other way: history sync omits `pushName`, and a contact is
  * only pushed when it changes. Without this the sender of a synced message is a LID with no name and
@@ -360,6 +360,11 @@ export function ingestBaileysContact(store: WhatsAppStore, contact: ContactPatch
  */
 export function ingestBaileysGroup(store: WhatsAppStore, group: GroupMetadata): ChatMerge[] {
   const merges: ChatMerge[] = [];
+  // A live message creates the chat with no name. The subject arrives here, on group metadata,
+  // and a partial update (announce, restrict) does not carry one — leave the stored name alone.
+  const jid = group.id ? store.canonicalChatJid(group.id) : undefined;
+  const subject = jid ? usableName(group.subject) : null;
+  if (jid && subject) upsertChatMerged(store, { jid, name: subject, kind: 'group' });
   for (const participant of group.participants ?? []) {
     if (!usableName(participant.name) && !usableName(participant.notify)) continue;
     const merge = ingestBaileysContact(store, participant);
@@ -826,8 +831,8 @@ export function attachIngest(
   const onChatUpdates = (updates: ChatUpdate[]) => handleChatsUpdate(store, updates);
   const onContacts = (contacts: Contact[]) => publishMerges(handleContactsUpsert(store, contacts));
   const onContactUpdates = (contacts: ContactPatch[]) => publishMerges(handleContactsUpdate(store, contacts));
-  // `groups.update` is also how `groupFetchAllParticipating()` answers, so binding it is what lets
-  // the connection backfill every group's names once per open.
+  // `groups.update` is also how `groupFetchAllParticipating()` answers. The subject on that
+  // metadata is the group name; participant names are recorded in the same pass.
   const onGroups = (groups: GroupMetadata[]) => {
     for (const group of groups) publishMerges(ingestBaileysGroup(store, group));
   };

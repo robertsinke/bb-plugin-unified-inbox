@@ -106,6 +106,11 @@ test('a row with a face draws it, and a row without one draws initials rather th
     // A group with a picture draws the picture, not the four-cell mosaic it used to fall back to.
     assert.equal(pictureIn(2)?.getAttribute('src'), GROUP_FACE, 'a group picture replaces the mosaic');
     assert.equal(rows[2].querySelectorAll('.ui-avatar-cell').length, 0, 'and the mosaic is not drawn beside it');
+
+    flushSync(() => pictureIn(2)?.dispatchEvent(new dom.window.Event('error')));
+    assert.equal(rows[2].querySelectorAll('.ui-avatar-cell').length, 0, 'a picture that fails to load does not become a mosaic');
+    assert.equal(rows[2].querySelector('img.ui-avatar-photo'), null);
+    assert.ok((rows[2].textContent ?? '').includes('C'), 'the group name supplies the initials');
   } finally {
     flushSync(() => root.unmount());
     host.remove();

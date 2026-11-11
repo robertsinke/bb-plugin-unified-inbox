@@ -389,6 +389,33 @@ test('a group participant list is where a synced sender gets their name', (t) =>
   }
 });
 
+test('a group subject fills a blank chat name and a later update keeps it', () => {
+  const { db, store } = fixture();
+  try {
+    const jid = '120363406108604036@g.us';
+    handleMessagesUpsert(store, {
+      type: 'notify',
+      messages: [{
+        key: { id: 'M1', remoteJid: jid, fromMe: false, participant: '259768379789544@lid' },
+        messageTimestamp: 1_700_000,
+        message: { conversation: 'Hi' },
+      }] as WAMessage[],
+    });
+    assert.equal(store.getChat(jid)?.name, null, 'a live message does not carry the group subject');
+
+    ingestBaileysGroup(store, { id: jid, subject: 'Elvy lustrumreis', participants: [] } as never);
+    assert.equal(store.getChat(jid)?.name, 'Elvy lustrumreis');
+
+    ingestBaileysGroup(store, { id: jid, announce: true, participants: [] } as never);
+    assert.equal(store.getChat(jid)?.name, 'Elvy lustrumreis', 'a subject-less group update leaves the name');
+
+    ingestBaileysGroup(store, { id: jid, subject: '+31 6 •••• 85', participants: [] } as never);
+    assert.equal(store.getChat(jid)?.name, 'Elvy lustrumreis', 'a phone-shaped subject is not a name');
+  } finally {
+    db.close();
+  }
+});
+
 test('the ingest bindings never throw into the socket and detach cleanly', (t) => {
   t.mock.method(console, 'error', () => {});
   const { db, store } = fixture();

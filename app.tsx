@@ -121,7 +121,8 @@ function ContactAvatar({name,account,participants=[],avatarUrl}:{name:string;acc
   const [imageFailed,setImageFailed]=useState(false);
   useEffect(()=>setImageFailed(false),[avatarUrl]);
   const photo=!!avatarUrl&&!imageFailed;
-  const mosaic = account === 'whatsapp' && participants.length >= 2 && !photo;
+  // A stored picture is the face. A dead link falls back to initials, never to the participant mosaic.
+  const mosaic = account === 'whatsapp' && participants.length >= 2 && !avatarUrl;
   return <span className={`ui-avatar ${sourceClass(account)}${mosaic?' ui-avatar-group':''}`} aria-hidden="true">
     <span className="ui-avatar-face" style={mosaic?undefined:{background:avatarFace(name)}}>
       {photo ? <img className="ui-avatar-photo" src={avatarUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setImageFailed(true)}/> : mosaic ? participants.slice(0,4).map((person,index)=><span key={`${person}-${index}`} className="ui-avatar-cell" style={{background:avatarFace(person)}}>{firstLetter(person)}</span>) : initialsFor(name)}

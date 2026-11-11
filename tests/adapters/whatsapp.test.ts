@@ -188,7 +188,7 @@ test('WhatsApp: a row carries a stored picture, and only from a host the panel m
     withPicture.cache.saveThread('whatsapp', WHATSAPP_GROUP_ID, [{ sender: 'Grace', text: 'Ship it', date: 1, fromMe: false }]);
     const group = withPicture.registry.whatsapp.decorate?.({ ...row, id: WHATSAPP_GROUP_ID, title: 'Builders' });
     assert.equal(group?.avatarUrl, PICTURE);
-    assert.deepEqual(group?.participants, ['Grace'], 'the mosaic stays as the fallback for a picture that fails to load');
+    assert.deepEqual(group?.participants, ['Grace'], 'the names stay on the row; the stored picture is the face');
   } finally {
     withPicture.close();
   }

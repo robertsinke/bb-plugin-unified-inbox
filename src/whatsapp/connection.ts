@@ -64,6 +64,11 @@ export type WhatsAppSocket = Partial<WhatsAppSendSocket> & {
    * a list row draws; `timeoutMs` bounds the ask so a wedged IQ cannot hold a queue behind it.
    */
   profilePictureUrl?(jid: string, type?: 'preview' | 'image', timeoutMs?: number): Promise<string | undefined>;
+  /**
+   * Every group this account is in, in one query. Baileys emits `groups.update` with each subject.
+   * Absent on a socket that cannot ask; a read never opens a socket for this.
+   */
+  groupFetchAllParticipating?(): Promise<unknown>;
   user?: { id?: string; lid?: string };
 };
 
@@ -408,6 +413,11 @@ export class WhatsAppConnection {
     if (update.connection === 'open') {
       this.#reconnectAttempt = 0;
       this.#setState('connected');
+      // Existing groups never repeat their subject on a message. One query fills the names.
+      const socket = this.#socket;
+      if (socket?.groupFetchAllParticipating) {
+        void socket.groupFetchAllParticipating().catch((error: unknown) => this.#surfaceError(error, false));
+      }
     }
     if (update.connection !== 'close') return;
 

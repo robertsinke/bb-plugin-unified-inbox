@@ -84,6 +84,20 @@ test('a loggedOut close is terminal: no ladder, and the listener is told', async
   assert.equal(connection.status(), 'disconnected');
 });
 
+test('an open socket asks once for the group subjects this account already has', async (t) => {
+  const { connection, sockets } = await connectionUnderTest(t);
+  await connection.start();
+  const fake = sockets.sockets.at(-1)!;
+  let calls = 0;
+  fake.socket.groupFetchAllParticipating = async () => {
+    calls += 1;
+  };
+  fake.emit('connection.update', { connection: 'open' });
+  await fake.flush();
+  assert.equal(calls, 1);
+  assert.equal(connection.status(), 'connected');
+});
+
 test('an open socket reports connected, and a received message is reported without its body', async (t) => {
   const { connection, sockets, events } = await connectionUnderTest(t);
   await connection.start();
