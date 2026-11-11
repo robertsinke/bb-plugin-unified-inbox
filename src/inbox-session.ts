@@ -141,8 +141,6 @@ export interface InboxSession {
   /** Persist drafts still inside their debounce window; call on shutdown. */
   flush(): void;
   open(item: InboxItem): Promise<void>;
-  /** Open the stored public profile for this conversation. A failure is a status line. */
-  openProfile(item: InboxItem): Promise<void>;
   back(): void;
   /** Mark a Needed conversation None, and keep the previous score so it can be put back. */
   clearAttention(item: InboxItem): Promise<void>;
@@ -1139,16 +1137,6 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     for (const key of [...pendingDrafts.keys()]) persistDraft(key);
   }
 
-  async function openProfile(item: InboxItem): Promise<void> {
-    try {
-      const result = await deps.rpc.call('open_profile', { account: item.account, id: item.id });
-      state.status = result.opened ? '' : (result.error || 'Could not open that profile.');
-    } catch (error) {
-      state.status = error instanceof Error ? error.message : 'Could not open that profile.';
-    }
-    notify();
-  }
-
   return {
     snapshot() {
       if (published) return published;
@@ -1173,7 +1161,6 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     showAudit,
     hideAudit,
     open,
-    openProfile,
     back,
     clearAttention,
     restoreAttention,

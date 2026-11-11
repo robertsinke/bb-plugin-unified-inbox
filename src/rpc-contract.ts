@@ -111,7 +111,6 @@ export const rpcContract = defineRpcContract({
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
   open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
-  open_profile: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: z.object({ opened: z.boolean(), error: z.string().max(400).optional() }).strict() },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
   linkedin_ui: { input: z.object({

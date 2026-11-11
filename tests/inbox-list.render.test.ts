@@ -29,6 +29,7 @@ const HIT = { account: 'whatsapp', id: '15559999999@s.whatsapp.net', title: 'Gra
  */
 function sdk(rpc: (method: string, ...args: unknown[]) => Promise<any>) {
   let panel: any = null;
+  const browserTabs: { kind?: string; url?: string }[] = [];
   const app = {
     slots: { experimental_tab: (config: { component: unknown }) => { panel = config.component; }, settingsSection: () => {} },
   };
@@ -38,11 +39,17 @@ function sdk(rpc: (method: string, ...args: unknown[]) => Promise<any>) {
     experimental_useAppPanel: () => ({ openTab() {} }),
     ThreadChat: () => null,
     useRpc: () => ({ call: rpc }),
-    useSdk: () => ({ threads: { tabs: { get: async () => ({ tabs: [], revision: 1 }), update: async () => ({ tabs: [], revision: 2 }) } } }),
+    useSdk: () => ({ threads: { tabs: {
+      get: async () => ({ tabs: browserTabs, revision: 1 }),
+      update: async (input: { tabs: { kind?: string; url?: string }[] }) => {
+        browserTabs.splice(0, browserTabs.length, ...input.tabs);
+        return { tabs: input.tabs, revision: 2 };
+      },
+    } } }),
     useBbNavigate: () => ({ openUrl: () => {}, toThread: () => {} }),
     useComposers: () => [],
   };
-  return { stub, panel: () => panel };
+  return { stub, browserTabs, panel: () => panel };
 }
 
 function rpcAnswer(name: string): unknown {
@@ -105,12 +112,12 @@ const WHATSAPP_SETTINGS_COPY = 'Open BB Settings for Unified Inbox to connect Wh
 
 const MAIL_ROW = { account: 'gmail-personal', id: 't1', title: 'Plan', sender: 'Ada Lovelace', preview: 'The plan', date: 1_700_000_000_000, unread: false };
 
-function mountInbox(answer: (name: string) => unknown) {
+function mountInbox(answer: (name: string) => unknown, threadId: string | null = null) {
   const React = require('react');
   const { createRoot } = require('react-dom/client');
   const { flushSync } = require('react-dom');
   const calls: { name: string; input: unknown }[] = [];
-  const { stub } = sdk(async (name: string, input?: unknown) => {
+  const { stub, browserTabs } = sdk(async (name: string, input?: unknown) => {
     calls.push({ name, input });
     return answer(name);
   });
@@ -118,10 +125,11 @@ function mountInbox(answer: (name: string) => unknown) {
   const host = dom.window.document.createElement('div');
   dom.window.document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(React.createElement(Inbox, { threadId: null })));
+  flushSync(() => root.render(React.createElement(Inbox, { threadId })));
   return {
     host,
     calls,
+    browserTabs,
     flush: () => flushSync(() => {}),
     done: () => { flushSync(() => root.unmount()); host.remove(); },
   };
@@ -646,9 +654,8 @@ test('a LinkedIn name opens the stored profile and other names stay text', async
   const view = mountInbox(name => {
     if (name === 'cached') return { items: [same, titled, plain, MAIL_ROW] };
     if (name === 'open' || name === 'cached_open') return { messages: [] };
-    if (name === 'open_profile') return { opened: false, error: 'Could not open that profile.' };
     return rpcAnswer(name);
-  });
+  }, 'thread-1');
   try {
     await wait(50);
     view.flush();
@@ -674,8 +681,8 @@ test('a LinkedIn name opens the stored profile and other names stay text', async
     name?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, metaKey: true }));
     await wait(30);
     view.flush();
-    assert.equal(view.calls.some(call => call.name === 'open_profile' && (call.input as { id?: string }).id === same.id), true);
-    assert.equal(view.host.querySelector('.ui-notice')?.textContent, 'Could not open that profile.');
+    assert.equal(view.calls.some(call => call.name === 'open_profile'), false);
+    assert.equal(view.browserTabs.some(tab => tab.kind === 'browser' && tab.url === same.profileUrl), true);
     await back();
     await openNamed('Project');
     const second = view.host.querySelector('.ui-conversation-header')!;

@@ -162,7 +162,6 @@ test('a profile URL reaches the open conversation without re-reading it', async 
     cached: () => ({ items: listed }),
     sync: input => ({ items: input.account === 'linkedin' ? listed : [], updatedAt: 1 }),
     open: () => ({ messages: [liveMessage] }),
-    open_profile: () => ({ opened: false, error: 'Could not open that profile.' }),
   });
   const session = createInboxSession({ rpc, now: () => 0 });
   await settle();
@@ -175,8 +174,6 @@ test('a profile URL reaches the open conversation without re-reading it', async 
   listed = [{ ...target, date: target.date + 1 }];
   await session.refresh(['linkedin']);
   assert.equal(rpc.calls.filter(call => call.name === 'open').length, opensBefore, 'LinkedIn does not follow the list, so a date change does not reopen');
-  await session.openProfile(target);
-  assert.equal(session.snapshot().status, 'Could not open that profile.');
 });
 
 test('a new attention label reaches the open conversation without re-reading it', async () => {
