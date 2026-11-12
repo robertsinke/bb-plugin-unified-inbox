@@ -143,9 +143,12 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
     };
   }
 
-  async function openChat(id: string): Promise<OpenResult> {
+  async function openChat(id: string, before?: string): Promise<OpenResult> {
     const group = id.endsWith('@g.us');
-    const messages: Message[] = (await transport.openChat({ id, limit: OPEN_LIMIT }))
+    const rows = await transport.openChat({ id, limit: OPEN_LIMIT + 1, ...(before ? { before } : {}) });
+    const page = rows.slice(-OPEN_LIMIT);
+    const cursor = rows.length > OPEN_LIMIT ? page[0]?.id : undefined;
+    const messages: Message[] = page
       .filter(row => !isWhatsAppNoise(row.type, row.text))
       .map(row => ({
         sender: whatsappSender(row.fromMe, row.sender, group, ''),
@@ -160,8 +163,8 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
         ...(row.quote ? { quote: row.quote } : {}),
         ...(row.poll ? { poll: row.poll } : {}),
       }));
-    cache.saveThread(ACCOUNT, id, messages);
-    return { messages };
+    if (!before) cache.saveThread(ACCOUNT, id, messages);
+    return { messages, ...(cursor ? { cursor } : {}) };
   }
 
   /** The ceiling a request is held to: what the panel will draw, or what may be saved to the disk. */
@@ -265,7 +268,7 @@ export function createWhatsAppAdapter(deps: RegistryDeps): Adapter {
       return { ...(await liveList()), updatedAt: Date.now() };
     },
 
-    open: (id: string) => openChat(id),
+    open: (id: string, opts?: OpenOptions) => openChat(id, opts?.before),
 
     pollOf: (messageId: string) => transport.pollChoices(messageId),
 

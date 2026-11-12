@@ -231,7 +231,7 @@ test('WhatsApp: open returns stored messages oldest-first, and an empty thread i
     const adapter = h.registry.whatsapp;
 
     const opened1 = await adapter.open(WHATSAPP_ID);
-    assert.deepEqual(opened, [{ id: WHATSAPP_ID, limit: 60 }], 'a thread is the newest sixty stored rows');
+    assert.deepEqual(opened, [{ id: WHATSAPP_ID, limit: 61 }], 'one extra row tells the thread whether an older page exists');
     assert.deepEqual(opened1.messages.map(m => [m.sender, m.text, m.fromMe, m.edited]), [
       ['Ada', 'See you', false, undefined],
       ['You', 'On my way', true, true],
@@ -246,6 +246,27 @@ test('WhatsApp: open returns stored messages oldest-first, and an empty thread i
   } finally {
     h.close();
   }
+});
+
+test('WhatsApp: older pages do not replace the newest cached thread', async () => {
+  const rows = Array.from({ length: 130 }, (_, i) => ({ id: `m${String(i).padStart(3, '0')}`, chatJid: WHATSAPP_ID, fromMe: false, ts: 1700000000 + i, type: 'text', text: `line ${i}`, sender: 'Ada', edited: false }));
+  const h = harness({ whatsapp: { async openChat({ before, limit }) {
+    const end = before ? rows.findIndex(row => row.id === before) : rows.length;
+    return rows.slice(Math.max(0, end - limit), end);
+  } } });
+  try {
+    const adapter = h.registry.whatsapp;
+    const latest = await adapter.open(WHATSAPP_ID);
+    assert.equal(latest.messages.length, 60);
+    assert.equal(latest.cursor, 'm070');
+    const older = await adapter.open(WHATSAPP_ID, { before: latest.cursor });
+    assert.equal(older.messages.length, 60);
+    assert.equal(older.cursor, 'm010');
+    assert.equal(h.cache.readThread('whatsapp', WHATSAPP_ID)?.[0] && (h.cache.readThread('whatsapp', WHATSAPP_ID)![0] as { messageId: string }).messageId, 'm070');
+    const oldest = await adapter.open(WHATSAPP_ID, { before: older.cursor });
+    assert.equal(oldest.messages.length, 10);
+    assert.equal(oldest.cursor, undefined);
+  } finally { h.close(); }
 });
 
 test('WhatsApp: media is served from cached bytes, refused from the declared size, and every miss is reported without throwing at the panel', async () => {

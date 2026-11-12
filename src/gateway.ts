@@ -276,8 +276,8 @@ export function createGateway({ cache, search, audit, gate, registry, now, drive
       void search.warm();
       return { ...result, items: decorated(result.items), more: typeof olderCursor[account] === 'string' };
     },
-    async open({ account, id }) {
-      const result = await registry[account].open(id);
+    async open({ account, id, before }) {
+      const result = await registry[account].open(id, before ? { before } : undefined);
       void search.warm();
       return { ...result, cacheFallback: result.cacheFallback ?? false, updatedAt: cache.threadUpdatedAt(account, id) };
     },

@@ -56,7 +56,7 @@ export const mailAttachment = z.object({
 
 const timestamp = z.number().int().nonnegative().nullable();
 const freshness = z.record(account, z.object({ lastAttemptAt: timestamp, lastSuccessAt: timestamp, lastError: z.string().nullable(), cacheFallback: z.boolean() }));
-const threadResult = z.object({ messages: z.array(message), updatedAt: timestamp.optional(), cacheFallback: z.boolean().optional() });
+const threadResult = z.object({ messages: z.array(message), updatedAt: timestamp.optional(), cacheFallback: z.boolean().optional(), cursor: z.string().min(1).max(512).optional() });
 const header = z.string().max(2000).refine(v => !/[\r\n\0]/.test(v), 'Invalid header');
 // A method that takes nothing still gets called more than one way: `null` from the panel, the CLI
 // and the mention provider, `{}` from a client that always sends a body. Both name the same call, so
@@ -110,7 +110,7 @@ export const rpcContract = defineRpcContract({
   // One refresh primitive for every source: the adapter for the account decides
   // whether the answer comes from its cache, a probe, or a live read.
   sync: { input: z.object({ account, limit: z.number().int().min(1).max(20).optional() }).strict(), output: z.object({ items: z.array(item), updatedAt: z.number().int().nonnegative(), reason: z.string().optional(), more: z.boolean().optional() }) },
-  open: { input: z.object({ account, id: z.string().min(1).max(512) }).strict(), output: threadResult },
+  open: { input: z.object({ account, id: z.string().min(1).max(512), before: z.string().min(1).max(512).optional() }).strict(), output: threadResult },
   // The page driver behind slice D's recording procedure: one call, one step, one control by index.
   // Not a user feature — a send control is refused unless the caller passes allow: 'send'.
   linkedin_ui: { input: z.object({

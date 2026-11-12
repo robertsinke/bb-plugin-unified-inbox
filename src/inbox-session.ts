@@ -86,6 +86,8 @@ export interface InboxSnapshot {
   sources: SourceMap | null;
   selected: InboxItem | null;
   messages: Message[];
+  threadHasOlder: boolean;
+  threadLoadingOlder: boolean;
   status: string;
   text: string;
   /** The message a Reply click aimed the composer at. Empty means today's conversation reply. */
@@ -141,6 +143,7 @@ export interface InboxSession {
   /** Persist drafts still inside their debounce window; call on shutdown. */
   flush(): void;
   open(item: InboxItem): Promise<void>;
+  moreMessages(): Promise<void>;
   back(): void;
   /** Mark a Needed conversation None, and keep the previous score so it can be put back. */
   clearAttention(item: InboxItem): Promise<void>;
@@ -226,6 +229,8 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     sources: null,
     selected: null,
     messages: [],
+    threadHasOlder: false,
+    threadLoadingOlder: false,
     status: '',
     text: '',
     replyMessageId: '',
@@ -259,6 +264,10 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   // Every late response is compared against this counter. `back`, a new `open`
   // and a list-driven re-read all bump it, so a stale thread can never land.
   let request = 0;
+  let threadCursor: string | undefined;
+  let olderMessages: Message[] = [];
+  let pagedThread = false;
+  let threadPageFlight = 0;
   // Sources whose refresh is in flight: a second tick must not start them twice.
   const refreshing = new Set<Account>();
 
@@ -368,8 +377,18 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
       .catch(() => { /* the messages already on screen stay */ });
   }
 
-  function showMessages(result: { messages: Message[]; cacheFallback?: boolean }): void {
-    state.messages = result.messages;
+  function showMessages(result: { messages: Message[]; cacheFallback?: boolean; cursor?: string }): void {
+    if (!pagedThread) {
+      threadCursor = result.cursor;
+      state.threadHasOlder = !!threadCursor;
+    }
+    const ids = new Set(result.messages.map(message => message.messageId).filter(Boolean));
+    if (pagedThread && ids.size) {
+      const firstOverlap = state.messages.findIndex(message => !!message.messageId && ids.has(message.messageId));
+      if (firstOverlap >= 0) olderMessages = state.messages.slice(0, firstOverlap);
+    }
+    olderMessages = olderMessages.filter(message => !message.messageId || !ids.has(message.messageId));
+    state.messages = [...olderMessages, ...result.messages];
     const stale = 'Could not verify this conversation. Showing cached messages; they may be stale.';
     if (result.cacheFallback) state.status = stale;
     else if (state.status === stale) state.status = '';
@@ -644,6 +663,12 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
   async function open(item: InboxItem): Promise<void> {
     const seq = ++request;
     state.selected = item;
+    threadPageFlight += 1;
+    threadCursor = undefined;
+    olderMessages = [];
+    pagedThread = false;
+    state.threadHasOlder = false;
+    state.threadLoadingOlder = false;
     state.status = '';
     state.replyMessageId = '';
     state.text = readComposerDraft(item.account, item.id);
@@ -696,8 +721,35 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     }
   }
 
+  async function moreMessages(): Promise<void> {
+    const selected = state.selected;
+    const before = threadCursor;
+    if (!selected || !before || state.threadLoadingOlder) return;
+    const seq = request;
+    const flight = ++threadPageFlight;
+    state.threadLoadingOlder = true;
+    notify();
+    try {
+      const page = await deps.rpc.call('open', { account: selected.account, id: selected.id, before });
+      if (seq !== request) return;
+      const known = new Set(state.messages.map(message => message.messageId).filter(Boolean));
+      const added = page.messages.filter(message => !message.messageId || !known.has(message.messageId));
+      olderMessages = [...added, ...olderMessages];
+      state.messages = [...added, ...state.messages];
+      pagedThread = true;
+      threadCursor = page.cursor;
+      state.threadHasOlder = !!threadCursor;
+    } catch (error) {
+      if (seq === request) state.status = error instanceof Error ? error.message : 'Could not load older messages.';
+    } finally {
+      if (flight === threadPageFlight) { state.threadLoadingOlder = false; notify(); }
+    }
+  }
+
   function back(): void {
     ++request;
+    threadPageFlight += 1;
+    state.threadLoadingOlder = false;
     state.selected = null;
     state.status = '';
     state.replyMessageId = '';
@@ -1161,6 +1213,7 @@ export function createInboxSession(deps: InboxSessionDeps): InboxSession {
     showAudit,
     hideAudit,
     open,
+    moreMessages,
     back,
     clearAttention,
     restoreAttention,

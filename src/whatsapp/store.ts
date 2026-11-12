@@ -454,6 +454,13 @@ export function createWhatsAppStore(db: Database.Database) {
        SELECT * FROM wa_messages WHERE chat_jid = ? ORDER BY ts DESC, id DESC LIMIT ?
      ) ORDER BY ts ASC, id ASC`,
   );
+  const readOlderMessages = db.prepare(
+    `SELECT * FROM (
+       SELECT * FROM wa_messages WHERE chat_jid = ? AND (ts, id) <
+         (SELECT ts, id FROM wa_messages WHERE chat_jid = ? AND id = ?)
+       ORDER BY ts DESC, id DESC LIMIT ?
+     ) ORDER BY ts ASC, id ASC`,
+  );
   const readMessagesByType = db.prepare(
     'SELECT * FROM wa_messages WHERE chat_jid = ? AND type = ? ORDER BY ts ASC, id ASC',
   );
@@ -668,8 +675,9 @@ export function createWhatsAppStore(db: Database.Database) {
       }));
     },
     /** The newest `limit` messages of one chat, oldest first — the order a thread reads in. */
-    listRecentMessages(chatJid: string, limit: number): Message[] {
-      return (readRecentMessages.all(chatJid, limit) as MessageRow[]).map(mapMessage);
+    listRecentMessages(chatJid: string, limit: number, before?: string): Message[] {
+      const rows = before ? readOlderMessages.all(chatJid, chatJid, before, limit) : readRecentMessages.all(chatJid, limit);
+      return (rows as MessageRow[]).map(mapMessage);
     },
     listMessagesByType(chatJid: string, type: string): Message[] {
       return (readMessagesByType.all(chatJid, type) as MessageRow[]).map(mapMessage);

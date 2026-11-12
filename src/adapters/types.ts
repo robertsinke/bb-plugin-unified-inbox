@@ -259,7 +259,7 @@ export interface WhatsAppTransport {
   /** One page of chats, newest activity first. `cursor` is the row offset the store pages by. */
   listChats(input: { cursor?: string; limit: number }): Promise<{ chats: WhatsAppChatRow[]; cursor?: string }>;
   /** The newest `limit` stored messages of one chat, oldest first. */
-  openChat(input: { id: string; limit: number }): Promise<WhatsAppMessageRow[]>;
+  openChat(input: { id: string; limit: number; before?: string }): Promise<WhatsAppMessageRow[]>;
   /**
    * Every stored chat with every stored message — the corpus a search reads once, not a page. A
    * store read like `listChats`: no socket, and nothing here opens one.
@@ -583,6 +583,7 @@ export interface ListResult {
 /** The conversation limit an RPC call carries (`sync` input, `list` options). */
 export interface OpenOptions {
   limit?: number;
+  before?: string;
 }
 
 export interface OpenResult {

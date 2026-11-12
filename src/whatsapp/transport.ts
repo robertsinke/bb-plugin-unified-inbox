@@ -272,9 +272,9 @@ export function createWhatsAppTransport(options: WhatsAppTransportOptions): What
       }));
     },
 
-    async openChat({ id, limit }) {
+    async openChat({ id, limit, before }) {
       replayStoredPollUpdates(store, id, held()?.getSendSocket()?.user?.id);
-      const rows = await Promise.all(store.listRecentMessages(id, limit).map(async (message): Promise<WhatsAppMessageRow> => {
+      const rows = await Promise.all(store.listRecentMessages(id, limit, before).map(async (message): Promise<WhatsAppMessageRow> => {
         const media = await factsOf(message);
         const reactions = reactionsOf(id, message.id);
         const quote = quoteOf(message);

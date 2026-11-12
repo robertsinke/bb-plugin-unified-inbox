@@ -326,6 +326,18 @@ test('an existing install opens with empty wa_ tables and its cached rows intact
   }
 });
 
+test('older message pages use the message identity as a stable boundary', () => {
+  const { db, store } = fixture();
+  try {
+    db.prepare("INSERT INTO wa_chats (jid, kind) VALUES ('page@g.us', 'group')").run();
+    const add = db.prepare("INSERT INTO wa_messages (id, chat_jid, from_me, ts, type) VALUES (?, 'page@g.us', 0, ?, 'text')");
+    add.run('a', 1); add.run('b', 2); add.run('c', 2); add.run('d', 3);
+    assert.deepEqual(store.listRecentMessages('page@g.us', 2).map(m => m.id), ['c', 'd']);
+    assert.deepEqual(store.listRecentMessages('page@g.us', 2, 'c').map(m => m.id), ['a', 'b']);
+    assert.deepEqual(store.listRecentMessages('page@g.us', 2, 'missing'), []);
+  } finally { db.close(); }
+});
+
 test('asking for older history uses the oldest stored envelope', async () => {
   const { db, store } = fixture();
   try {

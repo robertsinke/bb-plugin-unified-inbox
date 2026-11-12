@@ -679,7 +679,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   }, [panel, session]);
   // State and time live in the session; the panel renders its snapshot.
   const state=useSyncExternalStore(session.subscribe,session.snapshot);
-  const {items,errors,capabilities,sources,selected,messages,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen}=state;
+  const {items,errors,capabilities,sources,selected,messages,threadHasOlder,threadLoadingOlder,status,text,replyMessageId,busy,opening,filter,query,hits,refreshedAt,refreshingInbox,hasOlder,loadingOlder,mail,mailStatus,audit,auditOpen}=state;
   // One status read so a list that already has rows can say where to pair. It is not a poll, and it never pairs or closes a socket.
   const [whatsappUnpaired,setWhatsappUnpaired]=useState(false);
   const rpcRef=useRef(rpc);
@@ -697,6 +697,7 @@ function Inbox({ threadId }: { threadId: string | null }) {
   const cancelAsk=useCallback(()=>setAsk(null),[]);
   const [mailFocus,setMailFocus]=useState(0);
   const threadScroll=useRef<HTMLDivElement>(null); const pinnedBottom=useRef(true); const activeThread=useRef('');
+  const prependAnchor=useRef<{key:string; height:number; top:number}|null>(null);
   const listScroll=useRef<HTMLDivElement>(null); const olderKey=useRef('');
   // The one heartbeat. `tick` runs every due list refresh, thread watch, search
   // debounce and draft write. When this panel goes away, a draft still inside
@@ -710,8 +711,10 @@ function Inbox({ threadId }: { threadId: string | null }) {
     const scroller=threadScroll.current;
     if(!scroller||!selected){if(!selected)activeThread.current='';return;}
     const key=`${selected.account}:${selected.id}`;
-    if(activeThread.current!==key){activeThread.current=key;pinnedBottom.current=true;}
-    if(pinnedBottom.current)scroller.scrollTop=scroller.scrollHeight;
+    if(activeThread.current!==key){activeThread.current=key;pinnedBottom.current=true;prependAnchor.current=null;}
+    const anchor=prependAnchor.current;
+    if(anchor?.key===key){scroller.scrollTop=anchor.top+scroller.scrollHeight-anchor.height;prependAnchor.current=null;}
+    else if(pinnedBottom.current)scroller.scrollTop=scroller.scrollHeight;
   },[selected?.account,selected?.id,messages]);
   useEffect(()=>{
     const scroller=threadScroll.current;
@@ -720,6 +723,14 @@ function Inbox({ threadId }: { threadId: string | null }) {
     for(const child of Array.from(scroller.children))observer.observe(child);
     return()=>observer.disconnect();
   },[selected?.account,selected?.id,messages,opening]);
+  function loadOlderMessages() {
+    const scroller=threadScroll.current;
+    if(!scroller||!selected||!threadHasOlder||threadLoadingOlder)return;
+    pinnedBottom.current=false;
+    prependAnchor.current={key:`${selected.account}:${selected.id}`,height:scroller.scrollHeight,top:scroller.scrollTop};
+    void session.moreMessages();
+  }
+  useEffect(()=>{if(!threadLoadingOlder)prependAnchor.current=null;},[threadLoadingOlder]);
   async function openLink(url: string) {
     let href = '';
     try { const parsed = new URL(url); if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return; href = parsed.toString(); } catch { return; }
@@ -831,8 +842,9 @@ function Inbox({ threadId }: { threadId: string | null }) {
           ...(isConversationRow(selected)&&canMarkRead(capabilities,selected.account)?[{ label: selected.unread?'Mark read':'Mark unread', run: () => void session.mark(selected, selected.unread?'read':'unread') }]:[]),
           { label: selected.muted ? 'Unmute' : 'Mute', run: () => void (selected.muted ? session.unmute(selected) : session.mute(selected)) },
           ...(canArchive(capabilities,selected.account)?[{ label: 'Archive', run: () => setAsk({ title: 'Archive this Gmail conversation?', confirm: 'Archive', run: () => void session.mark(selected,'archive') }) }]:[]),
-        ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}}>
-      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} canVote={votesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onVote={(messageId,options)=>{void session.vote(messageId,options);}} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailView account={selected.account} message={m} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
+        ]}/></div></header><div className="ui-thread-scroll" ref={threadScroll} tabIndex={0} aria-label="Conversation messages" onScroll={event=>{const el=event.currentTarget;pinnedBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;if(el.scrollTop<40&&el.scrollHeight>el.clientHeight)loadOlderMessages();}}>
+      {threadHasOlder&&!opening?<button type="button" onClick={loadOlderMessages} disabled={threadLoadingOlder}>{threadLoadingOlder?'Loading older messages…':'Load older messages'}</button>:null}
+      {opening?<p className="ui-empty" role="status">Loading conversation…</p>:chat?<div className="ui-chat" aria-label={`${sourceLabel(sources,selected.account)} conversation`}>{messages.length===0?<p className="ui-empty">No messages in this conversation.</p>:messages.map((m,i)=>{const day=m.date?new Date(m.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';const previous=i>0&&messages[i-1].date?new Date(messages[i-1].date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}):'';return <div key={m.imsgId ?? m.messageId ?? m.media?.messageId ?? i}>{day&&day!==previous&&<div className="ui-chat-day">{day}</div>}<div className={`ui-chat-row ${m.fromMe?'ui-chat-outgoing':'ui-chat-incoming'}`}><ChatBubble account={selected.account} message={m} group={selected.account==='imessage'||selected.id.endsWith('@g.us')} imsgChatId={selected.account==='imessage'?selected.id:undefined} selfLabel={mine} canReact={reactionsOn} canQuoteReply={quotesOn} canVote={votesOn} busy={busy} onReact={(messageId,emoji,remove)=>{void session.react(messageId,emoji,remove);}} onReply={messageId=>session.aimReply(messageId)} onVote={(messageId,options)=>{void session.vote(messageId,options);}} onOpenLink={url=>{void openLink(url);}}/></div></div>;})}</div>:messages.map((m,i)=><article className="ui-message" key={i}><div className="ui-message-head"><strong>{m.sender||'Unknown sender'}</strong><time>{date(m.date)}</time></div>{isMail(selected.account)&&<AttachmentChips account={selected.account} gmailId={m.gmailId} names={m.attachments}/>}{m.html?<MailView account={selected.account} message={m} onOpenLink={url=>{void openLink(url);}}/>:<div className="ui-message-body"><MessageText text={m.text} onOpenLink={url=>{void openLink(url);}}/></div>}{!chat&&(m.media||m.link)?<MessageAttachment media={m.media} link={m.link} onShow={messageId=>rpc.call('media',{account:selected.account,kind:'message',id:messageId,index:0})} onOpenLink={url=>{void openLink(url);}}/>:null}</article>)}
       </div>
       {ask?<AskCard ask={ask} onCancel={cancelAsk}/>:null}{composer==='mail'&&mail?<MailDraftComposer key={mailFocus} mail={mail} busy={busy} mailStatus={mailStatus} session={session} sources={sources} onAsk={setAsk} fromThread={threadAttachments(messages, selected.account)}/>:composer==='chat'?<form className="ui-chat-composer" onSubmit={event=>{event.preventDefault(); pinnedBottom.current=true; void session.submit();}}>{replyMessageId?<div className="ui-composer-quote"><div className="ui-quote-body">{aimed?.sender?.trim()?<span className="ui-quote-sender">{aimed.sender.trim()}</span>:null}{aimed?.sender?.trim()?' ':null}<span className="ui-quote-text">{aimed?.text?.trim()||'Reply to an earlier message'}</span></div><button type="button" className="ui-text-button" onClick={()=>session.clearReply()}>Clear</button></div>:null}<div className="ui-promptbox">{<textarea id="ui-reply-text" value={text} aria-label={`${sourceLabel(sources,selected.account)} reply`} onChange={e=>session.setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); pinnedBottom.current=true; void session.submit();}}} rows={2} placeholder={sendable?'Write a reply…':'Write a draft…'}/>}{sendable?<button type="submit" className="ui-prompt-send" disabled={busy||!text.trim()} aria-label="Send"><Icon name="ArrowUp" aria-hidden="true"/></button>:null}</div>{sendable?null:<p className="ui-notice">Kept as a draft on this machine; this source cannot send from here.</p>}</form>:null}
       {status&&<p role="status" className="ui-notice">{status}</p>}

@@ -109,6 +109,29 @@ test('open shows the cached thread, then the source thread, then marks it read',
   assert.equal(snapshot.items.find(item => item.account === 'whatsapp' && item.id === 'chat-1')?.unread, false, 'the list row clears too');
 });
 
+test('older thread pages stay visible when the newest messages refresh', async () => {
+  const target = row({ unread: false });
+  const msg = (id: string): Message => ({ messageId: id, sender: 'Ada', text: id, date: 1 });
+  let newest = [msg('c'), msg('d')];
+  const rpc = fakeRpc({
+    cached: () => ({ items: [target] }),
+    sync: () => ({ items: [{ ...target, preview: 'new message', date: 2 }], updatedAt: 2 }),
+    open: input => input.before ? { messages: [msg('a'), msg('b')] } : { messages: newest, cursor: 'c' },
+  });
+  const session = createInboxSession({ rpc });
+  session.start();
+  await settle();
+  await session.open(target);
+  assert.equal(session.snapshot().threadHasOlder, true);
+  await session.moreMessages();
+  assert.deepEqual(session.snapshot().messages.map(message => message.messageId), ['a', 'b', 'c', 'd']);
+  assert.equal(session.snapshot().threadHasOlder, false);
+  newest = [msg('d'), msg('e')];
+  await session.refresh(['whatsapp']);
+  await settle();
+  assert.deepEqual(session.snapshot().messages.map(message => message.messageId), ['a', 'b', 'c', 'd', 'e']);
+});
+
 test('a source that does not follow the list moves the row without re-reading the thread', async () => {
   const target = row({ unread: false, preview: 'See you at six' });
   let listed: InboxItem[] = [target];
