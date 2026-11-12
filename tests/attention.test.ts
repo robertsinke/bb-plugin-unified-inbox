@@ -223,6 +223,50 @@ test('a new list row is judged once, and opening the thread is not a new message
   }
 });
 
+test('a first verdict on a newly arrived message notifies, but startup history does not', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  const pushed: string[] = [];
+  cache.save('whatsapp', [{ account: 'whatsapp', id: 'old', title: 'Old', preview: 'history', date: 1, unread: true }]);
+  const watch = watchNewConversations({ cache, store, debounceMs: 0,
+    ask: async () => ({ answers: { line_1: { noul: 0.9 } } }),
+    notify: async input => { pushed.push(input.title); },
+  });
+  try {
+    await settle();
+    assert.deepEqual(pushed, []);
+    cache.save('whatsapp', [{ account: 'whatsapp', id: 'new', title: 'New', preview: 'please reply', date: Date.now() + 1, unread: true }]);
+    await settle();
+    assert.deepEqual(pushed, ['WhatsApp New']);
+  } finally { watch.stop(); db.close(); }
+});
+
+test('opening a thread can refine a preview verdict without sending a notification', async () => {
+  const db = new Database(':memory:');
+  const cache = createInboxCache(db);
+  const store = createAttentionStore(db);
+  let asks = 0;
+  const pushed: string[] = [];
+  const watch = watchNewConversations({
+    cache, store, debounceMs: 0,
+    ask: async () => ({ answers: { line_1: { noul: ++asks === 1 ? 0.2 : 0.9 } } }),
+    notify: async input => { pushed.push(input.title); },
+  });
+  try {
+    cache.save('gmail-personal', [row('please reply')]);
+    await settle();
+    assert.equal(store.get('gmail-personal', 't1')?.verdict, 'no');
+    cache.saveThread('gmail-personal', 't1', [{ sender: 'Ada', text: 'please reply' }]);
+    await settle();
+    assert.equal(store.get('gmail-personal', 't1')?.verdict, 'yes');
+    assert.deepEqual(pushed, []);
+  } finally {
+    watch.stop();
+    db.close();
+  }
+});
+
 test('several new messages in one conversation are one ask', async () => {
   const db = new Database(':memory:');
   const cache = createInboxCache(db);

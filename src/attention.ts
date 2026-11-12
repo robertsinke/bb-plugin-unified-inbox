@@ -397,6 +397,9 @@ export function watchNewConversations(options: {
   }
   const inflight = new Map<string, Promise<void>>();
   const pooled = new Map<string, ReturnType<typeof setTimeout>>();
+  const poolPush = new Set<string>();
+  const poolFirstPush = new Set<string>();
+  const startedAt = Date.now();
   let stopped = false;
   let pushNoted = false;
   const poolMs = options.debounceMs ?? POOL_MS;
@@ -415,18 +418,18 @@ export function watchNewConversations(options: {
   const stampOf = (row: CachedItem) => `${row.date}\0${row.preview}\0${row.sentSnippet ?? ''}`;
   const isMuted = (account: Account, id: string) => options.muted?.(account, id) === true;
 
-  async function classify(account: Account, id: string): Promise<void> {
+  async function classify(account: Account, id: string, allowPush: boolean, allowFirstPush: boolean): Promise<void> {
     if (stopped || isMuted(account, id)) return;
     await takeSlot();
     try {
       if (stopped || isMuted(account, id)) return;
-      await classifyHeld(account, id);
+      await classifyHeld(account, id, allowPush, allowFirstPush);
     } finally {
       releaseSlot();
     }
   }
 
-  async function classifyHeld(account: Account, id: string): Promise<void> {
+  async function classifyHeld(account: Account, id: string, allowPush: boolean, allowFirstPush: boolean): Promise<void> {
     const key = keyOf(account, id);
     const extra = extras.get(key) ?? [];
     extras.set(key, []);
@@ -481,7 +484,7 @@ export function watchNewConversations(options: {
       const noul = attentionScore(focused, saved);
       const scores: Record<string, number> = {};
       for (const line of focused) scores[lineKey(line.text, line.mine)] = saved[lineKey(line.text, line.mine)] as number;
-      publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row);
+      publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row, allowPush, allowFirstPush);
       return;
     }
     const { ask, kept } = focused.length === 0 ? { ask: [] as number[], kept: {} } : linesToScore(focused, changed ? null : saved);
@@ -496,7 +499,7 @@ export function watchNewConversations(options: {
     const scores = { ...kept };
     if (lines.length === 0) {
       const result = attentionFromAnswer(answers);
-      publish(account, id, prior?.verdict ?? null, { ...result, stateHash, lines: null, anchor: null }, row);
+      publish(account, id, prior?.verdict ?? null, { ...result, stateHash, lines: null, anchor: null }, row, allowPush, allowFirstPush);
       return;
     }
     for (const message of focused) {
@@ -508,19 +511,19 @@ export function watchNewConversations(options: {
     const scored = Object.values(scores);
     if (scored.length === 0) throw new Error('The decision model returned no yes/no answer.');
     const noul = attentionScore(focused, scores);
-    publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row);
+    publish(account, id, prior?.verdict ?? null, { verdict: attentionVerdict(noul), noul, stateHash, lines: scores, anchor, wordingId: custom ? currentId : null, taskAsked }, row, allowPush, allowFirstPush);
   }
 
-  function publish(account: Account, id: string, previous: AttentionVerdict | null, record: AttentionRecord, item: { title?: string; preview?: string } | undefined): void {
+  function publish(account: Account, id: string, previous: AttentionVerdict | null, record: AttentionRecord, item: { title?: string; preview?: string } | undefined, allowPush: boolean, allowFirstPush: boolean): void {
     // Mute can land after schedule: during the pool, during the ask, or on lines already scored.
     if (isMuted(account, id)) return;
     options.store.put(account, id, record);
-    const notice = attentionPush(previous, record.verdict, {
+    const notice = attentionPush(previous ?? (allowFirstPush ? 'no' : null), record.verdict, {
       account,
       title: item?.title ?? '',
       preview: item?.preview ?? '',
     });
-    if (!notice || !options.notify) return;
+    if (!allowPush || !notice || !options.notify) return;
     void Promise.resolve(options.notify(notice)).then(result => {
       if (result && result.channels?.length === 0) notePush('Push was not delivered.');
     }).catch(error => {
@@ -534,12 +537,12 @@ export function watchNewConversations(options: {
     options.log?.(line);
   }
 
-  function enqueue(account: Account, id: string): void {
+  function enqueue(account: Account, id: string, allowPush: boolean, allowFirstPush: boolean): void {
     if (stopped) return;
     const key = keyOf(account, id);
     const previous = inflight.get(key) ?? Promise.resolve();
     const run = previous
-      .then(() => classify(account, id))
+      .then(() => classify(account, id, allowPush, allowFirstPush))
       .catch(error => {
         options.log?.(`attention ${account} ${id}: ${error instanceof Error ? error.message : 'the ask failed'}`);
       });
@@ -556,7 +559,7 @@ export function watchNewConversations(options: {
       const stamp = stampOf(row);
       const previous = seen.get(key);
       seen.set(key, stamp);
-      if (previous !== stamp) schedule(account, row.id);
+      if (previous !== stamp) schedule(account, row.id, true, row.unread && row.date >= startedAt - 1_000);
     }
     for (const key of seen.keys()) {
       if (key.startsWith(`${account}\0`) && !live.has(key)) seen.delete(key);
@@ -567,6 +570,8 @@ export function watchNewConversations(options: {
     if (change.kind === 'clear') {
       for (const timer of pooled.values()) clearTimeout(timer);
       pooled.clear();
+      poolPush.clear();
+      poolFirstPush.clear();
       seen.clear();
       extras.clear();
       options.store.clear();
@@ -574,7 +579,7 @@ export function watchNewConversations(options: {
     }
     if (change.kind === 'items') noteItems(change.account);
     // A snippet score has no speaker. The first stored thread is what names who sent the line.
-    if (change.kind === 'thread' && options.store.get(change.account, change.id)?.lines == null) schedule(change.account, change.id);
+    if (change.kind === 'thread' && options.store.get(change.account, change.id)?.lines == null) schedule(change.account, change.id, false);
   };
   options.cache.onChange(onChange);
 
@@ -583,20 +588,24 @@ export function watchNewConversations(options: {
     schedule(row.account, row.id);
   }
 
-  function schedule(account: Account, id: string): void {
+  function schedule(account: Account, id: string, allowPush = true, allowFirstPush = false): void {
     if (isMuted(account, id)) return;
     if (account === 'linkedin' && isInvitationId(id)) return;
     const delay = account === 'whatsapp' || account === 'imessage' ? poolMs : 0;
     if (delay === 0) {
-      enqueue(account, id);
+      enqueue(account, id, allowPush, allowFirstPush);
       return;
     }
     const key = keyOf(account, id);
+    if (allowPush) poolPush.add(key);
+    if (allowFirstPush) poolFirstPush.add(key);
     if (pooled.has(key)) return;
     pooled.set(key, setTimeout(() => {
       pooled.delete(key);
+      const sendPush = poolPush.delete(key);
+      const sendFirstPush = poolFirstPush.delete(key);
       if (isMuted(account, id)) return;
-      enqueue(account, id);
+      enqueue(account, id, sendPush, sendFirstPush);
     }, delay));
   }
 
@@ -627,7 +636,7 @@ export function watchNewConversations(options: {
         waiting.push(message);
         extras.set(key, waiting);
       }
-      schedule(account, id);
+      schedule(account, id, true, !!message && !message.fromMe);
     },
     stop() {
       stopped = true;
