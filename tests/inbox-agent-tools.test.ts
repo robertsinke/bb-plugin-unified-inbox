@@ -56,14 +56,41 @@ function fixture() {
       return { status: 'sent' };
     },
   };
-  registerInboxAgentTools(bb, gateway);
-  return { harness, messages, actions, get loads() { return loads; }, get opens() { return opens; }, setPayload(value: typeof payload) { payload = value; }, failAction(error: Error) { actionError = error; } };
+  const agentTools = registerInboxAgentTools(bb, gateway);
+  return { harness, agentTools, messages, actions, get loads() { return loads; }, get opens() { return opens; }, setPayload(value: typeof payload) { payload = value; }, failAction(error: Error) { actionError = error; } };
 }
 
 function json(result: unknown): any {
   assert.equal(typeof result, 'string');
   return JSON.parse(result as string);
 }
+
+test('mention context masks identifiers and preserves references for agent reads', async t => {
+  const f = fixture();
+  t.after(() => f.harness.lifecycle.dispose());
+  const context = await f.agentTools.protectMention('Source account: gmail-personal\nConversation id: maria@gmail.com\nCall +31 6 12345678', 'gmail-personal', 'maria@gmail.com');
+  assert.doesNotMatch(context, /maria@gmail\.com|12345678/);
+  const id = /Conversation id: (inbox-ref-[a-z-]+)/.exec(context)?.[1];
+  assert.ok(id);
+  const result = json(await f.harness.behavior.callAgentTool('inbox_read', { account: 'gmail-personal', id }));
+  assert.equal(result.id, id);
+});
+
+test('agent read masks contacts and retains working opaque media references', async t => {
+  const f = fixture();
+  t.after(() => f.harness.lifecycle.dispose());
+  f.messages[0].sender = 'Olivia <maria@gmail.com>';
+  f.messages[0].text = 'WHO still needs a place? Call +31 6 12345678';
+  f.messages[0].media = { kind: 'image', messageId: 'maria@gmail.com', available: true, cached: true } as MessageMedia;
+  const result = json(await f.harness.behavior.callAgentTool('inbox_read', { account: 'whatsapp', id: 'chat-1' }));
+  assert.doesNotMatch(JSON.stringify(result), /maria@gmail\.com|12345678/);
+  assert.match(result.messages[0].text, /WHO still needs a place/);
+  const ref = result.messages[0].media[0].reference;
+  assert.match(ref.id, /^inbox-ref-/);
+  const attachment = await f.harness.behavior.callAgentTool('inbox_view_attachment', { account: 'whatsapp', id: 'chat-1', media: ref });
+  assert.ok(attachment);
+  assert.equal(f.loads, 1);
+});
 
 test('native tools include the five read tools and the two send tools', async t => {
   const f = fixture();

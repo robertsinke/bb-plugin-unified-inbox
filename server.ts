@@ -33,6 +33,7 @@ import { gmailAccounts, isLegacyGmailAccount, legacyGmailAccounts, type GmailAcc
 import { importGwsAccount } from './src/account-import';
 import { refreshServiceName, runInboxRefresh } from './src/inbox-refresh';
 import { registerInboxAgentTools } from './src/inbox-agent-tools';
+import { redactInferenceValue } from './src/inference-redaction';
 import { parseMailKeyIds, type MailMode } from './src/mail-approval';
 import { createAttentionStore, decisionToShow, watchNewConversations } from './src/attention';
 
@@ -69,19 +70,22 @@ export default async function plugin(bb: BbPluginApi) {
     store: attention,
     muted: (account, id) => cache.muted(account, id),
     log: line => bb.log.warn(line),
-    ask: input => rememberDecisions(() => bb.sdk.plugins.callRpc({
-      pluginId: 'decisions',
-      method: 'ask',
-      input: JSON.parse(JSON.stringify(input)),
-      outputSchema: z.object({
-        model: z.string(),
-        answers: z.record(z.string(), z.unknown()),
-        usage: z.object({
-          input_tokens: z.number().nullable(),
-          output_tokens: z.number().nullable(),
+    ask: async input => {
+      const redacted = await redactInferenceValue(input);
+      return rememberDecisions(() => bb.sdk.plugins.callRpc({
+        pluginId: 'decisions',
+        method: 'ask',
+        input: JSON.parse(JSON.stringify(redacted)),
+        outputSchema: z.object({
+          model: z.string(),
+          answers: z.record(z.string(), z.unknown()),
+          usage: z.object({
+            input_tokens: z.number().nullable(),
+            output_tokens: z.number().nullable(),
+          }).strict(),
         }).strict(),
-      }).strict(),
-    })),
+      }));
+    },
     wording: () => rememberDecisions(() => bb.sdk.plugins.callRpc({
       pluginId: 'decisions',
       method: 'wording',
@@ -288,7 +292,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
     });
     bb.rpc.register(rpcContract, gateway);
-    registerInboxAgentTools(bb, gateway);
+    const agentTools = registerInboxAgentTools(bb, gateway);
     for (const account of Object.keys(registry)) {
       bb.background.service(refreshServiceName(account), {
         start: signal => runInboxRefresh(async () => gateway.sync({ account }), registry[account].source.pollIntervalMs, signal),
@@ -325,7 +329,8 @@ export default async function plugin(bb: BbPluginApi) {
         if (!messages.length) {
           try { messages = (await registry[account].open(id)).messages; } catch { /* the mention still names the conversation */ }
         }
-        return { context: inboxMentionContext({ account, label: registry[account].source.label, id, title: listed?.title, preview: listed?.preview, messages }) };
+        const context = inboxMentionContext({ account, label: registry[account].source.label, id, title: listed?.title, preview: listed?.preview, messages });
+        return { context: await agentTools.protectMention(context, account, id) };
       },
     });
   })();
