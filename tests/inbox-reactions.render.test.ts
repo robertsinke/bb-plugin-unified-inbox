@@ -55,7 +55,7 @@ function caps(overrides: Record<string, Flags> = {}) {
 
 type Call = { name: string; input: unknown };
 
-function rpcAnswer(rows: unknown[], messages: unknown[], action: (input: any) => Promise<unknown>, flags?: Record<string, Flags>) {
+function rpcAnswer(rows: unknown[], messages: unknown[], action: (input: any) => Promise<unknown>, flags?: Record<string, Flags>, older?: () => Promise<unknown>) {
   const calls: Call[] = [];
   const call = (name: string, input: any): unknown => {
     calls.push({ name, input });
@@ -63,7 +63,7 @@ function rpcAnswer(rows: unknown[], messages: unknown[], action: (input: any) =>
     if (name === 'sources') return DECLARED;
     if (name === 'cached') return { items: rows };
     if (name === 'cached_open') return { messages: [] };
-    if (name === 'open') return { messages };
+    if (name === 'open') return input?.before && older ? older() : { messages, ...(older ? { cursor: 'older' } : {}) };
     if (name === 'action') return action(input);
     if (name === 'sync') return { items: [], updatedAt: 0 };
     if (name === 'send_audit') return { rows: [] };
@@ -92,8 +92,8 @@ function sdk(rpc: (method: string, input: unknown) => unknown) {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function mount(rows: unknown[], messages: unknown[], action: (input: any) => Promise<unknown> = async () => ({ status: 'Sent' }), flags?: Record<string, Flags>) {
-  const rpc = rpcAnswer(rows, messages, action, flags);
+async function mount(rows: unknown[], messages: unknown[], action: (input: any) => Promise<unknown> = async () => ({ status: 'Sent' }), flags?: Record<string, Flags>, older?: () => Promise<unknown>) {
+  const rpc = rpcAnswer(rows, messages, action, flags, older);
   const React = require('react');
   const { createRoot } = require('react-dom/client');
   const { flushSync } = require('react-dom');
@@ -145,6 +145,51 @@ async function typeReply(host: HTMLElement, text: string, flush: () => void): Pr
 function sent(calls: Call[], action: string) {
   return calls.filter(call => call.name === 'action' && (call.input as { action?: string }).action === action).map(call => call.input);
 }
+
+test('scrolling to the top loads older messages and shows a centered, non-clickable status', async () => {
+  let resolvePage!: (value: unknown) => void;
+  const page = new Promise(resolve => { resolvePage = resolve; });
+  const { host, calls, done } = await mount([WHATSAPP], THREAD, undefined, undefined, () => page);
+  try {
+    await openRow(host, 'Ada Lovelace', '.ui-chat-day');
+    const scroller = host.querySelector('.ui-thread-scroll') as HTMLElement;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 });
+    const status = host.querySelector('[role="status"].ui-chat-day');
+    assert.ok(status);
+    assert.equal(status.tagName, 'DIV');
+    assert.match(status.textContent!, /scroll up/i);
+    assert.equal([...host.querySelectorAll('button')].some(button => /load older messages/i.test(button.textContent ?? '')), false);
+    scroller.scrollTop = 0;
+    scroller.dispatchEvent(new dom.window.Event('scroll', { bubbles: true }));
+    await wait(20);
+    assert.match(host.querySelector('[role="status"].ui-chat-day')?.textContent ?? '', /loading older/i);
+    assert.equal(calls.filter(call => call.name === 'open' && (call.input as any)?.before === 'older').length, 1);
+    resolvePage({ messages: [{ sender: 'Ada', text: 'older message', date: 0, messageId: 'old' }] });
+    await wait(20);
+    assert.ok(host.textContent?.includes('older message'));
+    assert.equal(host.querySelector('[role="status"].ui-chat-day'), null);
+  } finally { resolvePage({ messages: [] }); done(); }
+});
+
+test('a page too short to scroll fetches the next page without a click', async () => {
+  const proto = dom.window.HTMLElement.prototype;
+  const height = Object.getOwnPropertyDescriptor(proto, 'clientHeight');
+  const scrollHeight = Object.getOwnPropertyDescriptor(proto, 'scrollHeight');
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get: () => 400 });
+  Object.defineProperty(proto, 'scrollHeight', { configurable: true, get: () => 300 });
+  const view = await mount([WHATSAPP], THREAD, undefined, undefined, async () => ({ messages: [{ sender: 'Ada', text: 'older message', date: 0, messageId: 'old' }] }));
+  try {
+    await openRow(view.host, 'Ada Lovelace', '.ui-chat-day');
+    await wait(20);
+    assert.equal(view.calls.filter(call => call.name === 'open' && (call.input as any)?.before === 'older').length, 1);
+    assert.ok(view.host.textContent?.includes('older message'));
+  } finally {
+    view.done();
+    if (height) Object.defineProperty(proto, 'clientHeight', height); else delete (proto as any).clientHeight;
+    if (scrollHeight) Object.defineProperty(proto, 'scrollHeight', scrollHeight); else delete (proto as any).scrollHeight;
+  }
+});
 
 test('a bubble shows reactions and quote text, and a click sends one reaction or one aimed reply', async () => {
   const { host, calls, flush, done } = await mount([WHATSAPP], THREAD);
