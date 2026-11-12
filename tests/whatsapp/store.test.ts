@@ -1,18 +1,19 @@
 // U2 — the store the transport needs. What these tests pin: a message that arrived is still readable
 // after a restart with the socket down, the raw envelope answers `getMessage(key)`, a replayed batch
-// adds no row, and `clear_cache` still clears the stored WhatsApp rows and leaves the account state.
+// adds no row, and `clear_cache` preserves WhatsApp history and account state.
 //
 // No socket, no network: the history fixture below is a captured envelope set, and every write goes
 // through the same `attachIngest` the socket binds to.
 import assert from 'node:assert/strict';
 import { createCipheriv, hkdfSync } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { proto, type WAMessage } from 'baileys';
 import { createInboxCache } from '../../src/inbox-cache.ts';
+import { createPluginStorage } from '../../src/plugin-storage.ts';
 import { createSendAudit } from '../../src/send-audit.ts';
 import { deepenChatHistory } from '../../src/whatsapp/history.ts';
 import {
@@ -270,35 +271,47 @@ test('a picture keeps its answer and when it was learned, and the surviving iden
   }
 });
 
-test('a cache clear empties the transport rows and envelopes and leaves the rest of the database alone', () => {
+test('a cache clear preserves WhatsApp history, media, and read state while clearing rebuildable caches', () => {
   const db = new Database(':memory:');
+  const dataDir = mkdtempSync(join(tmpdir(), 'wa-store-clear-'));
+  const previousDataDir = process.env.UNIFIED_INBOX_WHATSAPP_DATA;
+  process.env.UNIFIED_INBOX_WHATSAPP_DATA = dataDir;
   try {
-    const store = createWhatsAppStore(db);
-    const cache = createInboxCache(db, { alsoClear: [() => store.clear()] });
+    const { whatsappStore: store, cache, gmailFaceStore } = createPluginStorage(db);
     const audit = createSendAudit(db);
     handleHistorySet(store, history);
+    const before = store.countMessages();
+    const original = store.getMessage('group-target');
+    gmailFaceStore.save('gmail-personal', { address: 'a@example.com', url: null, state: 'failed', fetched_at: 1 });
     cache.save('whatsapp', [{ account: 'whatsapp', id: 'team@g.us', title: 'Team', preview: 'hi', date: 1, unread: false }]);
     store.setAvatar({ jid: 'team@g.us', url: 'https://pps.whatsapp.net/v/t61/pic.jpg', state: 'ready', fetched_at: 1 });
     audit.record({ at: 1, operation: 'send', account: 'whatsapp', conversationId: 'team@g.us', decision: 'allowed' });
 
     // The account state is a directory beside the database (src/whatsapp/auth.ts), not a table: a
     // clear has no path to it, and pairing again is the only thing that may forget it.
-    const authDir = mkdtempSync(join(tmpdir(), 'wa-store-clear-'));
-    writeFileSync(join(authDir, 'creds'), 'a device identity');
+    writeFileSync(join(dataDir, 'creds'), 'a device identity');
+    mkdirSync(join(dataDir, 'media'));
+    writeFileSync(join(dataDir, 'media', 'photo'), 'cached media');
+    db.prepare('UPDATE wa_chats SET last_read_msg_id = ? WHERE jid = ?').run('group-target', 'team@g.us');
+    const chatBefore = store.getChat('team@g.us');
+    assert.equal(chatBefore?.last_read_msg_id, 'group-target');
 
     cache.clear();
 
     assert.deepEqual(cache.list(), []);
-    assert.equal(store.countMessages(), 0, 'messages go with the clear');
-    assert.equal(store.getMessage('group-target'), undefined, 'so do the envelopes');
-    assert.equal(store.getChat('team@g.us'), undefined);
-    assert.equal(store.getContact('alice@s.whatsapp.net'), undefined);
-    assert.equal(store.getAvatar('team@g.us'), undefined, 'a picture is cached state, so it goes too — it is re-asked');
-    assert.equal(store.listMessageReactions('team@g.us', 'group-target').length, 0);
+    assert.equal(store.countMessages(), before);
+    assert.deepEqual(store.getMessage('group-target'), original, 'raw envelope and media state survive');
+    assert.deepEqual(store.getChat('team@g.us'), chatBefore, 'read cursor survives');
+    assert.ok(store.getAvatar('team@g.us'));
+    assert.equal(gmailFaceStore.get('gmail-personal', 'a@example.com'), undefined);
+    assert.equal(readFileSync(join(dataDir, 'media', 'photo'), 'utf8'), 'cached media');
     assert.equal((db.prepare('SELECT COUNT(*) AS c FROM inbox_send_audit').get() as { c: number }).c, 1, 'the audit table is not a cache');
-    assert.equal(readFileSync(join(authDir, 'creds'), 'utf8'), 'a device identity');
+    assert.equal(readFileSync(join(dataDir, 'creds'), 'utf8'), 'a device identity');
   } finally {
+    if (previousDataDir === undefined) delete process.env.UNIFIED_INBOX_WHATSAPP_DATA;
+    else process.env.UNIFIED_INBOX_WHATSAPP_DATA = previousDataDir;
     db.close();
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });
 

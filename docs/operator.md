@@ -58,4 +58,4 @@ Two other LinkedIn paths were tried and rejected. The evidence is in [spike-side
 
 `bb unified-inbox send-audit [limit]` prints what the send gate allowed or refused. The same rows open from the inbox menu's Send log. The gate is `src/adapters/policy.ts`. Mail approval settings are in [mail-approval.md](mail-approval.md). [Decision 0005](../decisions/0005-keep-sends-enabled-until-verified-approval.md) records why sends stay enabled.
 
-`bb plugin rpc call unified-inbox clear_cache` clears the plugin cache. It does not clear Gmail, and it does not remove the WhatsApp account state. What the clear includes is the `src/inbox-cache.ts` row in [src/CONTEXT.md](../src/CONTEXT.md).
+`bb plugin rpc call unified-inbox clear_cache` clears the plugin's inbox projections and Gmail photo cache. It does not clear Gmail or WhatsApp history, downloaded WhatsApp media, or WhatsApp account state. See [src/CONTEXT.md](../src/CONTEXT.md) for the storage boundaries.

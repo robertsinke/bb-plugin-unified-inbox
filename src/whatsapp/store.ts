@@ -7,8 +7,7 @@
 //
 // The panel's `inbox_cache` / `inbox_thread` stay what they are — the panel's projection, rewritten
 // wholesale on open, with no envelope — and are not this store. It lives in the same plugin database
-// so `clear_cache` can cover both (see `src/inbox-cache.ts`), with `wa_`-prefixed tables so it cannot
-// collide with them.
+// with `wa_`-prefixed tables, but `clear_cache` preserves it: WhatsApp may not resend old history.
 //
 // Lifted from WhatsAgent's `server/store/{messages,chats,contacts,identity}.ts`, with three
 // deliberate differences:

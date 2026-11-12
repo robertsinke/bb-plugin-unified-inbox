@@ -3,12 +3,12 @@ import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createInboxCache, migrateGmailAccountIds, pauseAccountWrites, resumeAccountWrites } from './src/inbox-cache';
-import { createGmailFaceStore, createGmailFaces, type GmailFaces } from './src/gmail-faces';
+import { migrateGmailAccountIds, pauseAccountWrites, resumeAccountWrites } from './src/inbox-cache';
+import { createPluginStorage } from './src/plugin-storage';
+import { createGmailFaces, type GmailFaces } from './src/gmail-faces';
 import { createPeopleClient } from './src/google-people';
-import { createWhatsAppStore } from './src/whatsapp/store';
+import type { createWhatsAppStore } from './src/whatsapp/store';
 import { createWhatsAppLifecycle } from './src/whatsapp/lifecycle';
-import { clearCachedMedia, whatsAppDataDir } from './src/whatsapp/media';
 import { createWhatsAppTransport } from './src/whatsapp/transport';
 import { attachIngest } from './src/whatsapp/ingest';
 import { createSearchIndex, createSearchStore } from './src/search-index';
@@ -44,13 +44,7 @@ import { createAttentionStore, decisionToShow, watchNewConversations } from './s
 
 export default async function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
-  const whatsappStore = createWhatsAppStore(db);
-  // Where a Gmail row's contact photo is cached (INBOX-38): one table in the same database, so
-  // `clear_cache` takes it with everything else — a photo is the contacts' data, not the cache's.
-  const gmailFaceStore = createGmailFaceStore(db);
-  // A clear covers what this plugin stored for WhatsApp: the rows and the media bytes they name.
-  // The account state is not here and is not touched — forgetting it is a re-pair.
-  const cache = createInboxCache(db, { alsoClear: [() => whatsappStore.clear(), () => clearCachedMedia(whatsAppDataDir()), () => gmailFaceStore.clear()] });
+  const { whatsappStore, gmailFaceStore, cache } = createPluginStorage(db);
   const attention = createAttentionStore(db);
   let decisionsInstalled = false;
   async function rememberDecisions<T>(call: () => Promise<T>): Promise<T> {
