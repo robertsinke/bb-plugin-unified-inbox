@@ -26,6 +26,8 @@ You can search by name, preview, or sender. A match opens like any other convers
 
 Type `#` in a BB composer, search, and pick a conversation. The tag gives the agent that conversation when you send. The tag does not allow the agent to send.
 
+Before inbox text reaches an agent or the attention model, the plugin masks email addresses and phone numbers locally. This is best effort: it can miss values or mask unrelated text. Names remain visible. The inbox screen and stored messages stay unchanged. Original attachments can still contain personal data. An agent may need to reopen a conversation after a plugin restart because protected references expire.
+
 A Gmail send asks you to confirm first. A WhatsApp reply sends from the panel as you.
 
 A PNG, JPEG, GIF, or WebP image in a mail message is shown in that message. Other files stay download chips. A file that is too large to show is saved in your Downloads folder. The inbox menu has a Send log.

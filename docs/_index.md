@@ -47,6 +47,7 @@ Which shelf answers which question: `docs/CONTEXT.md`. How to work in this repo:
 
 | document | status | date | says |
 | --- | --- | --- | --- |
+| [`docs/plans/2026-11-12-001-feat-inference-pii-redaction-plan.md`](plans/2026-11-12-001-feat-inference-pii-redaction-plan.md) | active | 2026-11-12 |  |
 | [`docs/plans/2026-11-11-001-feat-linkedin-profile-link-plan.md`](plans/2026-11-11-001-feat-linkedin-profile-link-plan.md) | active | 2026-11-11 | The other person's name in an open one-to-one LinkedIn conversation opens their public profile in the system b |
 | [`docs/plans/2026-11-10-001-feat-mute-conversations-plan.md`](plans/2026-11-10-001-feat-mute-conversations-plan.md) | completed | 2026-11-10 | The owner can mute any conversation. The row stays in the list. The Decisions plugin is not asked. |
 | [`docs/plans/2026-11-10-002-feat-linkedin-shared-post-card-plan.md`](plans/2026-11-10-002-feat-linkedin-shared-post-card-plan.md) | active | 2026-11-10 | A shared post in an open LinkedIn chat shows the post's words and picture. The list does not wait on that read |
